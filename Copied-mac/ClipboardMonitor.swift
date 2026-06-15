@@ -1,0 +1,297 @@
+import AppKit
+
+// MARK: - Clipboard Content Model
+
+struct ClipboardContent {
+    enum ContentType: Hashable { case text, image, file }
+
+    /// If text, what kind?
+    enum TextKind: String, Hashable {
+        case plain
+        case html
+        case swift
+        case css
+        case python
+        case javascript
+        case code  // generic fallback
+
+        var label: String {
+            switch self {
+            case .plain:      return ""
+            case .html:       return "HTML"
+            case .swift:      return "Swift"
+            case .css:        return "CSS"
+            case .python:     return "Python"
+            case .javascript: return "JavaScript"
+            case .code:       return "Code"
+            }
+        }
+    }
+
+    let type: ContentType
+    let textKind: TextKind
+    let preview: String
+    let detail: String
+    let thumbnail: NSImage?
+    let fileURLs: [URL]?
+
+    var hashValue: Int {
+        var hasher = Hasher()
+        hasher.combine(type)
+        hasher.combine(preview)
+        return hasher.finalize()
+    }
+}
+
+// MARK: - Clipboard Monitor
+
+final class ClipboardMonitor {
+    private var timer: Timer?
+    private var lastChangeCount: Int = 0
+    private var lastHash: Int = 0
+    private var lastShowTime: Date = .distantPast
+    private let dedupWindow: TimeInterval = 0.5
+    private let pollInterval: TimeInterval = 0.15
+    private let longTextThreshold = 50
+
+    weak var toastController: ToastWindowController?
+
+    init(toastController: ToastWindowController) {
+        self.toastController = toastController
+    }
+
+    func start() {
+        lastChangeCount = NSPasteboard.general.changeCount
+        timer?.invalidate()
+        timer = Timer.scheduledTimer(
+            withTimeInterval: pollInterval,
+            repeats: true
+        ) { [weak self] _ in
+            self?.checkClipboard()
+        }
+    }
+
+    func stop() {
+        timer?.invalidate()
+        timer = nil
+    }
+
+    // MARK: - Private
+
+    private func checkClipboard() {
+        guard !UserDefaults.standard.bool(forKey: "isPaused") else { return }
+
+        let pasteboard = NSPasteboard.general
+        let currentCount = pasteboard.changeCount
+        guard currentCount != lastChangeCount else { return }
+        lastChangeCount = currentCount
+        NSLog("Copied: clipboard change detected (count=\(currentCount))")
+
+        guard let content = readClipboardContent(pasteboard) else { return }
+
+        let now = Date()
+        if content.hashValue == lastHash,
+           now.timeIntervalSince(lastShowTime) < dedupWindow {
+            return
+        }
+        lastHash = content.hashValue
+        lastShowTime = now
+
+        let source = SourceAppDetector.detect(for: content)
+
+        DispatchQueue.main.async { [weak self] in
+            self?.toastController?.show(content: content, source: source)
+        }
+    }
+
+    /// Parse clipboard using actual pasteboard types, not guesswork from readObjects.
+    private func readClipboardContent(_ pasteboard: NSPasteboard) -> ClipboardContent? {
+        let types = pasteboard.types ?? []
+
+        // ── 1. File URLs ──────────────────────────────────────────
+        if types.contains(.fileURL),
+           let urls = pasteboard.readObjects(
+               forClasses: [NSURL.self],
+               options: [.urlReadingFileURLsOnly: true]
+           ) as? [URL], !urls.isEmpty {
+            let names = urls.map { $0.lastPathComponent }
+            let preview: String = if names.count <= 3 {
+                names.joined(separator: ", ")
+            } else {
+                names.prefix(3).joined(separator: ", ") + "（\(names.count)个文件）"
+            }
+            // Single image file → thumbnail + dimensions; single file → size
+            var thumb: NSImage? = nil
+            let detail: String
+            if urls.count == 1 {
+                if isImageFile(urls[0]),
+                   let fileImage = NSImage(contentsOf: urls[0]) {
+                    thumb = createThumbnail(from: fileImage)
+                    let (w, h) = imagePixelDimensions(fileImage)
+                    detail = "\(w)×\(h)"
+                } else {
+                    detail = formatFileSize(urls[0])
+                }
+            } else {
+                detail = "\(urls.count)个文件"
+            }
+            return ClipboardContent(
+                type: .file,
+                textKind: .plain,
+                preview: preview,
+                detail: detail,
+                thumbnail: thumb,
+                fileURLs: urls
+            )
+        }
+
+        // ── 2. Image (tiff/png WITHOUT file URLs) ──────────────────
+        //    Screenshots, app-internal image copies → thumbnail-able
+        let imageTypes: Set<NSPasteboard.PasteboardType> = [.tiff, .png]
+        if !types.filter({ imageTypes.contains($0) }).isEmpty,
+           let images = pasteboard.readObjects(
+               forClasses: [NSImage.self],
+               options: nil
+           ) as? [NSImage], let img = images.first {
+            let (w, h) = imagePixelDimensions(img)
+            let thumb = createThumbnail(from: img)
+            return ClipboardContent(
+                type: .image,
+                textKind: .plain,
+                preview: "图片",
+                detail: "\(w)×\(h)",
+                thumbnail: thumb,
+                fileURLs: nil
+            )
+        }
+
+        // ── 3. Text ───────────────────────────────────────────────
+        if types.contains(.string),
+           let items = pasteboard.pasteboardItems {
+            for item in items {
+                if let text = item.string(forType: .string), !text.isEmpty {
+                    let truncated = text.count > 200
+                        ? String(text.prefix(200)) + "…"
+                        : text
+                    let lines = truncated.components(separatedBy: .newlines)
+                    let preview = lines.prefix(3).joined(separator: "\n")
+                    let detail = text.count >= longTextThreshold
+                        ? "\(text.count)字符"
+                        : ""
+                    let kind = detectTextKind(text)
+                    return ClipboardContent(
+                        type: .text,
+                        textKind: kind,
+                        preview: preview,
+                        detail: detail,
+                        thumbnail: nil,
+                        fileURLs: nil
+                    )
+                }
+            }
+        }
+
+        return nil
+    }
+
+    /// Detect the specific language / text kind.
+    private func detectTextKind(_ text: String) -> ClipboardContent.TextKind {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return .plain }
+
+        // HTML: typical HTML/XML tags
+        if trimmed.range(of: #"</?[a-zA-Z]+\b"#, options: .regularExpression) != nil {
+            return .html
+        }
+
+        // ── Language-specific heuristics ──────────────────────────
+        let hasBraces = trimmed.contains("{") && trimmed.contains("}")
+        let hasSemicolons = trimmed.contains(";")
+        let hasSwiftKW = trimmed.range(of: #"\b(func|var|let|struct|class|enum|protocol|extension|guard|throws|async|await|import (SwiftUI|Foundation|UIKit|AppKit))\b"#, options: .regularExpression) != nil
+        let hasPyKW = trimmed.range(of: #"\b(def|import [a-z]+|elif|except|raise|yield|async def)\b"#, options: .regularExpression) != nil
+        let hasJSKW = trimmed.range(of: #"\b(function|const |let |var |=>|export |require|console\.|document\.)\b"#, options: .regularExpression) != nil
+        let hasCSSUnits = trimmed.range(of: #"\d+(px|em|rem|%|vh|vw|pt|cm)"#, options: .regularExpression) != nil
+        let hasCSSColors = trimmed.range(of: #"(#[0-9a-fA-F]{3,8}|rgb\(|rgba\(|hsl\()"#, options: .regularExpression) != nil
+        let hasCSSProps = trimmed.range(of: #"\b(margin|padding|display|flex|grid|color|font|background|border|width|height|position|align|justify|gap|opacity|transform|transition|animation)\s*:"#, options: .regularExpression) != nil
+        let hasColons = trimmed.contains(":")
+
+        // Swift
+        if hasSwiftKW { return .swift }
+
+        // Python
+        if hasPyKW { return .python }
+
+        // JavaScript / TypeScript
+        if hasJSKW || (hasBraces && hasSemicolons && trimmed.range(of: #"\b(const|let|var|function|class|import|export|new )\b"#, options: .regularExpression) != nil) {
+            return .javascript
+        }
+
+        // CSS: braces + colons + semicolons + CSS units/colors/properties, NO code keywords
+        if hasBraces && hasColons && hasSemicolons && (hasCSSUnits || hasCSSColors || hasCSSProps) {
+            return .css
+        }
+
+        // Generic code: has structural patterns but no specific language match
+        let hasGenericKW = trimmed.range(of: #"\b(func|var|let|class|struct|enum|import|def|function|const|return|if|for|while)\b"#, options: .regularExpression) != nil
+        if hasBraces || hasGenericKW || (hasSemicolons && trimmed.contains("\n")) {
+            return .code
+        }
+
+        return .plain
+    }
+
+    private static let imageExtensions: Set<String> = [
+        "jpg", "jpeg", "png", "gif", "bmp", "tiff", "tif", "heic", "heif", "webp"
+    ]
+
+    private static let fileSizeFormatter: ByteCountFormatter = {
+        let f = ByteCountFormatter()
+        f.countStyle = .file
+        return f
+    }()
+
+    private func formatFileSize(_ url: URL) -> String {
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+              let size = attrs[.size] as? Int64 else { return "" }
+        return Self.fileSizeFormatter.string(fromByteCount: size)
+    }
+
+    private func imagePixelDimensions(_ image: NSImage) -> (Int, Int) {
+        let w = image.representations.first?.pixelsWide ?? Int(image.size.width)
+        let h = image.representations.first?.pixelsHigh ?? Int(image.size.height)
+        return (w, h)
+    }
+
+    private func isImageFile(_ url: URL) -> Bool {
+        Self.imageExtensions.contains(url.pathExtension.lowercased())
+    }
+
+    /// Create a thumbnail from NSImage, cropped to square and resized to 64pt.
+    private func createThumbnail(from image: NSImage?, maxSize: CGFloat = 64) -> NSImage? {
+        guard let image else { return nil }
+        let originalSize = image.size
+        guard originalSize.width > 0, originalSize.height > 0 else { return nil }
+
+        let side = min(originalSize.width, originalSize.height)
+        let cropRect = NSRect(
+            x: (originalSize.width - side) / 2,
+            y: (originalSize.height - side) / 2,
+            width: side,
+            height: side
+        )
+
+        let thumbSize = NSSize(width: maxSize, height: maxSize)
+        let thumbnail = NSImage(size: thumbSize)
+        thumbnail.lockFocus()
+        NSGraphicsContext.current?.imageInterpolation = .high
+        image.draw(
+            in: NSRect(origin: .zero, size: thumbSize),
+            from: cropRect,
+            operation: .copy,
+            fraction: 1.0
+        )
+        thumbnail.unlockFocus()
+
+        return thumbnail
+    }
+}

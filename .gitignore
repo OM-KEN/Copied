@@ -1,0 +1,5 @@
+.claude/
+.DS_Store
+Copied-mac/.build/
+Copied-mac/*.dmg
+Copied-mac/*.zip
