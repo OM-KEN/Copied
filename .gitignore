@@ -3,3 +3,6 @@
 Copied-mac/.build/
 Copied-mac/*.dmg
 Copied-mac/*.zip
+Copied-win/bin/
+Copied-win/obj/
+Copied-win/publish/

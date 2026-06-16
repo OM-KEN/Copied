@@ -1,0 +1,25 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:sys="clr-namespace:System;assembly=mscorlib">
+
+    <!-- 卡片背景 — 纯黑 -->
+    <SolidColorBrush x:Key="CardBackground" Color="#000000"/>
+
+    <!-- 预览文字 -->
+    <SolidColorBrush x:Key="PreviewTextBrush" Color="#E8E8E8"/>
+
+    <!-- 元信息文字 -->
+    <SolidColorBrush x:Key="MetaTextBrush" Color="#8E8E93"/>
+
+    <!-- 矢量图标填充 -->
+    <SolidColorBrush x:Key="IconFillBrush" Color="#CCCCCC"/>
+
+    <!-- 外层阴影（环境光） — 白色阴影，透明度减半 -->
+    <Color x:Key="OuterShadowColor">#FFFFFF</Color>
+    <sys:Double x:Key="OuterShadowOpacity">0.15</sys:Double>
+
+    <!-- 内层阴影（模拟边框） — 白色阴影，透明度减半 -->
+    <Color x:Key="InnerShadowColor">#FFFFFF</Color>
+    <sys:Double x:Key="InnerShadowOpacity">0.125</sys:Double>
+
+</ResourceDictionary>
