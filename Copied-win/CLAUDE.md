@@ -19,6 +19,8 @@ dotnet build
 dotnet publish -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -o ../publish
 ```
 
+GitHub Release 发布流程见 [docs/release.md](docs/release.md)。
+
 ## 分发（Portable）
 
 单文件便携版，解压即用，不在系统其他位置留文件：
