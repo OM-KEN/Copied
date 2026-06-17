@@ -15,7 +15,6 @@ public sealed class ToastOrchestrator : IDisposable
     private int _enterMs = 150;
     private int _stayMs = 2000;
     private int _exitMs = 200;
-    private string _displayMode = "Cursor";
     private int _maxVisibleToasts = 3;
     public bool IsPaused { get; set; }
 
@@ -44,7 +43,6 @@ public sealed class ToastOrchestrator : IDisposable
         _enterMs = cfg.Animation.EnterMs;
         _stayMs = cfg.Animation.StayMs;
         _exitMs = cfg.Animation.ExitMs;
-        _displayMode = cfg.DisplayMode;
         _maxVisibleToasts = cfg.MaxVisibleToasts;
 
         ThemeService.ApplyTheme(cfg.Theme);
@@ -105,7 +103,7 @@ public sealed class ToastOrchestrator : IDisposable
         }
 
         var vm = ToastViewModel.FromContent(info, sourceName, sourceIconPng);
-        var window = new ToastWindow(vm, _enterMs, _stayMs, _exitMs, _displayMode);
+        var window = new ToastWindow(vm, _enterMs, _stayMs, _exitMs);
         window.Closed += (s, e) => _activeToasts.Remove(window);
         _activeToasts.Add(window);
         window.Show();

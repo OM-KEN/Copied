@@ -16,29 +16,31 @@ namespace Copied.Views;
 public partial class ToastWindow : Window
 {
     private readonly DispatcherTimer _stayTimer;
+    private readonly DispatcherTimer _enterCompleteTimer;
     private readonly int _enterMs;
     private readonly int _exitMs;
-    private readonly string _displayMode;
-    private bool _positioned;
+    private readonly int _stayMs;
+    private bool _isExiting;
+    private bool _enterAnimationComplete;
+    private bool _contentReady;
 
     public ToastWindow(ToastViewModel viewModel,
-        int enterMs = 800, int stayMs = 2000, int exitMs = 200,
-        string displayMode = "Cursor")
+        int enterMs = 800, int stayMs = 2000, int exitMs = 200)
     {
         InitializeComponent();
 
         _iconFill = (System.Windows.Application.Current.TryFindResource("IconFillBrush") as SolidColorBrush)
                     ?? new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x55, 0x55, 0x55));
 
-        _displayMode = displayMode;
         _enterMs = enterMs;
         _exitMs = exitMs;
+        _stayMs = stayMs;
 
-        FontFamily = new System.Windows.Media.FontFamily("Segoe UI, Microsoft YaHei UI");
-        PreviewText.FontFamily = FontFamily;
-        SourceLabel.FontFamily = FontFamily;
-        SourceNameText.FontFamily = FontFamily;
-        DetailText.FontFamily = FontFamily;
+        FontFamily = ToastFontFamily;
+        PreviewText.FontFamily = ToastFontFamily;
+        SourceLabel.FontFamily = ToastFontFamily;
+        SourceNameText.FontFamily = ToastFontFamily;
+        DetailText.FontFamily = ToastFontFamily;
 
         if (viewModel.HasThumbnail)
         {
@@ -106,7 +108,18 @@ public partial class ToastWindow : Window
         Opacity = 1.0;
         _stayTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(enterMs + stayMs) };
         _stayTimer.Tick += OnStayComplete;
+
+        _enterCompleteTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(_enterMs) };
+        _enterCompleteTimer.Tick += OnEnterAnimationComplete;
+
+        MouseEnter += OnMouseEnter;
+        MouseLeave += OnMouseLeave;
+        MouseLeftButtonDown += OnMouseLeftButtonDown;
+        Closed += (_, _) => { _stayTimer.Stop(); _enterCompleteTimer.Stop(); };
     }
+
+    private static readonly System.Windows.Media.FontFamily ToastFontFamily =
+        new("Segoe UI, Microsoft YaHei UI");
 
     private readonly SolidColorBrush _iconFill;
 
@@ -130,29 +143,35 @@ public partial class ToastWindow : Window
         }
     }
 
+    private static readonly Geometry TextIcon = Geometry.Parse(
+        "M2.5 4v3h5v12h3V7h5V4h-13zm19 5h-9v3h3v7h3v-7h3V9z");
+    private static readonly Geometry ImageIcon = Geometry.Parse(
+        "M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z");
+    private static readonly Geometry FilesIcon = Geometry.Parse(
+        "M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zM6 20V4h7v5h5v11H6zm2-6h8v1.5H8V14zm0-3h8v1.5H8V11zm0 6h5v1.5H8V17z");
+    private static readonly Geometry HtmlIcon = Geometry.Parse(
+        "M9.4 16.6L4.8 12l4.6-4.6L8 6l-6 6 6 6 1.4-1.4zm5.2 0l4.6-4.6-4.6-4.6L16 6l6 6-6 6-1.4-1.4z");
+    private static readonly Geometry DefaultIcon = Geometry.Parse(
+        "M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z");
+
     private void DrawMaterialIcon(Models.ContentType type)
     {
         var c = IconCanvas;
         c.Children.Clear();
 
-        string d = type switch
+        var icon = type switch
         {
-            Models.ContentType.Text =>
-                "M2.5 4v3h5v12h3V7h5V4h-13zm19 5h-9v3h3v7h3v-7h3V9z",
-            Models.ContentType.Image =>
-                "M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z",
-            Models.ContentType.Files =>
-                "M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zM6 20V4h7v5h5v11H6zm2-6h8v1.5H8V14zm0-3h8v1.5H8V11zm0 6h5v1.5H8V17z",
-            Models.ContentType.Html =>
-                "M9.4 16.6L4.8 12l4.6-4.6L8 6l-6 6 6 6 1.4-1.4zm5.2 0l4.6-4.6-4.6-4.6L16 6l6 6-6 6-1.4-1.4z",
-            _ =>
-                "M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"
+            Models.ContentType.Text => TextIcon,
+            Models.ContentType.Image => ImageIcon,
+            Models.ContentType.Files => FilesIcon,
+            Models.ContentType.Html => HtmlIcon,
+            _ => DefaultIcon
         };
 
         c.Children.Add(new System.Windows.Shapes.Path
         {
             Fill = _iconFill,
-            Data = Geometry.Parse(d),
+            Data = icon,
             SnapsToDevicePixels = true
         });
     }
@@ -165,7 +184,6 @@ public partial class ToastWindow : Window
         int exStyle = NativeMethods.GetWindowLong(hwnd, Win32Constants.GWL_EXSTYLE);
         exStyle |= Win32Constants.WS_EX_TOOLWINDOW
                 | Win32Constants.WS_EX_NOACTIVATE
-                | Win32Constants.WS_EX_TRANSPARENT
                 | Win32Constants.WS_EX_TOPMOST;
         NativeMethods.SetWindowLong(hwnd, Win32Constants.GWL_EXSTYLE, exStyle);
 
@@ -179,27 +197,23 @@ public partial class ToastWindow : Window
     protected override void OnContentRendered(EventArgs e)
     {
         base.OnContentRendered(e);
-        if (!_positioned)
+        if (!_contentReady)
         {
-            PositionToast();
-            _positioned = true;
+            PositionTopCenter();
 
-            // 保存目标位置，然后把 Window 推到屏幕外作为动画起点
+            // 保存目标位置，然后把 Window 推到屏幕上方作为动画起点
             _targetTop = Top;
-            bool isTopCenter = string.Equals(_displayMode, "TopCenter", StringComparison.OrdinalIgnoreCase);
-            Top = isTopCenter ? _targetTop - 160 : _targetTop + 160;
+            Top = _targetTop - 160;
+
+            CardBorder.Clip = SmoothCornerHelper.CreateSquircleClip(
+                CardBorder.ActualWidth, CardBorder.ActualHeight, cornerRadius: 32);
+
+            _contentReady = true;
         }
 
         StartEnterAnimation();
         _stayTimer.Start();
-    }
-
-    private void PositionToast()
-    {
-        if (string.Equals(_displayMode, "TopCenter", StringComparison.OrdinalIgnoreCase))
-            PositionTopCenter();
-        else
-            PositionNearCursor();
+        _enterCompleteTimer.Start();
     }
 
     private void PositionTopCenter()
@@ -219,34 +233,11 @@ public partial class ToastWindow : Window
         Top = y;
     }
 
-    private void PositionNearCursor()
-    {
-        NativeMethods.GetCursorPos(out POINT cursorPt);
-        double w = ActualWidth > 1 ? ActualWidth : 260;
-        double h = ActualHeight > 1 ? ActualHeight : 72;
-
-        double x = cursorPt.X - (w / 2);
-        double y = cursorPt.Y - h - 24;
-
-        var screen = System.Windows.Forms.Screen.FromPoint(
-            new System.Drawing.Point(cursorPt.X, cursorPt.Y));
-        var area = screen.WorkingArea;
-
-        x = Math.Clamp(x, area.Left + 8, area.Right - w - 8);
-        y = Math.Clamp(y, area.Top + 8, area.Bottom - h - 8);
-        if (y < area.Top + 8) y = cursorPt.Y + 24;
-
-        Left = x;
-        Top = y;
-    }
-
     /// <summary>
     /// 入场动画：卡片外壳 + 内容层，两套完全一致的动画，内容层整体延迟 50ms
     /// </summary>
     private void StartEnterAnimation()
     {
-        bool isTopCenter = string.Equals(_displayMode, "TopCenter", StringComparison.OrdinalIgnoreCase);
-
         var elastic = new ElasticEase { EasingMode = EasingMode.EaseOut, Oscillations = 1, Springiness = 5 };
         var duration = TimeSpan.FromMilliseconds(_enterMs);
         var delay = TimeSpan.FromMilliseconds(50);
@@ -278,16 +269,48 @@ public partial class ToastWindow : Window
 
     private void OnStayComplete(object? sender, EventArgs e)
     {
-        _stayTimer.Stop();
         StartExitAnimation();
     }
 
     private void StartExitAnimation()
     {
+        _isExiting = true;
+        _stayTimer.Stop();
+
         var opacityAnim = new DoubleAnimation(1.0, 0.0, TimeSpan.FromMilliseconds(_exitMs))
         { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
         opacityAnim.Completed += (s, _) => Close();
 
         BeginAnimation(OpacityProperty, opacityAnim);
+    }
+
+    private void OnEnterAnimationComplete(object? sender, EventArgs e)
+    {
+        _enterCompleteTimer.Stop();
+        _enterAnimationComplete = true;
+
+        if (IsMouseOver && !_isExiting)
+        {
+            _stayTimer.Stop();
+        }
+    }
+
+    private void OnMouseEnter(object sender, System.Windows.Input.MouseEventArgs e)
+    {
+        if (_isExiting || !_enterAnimationComplete) return;
+        _stayTimer.Stop();
+    }
+
+    private void OnMouseLeave(object sender, System.Windows.Input.MouseEventArgs e)
+    {
+        if (_isExiting) return;
+        _stayTimer.Interval = TimeSpan.FromMilliseconds(_stayMs);
+        _stayTimer.Start();
+    }
+
+    private void OnMouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (_isExiting) return;
+        StartExitAnimation();
     }
 }

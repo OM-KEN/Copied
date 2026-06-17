@@ -7,9 +7,6 @@ public sealed class ToastConfiguration
     [JsonPropertyName("Animation")]
     public AnimationConfig Animation { get; set; } = new();
 
-    [JsonPropertyName("PositionOffset")]
-    public PositionOffsetConfig PositionOffset { get; set; } = new();
-
     [JsonPropertyName("Content")]
     public ContentConfig Content { get; set; } = new();
 
@@ -21,9 +18,6 @@ public sealed class ToastConfiguration
 
     [JsonPropertyName("AcrylicEnabled")]
     public bool AcrylicEnabled { get; set; } = true;
-
-    [JsonPropertyName("DisplayMode")]
-    public string DisplayMode { get; set; } = "TopCenter";
 
     [JsonPropertyName("Theme")]
     public string Theme { get; set; } = "System";
@@ -39,15 +33,6 @@ public sealed class AnimationConfig
 
     [JsonPropertyName("ExitMs")]
     public int ExitMs { get; set; } = 200;
-}
-
-public sealed class PositionOffsetConfig
-{
-    [JsonPropertyName("X")]
-    public int X { get; set; }
-
-    [JsonPropertyName("Y")]
-    public int Y { get; set; } = -40;
 }
 
 public sealed class ContentConfig

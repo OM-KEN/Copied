@@ -70,8 +70,8 @@ WM_CLIPBOARDUPDATE → ClipboardMonitor.WndProc → ToastOrchestrator.OnClipboar
 | `DeduplicationService` | `ConcurrentDictionary<long, DateTime>` + 后台 `Timer` 清理过期条目 |
 | `TrayIconService` | `NotifyIcon` 托盘菜单（暂停/恢复/退出） |
 | `ThemeService` | 静态工具类，读 `Theme` 配置 + `HKCU\...\AppsUseLightTheme` 注册表 → 切换 `App.Resources.MergedDictionaries`（LightTheme.xaml / DarkTheme.xaml） |
-| `SmoothCornerHelper` | 生成 iOS 风格 Squircle（超椭圆）裁剪路径，替代标准 `CornerRadius` |
-| `ToastWindow` | WPF `Window`，`AllowsTransparency=True`，`WS_EX_TOOLWINDOW\|NOACTIVATE\|TRANSPARENT\|TOPMOST` |
+| `SmoothCornerHelper` | 生成 iOS 风格 Squircle（超椭圆）裁剪路径，卡片 r=32（动态尺寸）、缩略图 r=16（64×64） |
+| `ToastWindow` | WPF `Window`，`AllowsTransparency=True`，`WS_EX_TOOLWINDOW\|NOACTIVATE\|TOPMOST`（`WS_EX_TRANSPARENT` 已于 2026-06-17 移除以支持鼠标交互） |
 
 ### 关键代码模式
 
@@ -83,13 +83,12 @@ WM_CLIPBOARDUPDATE → ClipboardMonitor.WndProc → ToastOrchestrator.OnClipboar
 
 **缩略图裁剪**：`ToastWindow.xaml` 中 `ThumbBorder` 用 Squircle Clip（`cornerRadius=16`）替代 `CornerRadius`+`ClipToBounds`，避免双重圆角导致的边缘模糊。无棋盘格，透明区域直接透出卡片背景。\
 
-**动画**：嵌套结构 `CardBorder`→`ContentGrid`。`CardScale`（RootGrid）缩放卡片，`ContentScale`（ContentGrid）叠加缩放内容，双层 `ElasticEase` 差异化弹跳（卡片 `Springiness=5`，内容 `Springiness=7`，内容 `BeginTime=50ms` 滞后）。入场滑动为 `Window.Top` 动画（±160px→目标位置）。入场 800ms，退场仅 200ms 透明度淡出。无 BlurEffect。
+**动画**：嵌套结构 `CardBorder`→`ContentGrid`。`CardScale`（RootGrid）缩放卡片，`ContentScale`（ContentGrid）叠加缩放内容，双层 `ElasticEase` 差异化弹跳（卡片 `Springiness=5`，内容 `Springiness=7`，内容 `BeginTime=50ms` 滞后）。`RootBlur`（RootGrid BlurEffect）Radius 24→0 CubicEase 入场去模糊。入场滑动为 `Window.Top` 动画（-160px→目标位置，从上方落下）。入场 800ms，退场仅 200ms 透明度淡出。鼠标悬停暂停自动消失计时（入场动画期间不响应），点击立即退场。
 
 ## 配置 (appsettings.json)
 
 ```jsonc
 {
-  "DisplayMode": "Cursor",       // "Cursor"=跟随鼠标 | "TopCenter"=屏幕顶部居中
   "Theme": "System",              // "System"=跟随 Windows | "Light"=亮色 | "Dark"=暗色
   "Animation": { "EnterMs": 800, "StayMs": 2000, "ExitMs": 200 },
   "DeduplicationWindowMs": 500,
@@ -97,7 +96,9 @@ WM_CLIPBOARDUPDATE → ClipboardMonitor.WndProc → ToastOrchestrator.OnClipboar
 }
 ```
 
-`DisplayMode: "TopCenter"` 时 Toast 出现在光标所在屏幕顶部居中，入场从上方 160px 落下；`"Cursor"` 时跟随鼠标，从下方 160px 浮上。滑动通过 `Window.Top` 动画实现。
+Toast **固定使用 TopCenter 模式**：出现在光标所在屏幕顶部居中，入场从上方 160px 落下。滑动通过 `Window.Top` 动画实现。
+
+> **注意**：Cursor（跟随鼠标）模式已于 2026-06-17 移除。`ToastWindow` 构造函数和 `ToastOrchestrator` 中不再接受 `displayMode` 参数，`ToastConfiguration` 中不再有 `DisplayMode` 属性。**不要再次添加 Cursor 模式切换逻辑。**
 
 `Theme` 控制 Toast 卡片配色：`"System"` 通过注册表 `AppsUseLightTheme` 检测 Windows 主题；`"Light"` / `"Dark"` 强制指定。主题切换通过替换 `App.Resources.MergedDictionaries` 中的 `Themes/LightTheme.xaml` / `Themes/DarkTheme.xaml` 实现，XAML 中使用 `{DynamicResource}` 绑定颜色和阴影参数。修改后下一个 Toast 生效（热重载）。
 
@@ -108,12 +109,13 @@ WM_CLIPBOARDUPDATE → ClipboardMonitor.WndProc → ToastOrchestrator.OnClipboar
 3. **`SetWindowCompositionAttribute` 丙烯酸模糊** 会让整个 `Window` 客户区（包括 Margin 透明区域）染上 tint 色，造成大白底。当前代码已禁用，卡片背景色由主题资源字典控制（亮色 `#F7F7FA` / 暗色 `#000000`），用 `DropShadowEffect` 模拟边框替代毛玻璃效果。
 4. **窗口位置闪烁**：`Show()` 时窗口先在默认位置 (0,0) 出现一帧，然后 `OnContentRendered` 才重定位。解决方案：XAML 设置 `Left="-10000" Top="-10000" WindowStartupLocation="Manual"`，在 `OnContentRendered` 中定位后再渲染。
 5. **`AllowsTransparency="True"` 时 `Background="Transparent"` 才是真正的透明窗口**；设置 `Background` 为其他颜色会导致整个窗口矩形渲染该颜色，即使在 Margin 区域。
+6. **Squircle Clip 需在布局完成后生成**：卡片和缩略图均使用 `SmoothCornerHelper.CreateSquircleClip`（超椭圆 curvePower=2.3）。缩略图尺寸固定（64×64），在构造函数中直接设置；卡片尺寸由内容决定，在 `OnContentRendered` 中用 `ActualWidth/Height` 动态生成，需 `_cardClipGenerated` 标志位防止重复设置。
 
 ## UI 设计规范
 
 所有颜色和阴影参数通过 `{DynamicResource}` 绑定到 `Themes/LightTheme.xaml` / `Themes/DarkTheme.xaml` 资源字典，由 `ThemeService` 根据配置切换。详细规范见 [DESIGN.md](DESIGN.md)。
 
-- 圆角：卡片 Squircle `32px`，缩略图 Squircle `16px`（`SmoothCornerHelper`，`curvePower=2.3` 接近正圆弧）
+- 圆角：卡片 Squircle `32px`（`OnContentRendered` 中用 `ActualWidth/Height` 动态生成），缩略图 Squircle `16px`（固定 64×64），均通过 `SmoothCornerHelper.CreateSquircleClip` + `curvePower=2.3` 实现
 - 卡片无实体描边——用 `DropShadowEffect`(BlurRadius=3, ShadowDepth=0) 模拟边框，亮色模式黑色阴影，暗色模式白色阴影（纯黑背景 `#000000` 上看不见黑色阴影）
 - 图标 Material 3 rounded 矢量 Path，32×32 Viewbox
   - Text→text_fields, Image→image, Files→description, HTML→code
@@ -124,4 +126,4 @@ WM_CLIPBOARDUPDATE → ClipboardMonitor.WndProc → ToastOrchestrator.OnClipboar
 - 预览行数：文本≤2行，图片/文件≤1行（NoWrap，超出省略）
 - 短文本（≤100 字符且 ≤2 行）只显示内容，超长时才显示字符数
 - 来源显示格式：`复制自 [16×16 应用图标] 应用友好名`（记事本/Chrome/VS Code 等）；文件类型显示所在文件夹名。图标从源进程 exe 提取（`ExtractAssociatedIcon`），提取失败时仅显示文字
-- 所有圆角（卡片+缩略图）使用 Squircle Clip 而非 `CornerRadius`，通过 `Loaded`+`BeginInvoke` 确保布局完成后再生成
+- 卡片 + 缩略图均使用 Squircle 平滑圆角（`SmoothCornerHelper`，curvePower=2.3），卡片在 `OnContentRendered` 中动态生成，缩略图在构造函数中固定尺寸生成

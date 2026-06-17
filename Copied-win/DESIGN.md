@@ -2,7 +2,7 @@
 
 ## 设计理念
 
-Apple 风格的浮动通知卡片——轻盈、克制、不打扰。微蓝灰底色，iOS 风格平滑圆角，微妙的阴影层次，干净的字体排版。不抢焦点，不打断工作流。
+Apple 风格的浮动通知卡片——轻盈、克制、不打扰。支持亮色（微蓝灰底 `#F7F7FA`）和暗色（纯黑底 `#000000`）双主题，Squircle 超椭圆平滑圆角，微妙的双层阴影层次，干净的 SemiBold 字体排版。不抢键盘焦点，不打断工作流。
 
 ## 视觉系统
 
@@ -63,15 +63,19 @@ Apple 风格的浮动通知卡片——轻盈、克制、不打扰。微蓝灰�
 
 ### 圆角
 
-- 卡片：`32px` Squircle 平滑圆角（超椭圆，curvePower=2.3），通过 `SmoothCornerHelper` 生成 Clip 路径
-- 缩略图：`16px` Squircle 平滑圆角，同样用 `SmoothCornerHelper.CreateSquircleClip(64,64,16)`
-- 所有圆角均用 Clip 替代 `CornerRadius`，避免双层裁剪导致的边缘模糊
-- `curvePower` 不宜超过 3~4，否则视觉圆角远小于几何值
+卡片和缩略图均使用 **Squircle 平滑圆角**（超椭圆，curvePower=2.3），通过 `SmoothCornerHelper.CreateSquircleClip` 生成 Clip 路径：
+
+| 元素 | 圆角半径 | 尺寸 | 生成时机 |
+|------|---------|------|---------|
+| 卡片 (`CardBorder`) | 32px | `ActualWidth × ActualHeight` | `OnContentRendered`（布局完成后动态生成） |
+| 缩略图 (`ThumbBorder`) | 16px | 64 × 64 | 构造函数（尺寸固定） |
+
+`curvePower=2.3` 接近正圆弧，视觉上平滑但不夸张。`curvePower` 不宜超过 3~4，否则视觉圆角远小于几何值。
 
 ### 间距
 
 ```
-┌── 卡片 64px Squircle 圆角 ───┐
+┌── 卡片 32px 圆角 ──────────┐
 │ 内边距 16                      │
 │                                │
 │ [图标 32×32]  12px  文字区     │
@@ -106,17 +110,16 @@ Apple 风格的浮动通知卡片——轻盈、克制、不打扰。微蓝灰�
 
 ### 架构：双动画层
 
-卡片外壳 (`CardShell`) 和内容层 (`ContentGrid`) 独立动画，内容层整体滞后 50ms（`BeginTime=50ms`），营造"卡片先到、内容追上"的层次感。两层动画完全一致，仅时间偏移。
+卡片外壳 (`CardBorder`) 和内容层 (`ContentGrid`) 独立动画——`CardScale` + `RootBlur` 立即开始，`ContentScale` 滞后 50ms（`BeginTime=50ms`），营造"卡片先到、内容追上"的层次感。
 
 ### 入场（800ms）
 
 | 属性 | 起始值 | 结束值 | 缓动 |
 |------|--------|--------|------|
-| CardShell ScaleX/Y | 0.0 | 1.0 | ElasticEase EaseOut (Oscillations=1, Springiness=5) |
-| ContentGrid ScaleX/Y | 0.0 | 1.0 | 同上，延迟 50ms |
-| CardShell BlurEffect.Radius | 24 | 0 | CubicEase EaseOut |
-| ContentGrid BlurEffect.Radius | 24 | 0 | 同上，延迟 50ms |
-| Window.Top | 目标位置 ±160px | 目标位置 | ElasticEase EaseOut |
+| CardScale (RootGrid) ScaleX/Y | 0.0 | 1.0 | ElasticEase EaseOut (Oscillations=1, Springiness=5) |
+| ContentScale (ContentGrid) ScaleX/Y | 0.0 | 1.0 | 同上，延迟 50ms |
+| RootBlur (RootGrid) Radius | 24 | 0 | CubicEase EaseOut |
+| Window.Top | 目标位置 -160px | 目标位置 | ElasticEase EaseOut |
 
 `RenderTransformOrigin="0.5,0.5"` 确保缩放以卡片中心为原点。Window.Top 动画替代内部 TranslateTransform，避免 Window 边界裁剪。
 
@@ -126,17 +129,13 @@ Apple 风格的浮动通知卡片——轻盈、克制、不打扰。微蓝灰�
 |------|--------|--------|------|
 | Opacity | 1.0 | 0.0 | CubicEase EaseOut |
 
-纯透明度淡出。退出前释放 `CardShell.Effect` 和 `ContentGrid.Effect`（设为 null 回收 GPU 模糊纹理）。
+纯透明度淡出。
 
 ## 显示模式
 
-### Cursor 模式（默认）
-跟随鼠标指针，出现在鼠标上方 24px 处，水平居中。超出屏幕边界时自动 clamp 或翻转到鼠标下方。
+Toast 固定使用 **TopCenter 模式**：出现在光标所在屏幕顶部居中，距顶部 12px。入场从上方 160px 滑入（`Window.Top` 动画：`_targetTop - 160` → `_targetTop`）。
 
-### TopCenter 模式
-固定在光标所在显示器顶部居中，距顶部 12px。入场动画从上方 -12px 滑入（模拟通知横幅），退场向上飘走。
-
-切换方式：修改 `appsettings.json` 中 `"DisplayMode": "TopCenter"`。
+> Cursor（跟随鼠标）模式已于 2026-06-17 移除，相关代码已清理。
 
 ## 内容展示规则
 
@@ -151,7 +150,7 @@ Apple 风格的浮动通知卡片——轻盈、克制、不打扰。微蓝灰�
 
 1. **不使用毛玻璃**：`SetWindowCompositionAttribute` / DWM Backdrop API 均要求 `AllowsTransparency=False`，与自定义形状+Squircle 圆角+阴影冲突。唯一的可行方案（屏幕捕获+高斯模糊）复杂度高收益低——2 秒 Toast 上静态模糊和实时 Acrylic 肉眼无法区分。
 
-2. **Squircle 平滑圆角**：标准 `CornerRadius` 是圆弧，iOS 风格用超椭圆（Squircle）曲率连续变化。通过 `SmoothCornerHelper` 生成 Clip 路径替代 `CornerRadius`，卡片 r=32、缩略图 r=16，curvePower=2.3（接近正圆弧，避免高 curvePower 导致视觉半径严重偏离几何值）。Clip 必须在布局完成后（`Loaded`+`BeginInvoke(Loaded)`）生成，否则 `ActualWidth/Height` 为 0。
+2. **Squircle 平滑圆角**：标准 `CornerRadius` 是圆弧，iOS 风格用超椭圆（Squircle）曲率连续变化。卡片和缩略图均通过 `SmoothCornerHelper.CreateSquircleClip` 生成 Clip 路径，卡片 r=32（`OnContentRendered` 中动态获取 `ActualWidth/Height`），缩略图 r=16（固定 64×64），curvePower=2.3（接近正圆弧，避免高 curvePower 导致视觉半径严重偏离几何值）。
 
 3. **字体选择**：弃用 `Segoe UI Variable`（可变字体，opsz 光学校正轴在 WPF 透明窗口下导致渲染异常），改用 `Segoe UI`（经典静态版）+ `Microsoft YaHei UI`（中文回退）。
 
@@ -159,7 +158,7 @@ Apple 风格的浮动通知卡片——轻盈、克制、不打扰。微蓝灰�
 
 5. **缩略图单次裁剪**：生成端 `DrawRectangle`（纯矩形），显示端 Squircle Clip 统一处理圆角，避免 `DrawRoundedRectangle` + `CornerRadius` + `ClipToBounds` 三重叠加导致的边缘模糊。
 
-6. **不跟随选中文字位置**：实现成本高（需跨进程获取选区坐标），且鼠标已经非常接近操作位置，跟随鼠标足够直观。
+6. **不跟随选中文字位置**：实现成本高（需跨进程获取选区坐标），且 TopCenter 模式已在光标所在屏幕顶部居中，覆盖所有操作的视觉反馈需求。
 
 7. **不使用键盘 Hook**：`AddClipboardFormatListener` 是 Windows 官方推荐 API，覆盖所有复制路径，无需全局键盘 Hook。
 

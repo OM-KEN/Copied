@@ -10,7 +10,7 @@ Windows 智能复制反馈工具——每次按下 Ctrl+C，鼠标附近弹出�
 - 入场/退场流畅动画
 - 相同内容 500ms 内自动去重，避免重复弹窗
 - 显示来源应用名称及图标
-- 两种显示模式：跟随鼠标 / 屏幕顶部居中
+- 屏幕顶部居中显示，入场从上方滑入
 - 支持亮色/暗色模式，可跟随 Windows 系统主题或手动指定
 - 配置热重载，无需重启
 - 系统托盘图标，支持暂停/恢复
@@ -43,7 +43,7 @@ dotnet publish -c Release -r win-x64 --self-contained -p:PublishSingleFile=true
 
 ## 使用
 
-启动后，应用进入系统托盘。按下 Ctrl+C 复制任意内容，Toast 即出现在鼠标附近。
+启动后，应用进入系统托盘。按下 Ctrl+C 复制任意内容，Toast 即出现在屏幕顶部居中。
 
 托盘菜单：
 - **暂停复制反馈** — 临时关闭通知
@@ -55,7 +55,6 @@ dotnet publish -c Release -r win-x64 --self-contained -p:PublishSingleFile=true
 
 ```jsonc
 {
-  "DisplayMode": "Cursor",        // "Cursor" 跟随鼠标 | "TopCenter" 屏幕顶部居中
   "Theme": "System",               // "System" 跟随 Windows | "Light" 亮色 | "Dark" 暗色
   "Animation": {
     "EnterMs": 800,                // 入场动画时长
