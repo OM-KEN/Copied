@@ -63,14 +63,45 @@ Apple 风格的浮动通知卡片——轻盈、克制、不打扰。macOS 26 �
 
 使用 Apple SF Symbols（系统内置，零依赖），32pt，`.secondary` 着色。
 
-| 内容类型 | SF Symbol | 说明 |
+| 内容类型 | SF Symbol / 视觉 | 说明 |
 |----------|-----------|------|
 | 短文本 (<50字) | `text.alignleft` | 左对齐文字 |
 | 长文本 (≥50字) | `text.quote` | 引用段落 |
-| 图片 | 缩略图 64×64pt | 中央裁剪正方形 |
+| 图片 | 缩略图 64×64pt | 中央裁剪正方形，圆角 16 |
 | 文件 | `doc.on.doc` | 多文档 |
 | HTML | `chevron.left.forwardslash.chevron.right` | `</>` 标签 |
 | 代码 (Swift/CSS/JS等) | `curlybraces` | `{ }` 花括号 |
+| **色值 (#RGB/6位hex)** | **色块 32×32pt** | **圆角 8，同色调阴影，替代 SF Symbol** |
+
+## 操作按钮
+
+Toast 右侧最多 1 个按钮，样式：`[SF Symbol 12pt] 文案(≤3字) 12pt Medium`，水平内边距 10，垂直 6，圆角 8，`.white.opacity(0.12)` 背景，`.buttonStyle(.plain)`。
+
+按钮优先级（取最高匹配）：
+1. 打开（URL / 文件路径）→ `safari` / `folder`
+2. 计算（数学表达式）→ `function`
+3. 拼音（单个汉字）→ `waveform`
+4. 搜索（英文短语 / 普通文本）→ `magnifyingglass`
+
+## 右键菜单
+
+始终显示：**搜索** | **翻译**（灰色占位）| **另存为…**，分隔线后追加内容专属操作。使用 SwiftUI `.contextMenu` modifier。
+
+## 内容检测类型
+
+在编程语言检测之外，新增 7 种内容识别：
+
+| 类型 | 检测方式 | API |
+|------|---------|-----|
+| 色值 Hex | `#RGB` / `#RRGGBB` / 纯6位hex → NSColor | 正则 + 手动解析 |
+| 色值 RGB/HSL | `rgb()` / `hsl()` → NSColor | 正则 + HSL→RGB 转换 |
+| URL | 整段文本为链接 | `NSDataDetector` |
+| 文件路径 | `~` 或 `/` 开头 + 文件存在 | `expandingTildeInPath` + `FileManager` |
+| 数学表达式 | 数字+运算符，无字母，括号平衡 | 清洗后 `NSExpression` |
+| 单个汉字 | 1 个 Unicode U+4E00–U+9FFF 字符 | Swift stdlib |
+| 英文短语 | 2-10 个纯 ASCII 单词 | 正则 |
+
+检测结果存储在 `ClipboardContent.detections`，由 `ActionResolver` 分配操作。
 
 ## 动画
 
@@ -101,7 +132,19 @@ Apple 风格的浮动通知卡片——轻盈、克制、不打扰。macOS 26 �
 
 ## 显示模式
 
-固定在主屏幕顶部居中，定位使用 `screen.frame.maxY`（屏幕物理顶部），卡片紧贴菜单栏下方。窗口上方伸入菜单栏区域（透明、不响应鼠标事件）。不实现光标跟随——对 Toast 通知来说，固定位置比跟随鼠标更可预测。
+固定在主屏幕顶部居中，定位使用 `screen.frame.maxY`（屏幕物理顶部），卡片紧贴菜单栏下方。不实现光标跟随——对 Toast 通知来说，固定位置比跟随鼠标更可预测。
+
+## 鼠标交互
+
+Toast 窗口 `ignoresMouseEvents = false`，支持三层交互：
+
+- **悬停保持**：`.onHover` → 暂停 / 重启 3 秒计时器。
+- **点击关闭**：`NSEvent.addLocalMonitorForEvents(.leftMouseDown)` 拦截窗口内点击 → 触发退场。**返回 event（不消费）**，确保 SwiftUI Button 也能收到同一事件。
+- **按钮点击**：SwiftUI Button 收到同一事件。结果类操作（计算/拼音）调用 `cancelDismiss()` 撤销关闭动画 → 显示结果 → 重启计时器。其他操作直接执行后关闭。
+
+`cancelDismiss()`：重置 `isDismissing=false`，`dismissGeneration += 1` 作废旧动画回调，恢复 `alphaValue=1.0`。
+
+退场动画期间悬停/点击被 `isDismissing` 守卫忽略。
 
 ## 内容展示规则
 
@@ -124,10 +167,16 @@ Apple 风格的浮动通知卡片——轻盈、克制、不打扰。macOS 26 �
 
 4. **代码语言检测**：基于正则启发式（无 ML），按优先级：HTML 标签 → Swift 关键字 → Python 关键字 → JS/TS 关键字 → CSS 属性/单位 → 通用代码特征。不依赖文件扩展名——用户可能在编辑器里复制代码片段。
 
-5. **不跟随鼠标**：macOS 无官方 API 获取全局鼠标位置（需 CGEvent 轮询），对 Toast 而言，固定顶部居中比跟随鼠标更符合 macOS 通知设计惯例。
+5. **固定位置 + 响应悬停点击**：Toast 固定屏幕顶部居中（不跟随鼠标移动——macOS 无官方 API 获取全局鼠标位置，且对通知而言固定位置更可预测）。但窗口响应鼠标悬停（暂停自动消失）和点击（立即退场），在保持通知式克制的同时提供交互便利。
 
 6. **不用键盘 Hook**：`NSPasteboard.changeCount` 轮询 0.15s，覆盖所有复制路径（⌘C、菜单、右键、Screenshot.app），无需 Accessibility 权限。
 
 7. **MenuBarExtra 菜单栏常驻**：SwiftUI 原生 API，`LSUIElement` 隐藏 Dock 图标，纯菜单栏应用。
 
-8. **swiftc 直接编译**：无 Xcode 工程、无 SPM、零第三方依赖。6 个 Swift 文件，build.sh 一键构建。
+8. **swiftc 直接编译**：无 Xcode 工程、无 SPM、零第三方依赖。8 个 Swift 文件，build.sh 一键构建。
+
+9. **操作协议可扩展**：`ClipboardAction` 协议定义 `id/title/systemImage/menuTitle/perform`，新增操作类型只需实现协议 + 在 `ActionResolver` 注册优先级。为未来插件体系预留接口。
+
+10. **计算不写剪贴板**：`CalculateAction` 仅在 toast 内联显示结果（`showResultOverlay`），不触碰 `NSPasteboard`，避免触发新一轮复制检测导致双弹窗。
+
+11. **拼音保留音调**：`CFStringTransform` 仅做 `kCFStringTransformToLatin`，不调 `StripDiacritics`，保留 ā/á/ǎ/à。

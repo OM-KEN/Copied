@@ -25,6 +25,8 @@ swiftc \
     CopiedApp.swift \
     ClipboardMonitor.swift \
     SourceAppDetector.swift \
+    ContentDetector.swift \
+    ClipboardAction.swift \
     ToastView.swift \
     ToastViewModel.swift \
     ToastWindowController.swift

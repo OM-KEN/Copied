@@ -12,7 +12,16 @@ final class ToastViewModel {
     var detailInfo: String = ""
     var thumbnailImage: NSImage?
 
+    // ── NEW: Action & detection state ──────────────────────────
+    var primaryAction: (any ClipboardAction)? = nil
+    var menuActions: [any ClipboardAction] = []
+    var detectedColor: NSColor? = nil
+    var resultText: String? = nil
+    var rawContent: ClipboardContent? = nil
+
     var iconSymbolName: String {
+        // Color swatch replaces icon
+        if detectedColor != nil { return "" }
         switch contentType {
         case .image:
             return "photo"
@@ -38,6 +47,16 @@ final class ToastViewModel {
         sourceAppName = source.name
         sourceAppIcon = source.icon
         thumbnailImage = content.thumbnail
+        rawContent = content
+        resultText = nil  // clear previous result
+
+        // Resolve actions
+        let resolved = ActionResolver.resolve(for: content)
+        primaryAction = resolved.primary
+        menuActions = resolved.menu
+
+        // Extract color for swatch
+        detectedColor = ContentDetector.extractColor(from: content.detections)
 
         // Build detail line: "Swift · 120字符" or just "120字符"
         let lang = textKind.label
@@ -49,4 +68,5 @@ final class ToastViewModel {
             detailInfo = "\(lang) · \(content.detail)"
         }
     }
+
 }

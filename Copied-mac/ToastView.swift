@@ -2,64 +2,112 @@ import SwiftUI
 
 struct ToastView: View {
     let viewModel: ToastViewModel
+    let onHoverChanged: (Bool) -> Void
+    let onTap: () -> Void
+    let onPerformAction: ((any ClipboardAction)?) -> Void
 
     @State private var animateIn = false
 
     var body: some View {
-        HStack(spacing: 12) {
-            if let thumbnail = viewModel.thumbnailImage {
-                Image(nsImage: thumbnail)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .frame(width: 64, height: 64)
-                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            } else {
-                Image(systemName: viewModel.iconSymbolName)
-                    .font(.system(size: 32, weight: .medium))
-                    .foregroundStyle(.secondary)
-            }
+        ZStack {
+            // Transparent background captures taps outside the button
+            Color.clear
+                .contentShape(Rectangle())
+                .onTapGesture { onTap() }
 
-            VStack(alignment: .leading, spacing: 8) {
-                Text(viewModel.previewText)
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(.primary)
-                    .lineLimit(2)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 4) {
-                        Text(String(localized: "复制自"))
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(.secondary)
-                        if let icon = viewModel.sourceAppIcon {
-                            Image(nsImage: icon)
-                                .resizable()
-                                .aspectRatio(contentMode: .fit)
-                                .frame(width: 16, height: 16)
+            HStack(spacing: 12) {
+                // ── Left: Icon or Color Swatch ──────────────────
+                if let color = viewModel.detectedColor {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(Color(nsColor: color))
+                        .frame(width: 32, height: 32)
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .stroke(.white.opacity(0.2), lineWidth: 0.5)
                         }
-                        Text(viewModel.sourceAppName)
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(.secondary)
+                        .shadow(color: Color(nsColor: color).opacity(0.3), radius: 4, y: 1)
+                } else if let thumbnail = viewModel.thumbnailImage {
+                    Image(nsImage: thumbnail)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: 64, height: 64)
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                } else {
+                    Image(systemName: viewModel.iconSymbolName)
+                        .font(.system(size: 32, weight: .medium))
+                        .foregroundStyle(.secondary)
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    // ── Preview or Result ──────────────────────
+                    if let result = viewModel.resultText {
+                        Text(result)
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(.primary)
+                            .lineLimit(2)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    } else {
+                        Text(viewModel.previewText)
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(.primary)
+                            .lineLimit(2)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
 
-                    if !viewModel.detailInfo.isEmpty {
-                        Text(viewModel.detailInfo)
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 4) {
+                            Text(String(localized: "复制自"))
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(.secondary)
+                            if let icon = viewModel.sourceAppIcon {
+                                Image(nsImage: icon)
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fit)
+                                    .frame(width: 16, height: 16)
+                            }
+                            Text(viewModel.sourceAppName)
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(.secondary)
+                        }
+
+                        if !viewModel.detailInfo.isEmpty {
+                            Text(viewModel.detailInfo)
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
+
+                // ── Right: Primary Action Button ──────────────
+                if let action = viewModel.primaryAction {
+                    Button {
+                        onPerformAction(action)
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: action.systemImage)
+                                .font(.system(size: 12, weight: .medium))
+                            Text(action.title)
+                                .font(.system(size: 12, weight: .medium))
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .fill(.white.opacity(0.12))
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
             }
+            .padding(16)
         }
         .frame(maxWidth: 360)
-        .padding(16)
         .glassEffect(in: .rect(cornerRadius: 32))
         .overlay {
             RoundedRectangle(cornerRadius: 32, style: .continuous)
                 .stroke(.white.opacity(0.25), lineWidth: 0.8)
         }
-        // ── Entry spring: card flies from above + scales up ──
-        // At start: scale=0.2 blur=12 → tiny blurry dot, clipping invisible.
-        // By the time it's visible, it's already within bounds.
+        // ── Entry spring ─────────────────────────────────────
         .scaleEffect(animateIn ? 1 : 0.2)
         .offset(y: animateIn ? 0 : -56)
         .blur(radius: animateIn ? 0 : 12)
@@ -67,6 +115,45 @@ struct ToastView: View {
         .padding(.top, 20)
         .padding(.bottom, 12)
         .padding(.horizontal, 18)
+        .onHover { hovering in
+            onHoverChanged(hovering)
+        }
+        .contextMenu {
+            // Search — always available for text
+            if viewModel.rawContent?.type == .text {
+                Button("搜索", systemImage: "magnifyingglass") {
+                    onPerformAction(SearchTextAction(text: searchContextText))
+                }
+            } else {
+                Button("搜索", systemImage: "magnifyingglass") { }
+                    .disabled(true)
+            }
+            // Translate — placeholder, always gray
+            Button("翻译", systemImage: "character.bubble") { }
+                .disabled(true)
+
+            Divider()
+
+            // Save — always available for text
+            if let rawText = viewModel.rawContent?.rawText, !rawText.isEmpty {
+                Button("另存为…", systemImage: "arrow.down.doc") {
+                    onPerformAction(SaveFileAction(text: rawText, defaultName: "clipboard.txt"))
+                }
+            } else {
+                Button("另存为…", systemImage: "arrow.down.doc") { }
+                    .disabled(true)
+            }
+
+            // ── Content-specific menu actions ──────────────────
+            if !viewModel.menuActions.isEmpty {
+                Divider()
+                ForEach(viewModel.menuActions, id: \.id) { action in
+                    Button(action.menuTitle, systemImage: action.systemImage) {
+                        onPerformAction(action)
+                    }
+                }
+            }
+        }
         .onAppear {
             withAnimation(.interpolatingSpring(
                 mass: 1.2,
@@ -77,5 +164,15 @@ struct ToastView: View {
                 animateIn = true
             }
         }
+    }
+
+    // ── Helpers ────────────────────────────────────────────
+
+    /// Text to use for search context menu item.
+    private var searchContextText: String {
+        if let raw = viewModel.rawContent?.rawText {
+            return String(raw.prefix(100))
+        }
+        return viewModel.previewText
     }
 }

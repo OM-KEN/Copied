@@ -35,10 +35,15 @@ struct ClipboardContent {
     let thumbnail: NSImage?
     let fileURLs: [URL]?
 
+    // ── NEW: Extended content info ───────────────────────────
+    let rawText: String?                    // full original text (before truncation)
+    let detections: [DetectedContent]       // detected content types
+
     var hashValue: Int {
         var hasher = Hasher()
         hasher.combine(type)
         hasher.combine(preview)
+        hasher.combine(detail)  // e.g. image dims "1920×1080" makes each image unique
         return hasher.finalize()
     }
 }
@@ -141,7 +146,9 @@ final class ClipboardMonitor {
                 preview: preview,
                 detail: detail,
                 thumbnail: thumb,
-                fileURLs: urls
+                fileURLs: urls,
+                rawText: nil,
+                detections: []
             )
         }
 
@@ -161,7 +168,9 @@ final class ClipboardMonitor {
                 preview: "图片",
                 detail: "\(w)×\(h)",
                 thumbnail: thumb,
-                fileURLs: nil
+                fileURLs: nil,
+                rawText: nil,
+                detections: []
             )
         }
 
@@ -179,13 +188,16 @@ final class ClipboardMonitor {
                         ? "\(text.count)字符"
                         : ""
                     let kind = detectTextKind(text)
+                    let detections = ContentDetector.detect(in: text)
                     return ClipboardContent(
                         type: .text,
                         textKind: kind,
                         preview: preview,
                         detail: detail,
                         thumbnail: nil,
-                        fileURLs: nil
+                        fileURLs: nil,
+                        rawText: text,
+                        detections: detections
                     )
                 }
             }
