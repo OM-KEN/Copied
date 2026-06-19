@@ -181,6 +181,20 @@ Background click: only layer 1 fires → toast dismisses. Button click: both fir
 
 `MenuBarExtra` with `doc.on.clipboard` SF Symbol. Pause/resume via `@AppStorage("isPaused")` → `ClipboardMonitor` reads `UserDefaults` directly (avoids binding propagation complexity). `LSUIElement = YES` in Info.plist hides Dock icon.
 
+## GitHub 推送规则（硬性）
+
+项目已配置 **sparse-checkout**，工作树只包含 `Copied-mac/`，`Copied-win/` 不可见不可改。
+
+**日常提交：**
+```
+git pull --rebase && git push
+```
+mac 和 win 改不同文件夹，永不冲突，rebase 秒过。
+
+**发布 release：** 构建 DMG 后用 `gh release create vX.Y.Z --title … --notes … <dmg>`。（详见 `docs/RELEASE.md`）
+
+**只改 Copied-mac，只传 Copied-mac。根 README.md 不归你管。**
+
 ## Known limitations
 
 - **Edge highlight**: Liquid Glass edge highlight is suppressed by the WindowServer compositor on non-key floating windows. The SwiftUI `.stroke(.white.opacity(0.25))` overlay compensates visually.
@@ -190,4 +204,4 @@ Background click: only layer 1 fires → toast dismisses. Button click: both fir
 - **Frameworks**: SwiftUI, AppKit, QuickLookThumbnailing (file thumbnails), ServiceManagement (login item). `build.sh` also ad-hoc codesigns for SMAppService.
 - **Settings**: Settings page (⌘, or menu → 设置…) with launch-at-login toggle (SMAppService, requires app in /Applications) and search engine picker (Google/Baidu/Bing/DuckDuckGo). Saved to UserDefaults `searchEngine`, read by `SearchTextAction`.
 - **Translation not yet implemented**: macOS lacks a clean public translation API. Menu item is grayed-out placeholder.
-- **GitHub release workflow**: Follow `docs/RELEASE.md` for every release — clone latest repo, replace target platform folder, commit, push, create release with DMG.
+
