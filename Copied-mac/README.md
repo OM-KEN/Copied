@@ -5,7 +5,8 @@ macOS 智能复制反馈工具——按下 ⌘C，屏幕顶部弹出精美的液
 ## 特性
 
 - 监听所有复制操作（⌘C、右键复制、菜单复制、截图到剪贴板），无需键盘 Hook
-- 支持多种内容类型：文本（含代码语言识别）、图片（含缩略图）、文件、HTML
+- 支持多种内容类型：文本（含代码语言识别）、图片（含缩略图）、文件（含 Quick Look 内容缩略图）、HTML
+- **Quick Look 文件预览**：PDF 首页、视频关键帧、Office 文档等，自动显示内容缩略图
 - **智能内容检测**：自动识别 URL / 文件路径 / 色值 / 数学表达式 / 单个汉字 / 英文短语
 - **快捷操作按钮**：根据内容类型显示对应操作（打开链接、定位文件、计算、显示拼音、搜索）
 - **右键菜单**：搜索、翻译、另存为…，一站式操作
@@ -17,7 +18,8 @@ macOS 智能复制反馈工具——按下 ⌘C，屏幕顶部弹出精美的液
 - 鼠标悬停保持显示、点击立即关闭，交互自然不打扰
 - 500ms 去重窗口，避免重复弹窗
 - 菜单栏图标常驻，支持暂停/恢复
-- 零依赖、零框架、纯 Swift + AppKit + SwiftUI
+- **设置页**：开机自启、搜索引擎选择（Google/Baidu/Bing/DuckDuckGo）
+- 纯 Swift + AppKit + SwiftUI，swiftc 编译，零第三方依赖
 - CPU 占用接近 0%
 
 ## 系统要求
@@ -42,6 +44,7 @@ open .build/Copied.app
 
 菜单栏菜单：
 - **暂停** — 临时关闭通知
+- **设置…** — 开机自启、搜索引擎
 - **退出** — 关闭应用
 
 ### 支持的内容类型
@@ -52,7 +55,7 @@ open .build/Copied.app
 | 复制长文本 (≥50字) | `text.quote` | 搜索 | "N字符" |
 | 截图到剪贴板 (⌘⇧⌃4) | 图片缩略图 | — | "宽×高" |
 | 复制单个图片文件 | 图片缩略图 | — | "宽×高" |
-| 复制单个文件 | `doc.on.doc` | — | 文件大小（如 "25 KB"） |
+| 复制单个文件 | Quick Look 缩略图 | — | 文件大小（如 "25 KB"） |
 | 复制多个文件 | `doc.on.doc` | — | "N个文件" |
 | 复制 URL | SF Symbol | 打开 | NSWorkspace 打开浏览器 |
 | 复制文件路径 | SF Symbol | 打开 | 在 Finder 中定位 |
@@ -67,14 +70,16 @@ open .build/Copied.app
 ## 架构
 
 ```
-CopiedApp.swift             — 入口：MenuBarExtra + AppDelegate
+CopiedApp.swift             — 入口：MenuBarExtra + AppDelegate + Settings 场景
 ClipboardMonitor.swift      — NSPasteboard 轮询 + 内容解析 + 代码检测
 ContentDetector.swift       — 智能内容检测（URL/路径/色值/数学/汉字/英文）
 ClipboardAction.swift       — 操作协议 + 6 个操作 + 优先级解析
+FilePreviewGenerator.swift  — QLThumbnailGenerator 异步文件缩略图
 SourceAppDetector.swift     — NSWorkspace 前台 App 检测
 ToastWindowController.swift — NSWindow + NSHostingView 管理 + 操作执行
 ToastView.swift             — SwiftUI 卡片布局 + 按钮 + 色块 + 右键菜单
-ToastViewModel.swift        — @Observable 数据模型 + 操作状态
+ToastViewModel.swift        — @Observable 数据模型 + 异步缩略图 + 操作状态
+SettingsView.swift          — 设置页（开机自启 + 搜索引擎）
 Info.plist                  — LSUIElement 隐藏 Dock
-build.sh                    — swiftc 一键构建
+build.sh                    — swiftc 一键构建 + 代码签名
 ```

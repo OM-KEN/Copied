@@ -12,12 +12,16 @@ final class ToastViewModel {
     var detailInfo: String = ""
     var thumbnailImage: NSImage?
 
-    // ── NEW: Action & detection state ──────────────────────────
+    // ── Action & detection state ──────────────────────────
     var primaryAction: (any ClipboardAction)? = nil
     var menuActions: [any ClipboardAction] = []
     var detectedColor: NSColor? = nil
     var resultText: String? = nil
     var rawContent: ClipboardContent? = nil
+
+    // ── Async thumbnail (Quick Look) ──────────────────────
+    var asyncThumbnail: NSImage? = nil
+    private var currentThumbnailURL: URL?
 
     var iconSymbolName: String {
         // Color swatch replaces icon
@@ -41,6 +45,10 @@ final class ToastViewModel {
     }
 
     func configure(with content: ClipboardContent, source: SourceAppInfo) {
+        // Cancel any in-flight async thumbnail from previous content
+        cancelAsyncThumbnail()
+        asyncThumbnail = nil
+
         previewText = content.preview
         contentType = content.type
         textKind = content.textKind
@@ -67,6 +75,43 @@ final class ToastViewModel {
         } else {
             detailInfo = "\(lang) · \(content.detail)"
         }
+
+        // Trigger async Quick Look thumbnail for non-image single files
+        loadAsyncThumbnail()
     }
 
+    // MARK: - Async thumbnail (Quick Look)
+
+    private func loadAsyncThumbnail() {
+        guard contentType == .file,
+              thumbnailImage == nil,
+              let urls = rawContent?.fileURLs,
+              urls.count == 1,
+              let url = urls.first else {
+            return
+        }
+
+        // Cancel previous in-flight request if URL changed
+        if let prev = currentThumbnailURL, prev != url {
+            FilePreviewGenerator.shared.cancelRequest(for: prev)
+        }
+
+        currentThumbnailURL = url
+        asyncThumbnail = nil
+
+        FilePreviewGenerator.shared.generateThumbnail(
+            for: url,
+            size: CGSize(width: 128, height: 128)
+        ) { [weak self] image in
+            guard let self, self.currentThumbnailURL == url else { return }
+            self.asyncThumbnail = image
+        }
+    }
+
+    func cancelAsyncThumbnail() {
+        if let url = currentThumbnailURL {
+            FilePreviewGenerator.shared.cancelRequest(for: url)
+        }
+        currentThumbnailURL = nil
+    }
 }

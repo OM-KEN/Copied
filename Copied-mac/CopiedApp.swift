@@ -16,11 +16,19 @@ struct CopiedApp: App {
                 }
             ))
             Divider()
+            SettingsLink {
+                Text("设置…")
+            }
             Button("退出") {
                 NSApp.terminate(nil)
             }
             .keyboardShortcut("q")
         }
+
+        Settings {
+            SettingsView()
+        }
+        .windowResizability(.contentSize)
     }
 }
 

@@ -68,7 +68,8 @@ Apple 风格的浮动通知卡片——轻盈、克制、不打扰。macOS 26 �
 | 短文本 (<50字) | `text.alignleft` | 左对齐文字 |
 | 长文本 (≥50字) | `text.quote` | 引用段落 |
 | 图片 | 缩略图 64×64pt | 中央裁剪正方形，圆角 16 |
-| 文件 | `doc.on.doc` | 多文档 |
+| 文件（多文件） | `doc.on.doc` | 多文档 |
+| 文件（单文件） | Quick Look 缩略图 64×64pt | PDF/视频/Office 等内容缩略图，加载失败则降级为 `doc.on.doc` |
 | HTML | `chevron.left.forwardslash.chevron.right` | `</>` 标签 |
 | 代码 (Swift/CSS/JS等) | `curlybraces` | `{ }` 花括号 |
 | **色值 (#RGB/6位hex)** | **色块 32×32pt** | **圆角 8，同色调阴影，替代 SF Symbol** |
@@ -153,7 +154,7 @@ Toast 窗口 `ignoresMouseEvents = false`，支持三层交互：
 - **代码**：`curlybraces` 图标，来源行 + "Swift · 120字符"（语言标签 + 字符数）；HTML 用 `</>` 图标
 - **图片**：64×64 圆角缩略图 + 尺寸信息。截图（⌘⇧⌃4）和 app 内复制图片均可识别
 - **单图片文件**（Finder 复制图片文件）：读取文件内容生成缩略图，显示图片尺寸（W×H）
-- **单文件**（非图片）：显示文件大小（ByteCountFormatter，如 "25 KB"）
+- **单文件**（非图片）：异步加载 Quick Look 内容缩略图（PDF 首页/视频关键帧等）。先显示 `doc.on.doc` 图标，加载完成后淡入替换。显示文件大小（ByteCountFormatter，如 "25 KB"）
 - **多文件**：文件名逗号分隔（最多 3 个），详情显示"N个文件"，来源显示**文件夹名**而非"访达"
 - **来源行**："复制自" + App 图标 16pt + App 名称，Finder→文件夹名、Safari→Safari、VS Code→Code 等
 
@@ -173,10 +174,12 @@ Toast 窗口 `ignoresMouseEvents = false`，支持三层交互：
 
 7. **MenuBarExtra 菜单栏常驻**：SwiftUI 原生 API，`LSUIElement` 隐藏 Dock 图标，纯菜单栏应用。
 
-8. **swiftc 直接编译**：无 Xcode 工程、无 SPM、零第三方依赖。8 个 Swift 文件，build.sh 一键构建。
+8. **swiftc 直接编译**：无 Xcode 工程、无 SPM、零第三方依赖。10 个 Swift 文件，链接 QuickLookThumbnailing + ServiceManagement 系统框架，build.sh 一键构建 + 代码签名。
 
 9. **操作协议可扩展**：`ClipboardAction` 协议定义 `id/title/systemImage/menuTitle/perform`，新增操作类型只需实现协议 + 在 `ActionResolver` 注册优先级。为未来插件体系预留接口。
 
 10. **计算不写剪贴板**：`CalculateAction` 仅在 toast 内联显示结果（`showResultOverlay`），不触碰 `NSPasteboard`，避免触发新一轮复制检测导致双弹窗。
 
 11. **拼音保留音调**：`CFStringTransform` 仅做 `kCFStringTransformToLatin`，不调 `StripDiacritics`，保留 ā/á/ǎ/à。
+
+12. **异步文件缩略图**：`QLThumbnailGenerator`（QuickLookThumbnailing）异步生成任意 macOS 可预览文件的缩略图（PDF 首页、视频关键帧等）。Toast 先显示 SF Symbol，缩略图完成时淡入替换，窗口自动 resize。无 loading 指示器——显示过快会让用户困惑，显示已有的文件图标更自然。加载失败静默降级为 SF Symbol。

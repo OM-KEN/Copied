@@ -14,17 +14,19 @@ open .build/Copied.app      # Launch (appears in menu bar, no Dock)
 ## Architecture
 
 ```
-CopiedApp.swift             Entry point: MenuBarExtra + AppDelegate
+CopiedApp.swift             Entry point: MenuBarExtra + AppDelegate + Settings scene
 ClipboardMonitor.swift      Timer polls NSPasteboard.changeCount every 0.15s
 ContentDetector.swift          Detects URL/path/color/math/Chinese/English in text
 ClipboardAction.swift          Action protocol + 6 concrete actions + resolver
+FilePreviewGenerator.swift     QLThumbnailGenerator wrapper — async content thumbnails
 ToastWindowController.swift Manages the floating NSWindow + NSHostingView + actions
-ToastViewModel.swift           @Observable model, icon/color/action logic
+ToastViewModel.swift           @Observable model, icon/color/action/async-thumbnail logic
 ToastView.swift                SwiftUI card layout + glassEffect + button + swatch + menu
 SourceAppDetector.swift     NSWorkspace.frontmostApplication → name + icon
+SettingsView.swift              Settings page (launch-at-login + search engine picker)
 ```
 
-**Data flow:** `ClipboardMonitor` → `ClipboardContent` (+ detections from `ContentDetector`) → `ToastWindowController.show()` → `ToastViewModel` resolves actions → `NSHostingView` → `ToastView` (`.glassEffect()` + button + swatch + contextMenu)
+**Data flow:** `ClipboardMonitor` → `ClipboardContent` (+ detections from `ContentDetector`) → `ToastWindowController.show()` → `ToastViewModel` resolves actions + triggers async thumbnail → `NSHostingView` → `ToastView` (`.glassEffect()` + thumbnail + button + swatch + contextMenu)
 
 ## Key design decisions
 
@@ -69,7 +71,8 @@ Closures `onHoverChanged` + `onTap` are injected from `ToastWindowController` in
 2. `.tiff` / `.png` → image (generates 64×64 square thumbnail)
 3. `.string` → text (with language detection)
 
-Single image files from Finder get a thumbnail by reading the file via `NSImage(contentsOf:)`.
+- **Single image files**: synchronous `NSImage(contentsOf:)` thumbnail (fast, legacy path).
+- **Single non-image files**: async `QLThumbnailGenerator` thumbnail via `FilePreviewGenerator`. Loads content preview (PDF first page, video keyframe, etc.) in background; falls back to SF Symbol on failure. Toast window auto-resizes when thumbnail arrives.
 
 ### Text kind detection (detectTextKind)
 
@@ -97,8 +100,8 @@ When `detectedColor != nil`, returns `""` — ColorSwatchView replaces the icon 
 - Plain short text: empty (not shown)
 - Plain long text: `N字符`
 - Code: `Swift · 120字符` (language label + character count if ≥50)
-- Single non-image file: file size via `ByteCountFormatter` (e.g., "25 KB")
-- Single image file: dimensions W×H (e.g., "84×84")
+- Single non-image file: file size via `ByteCountFormatter` (e.g., "25 KB") + async Quick Look content thumbnail
+- Single image file: dimensions W×H (e.g., "84×84") + sync NSImage thumbnail
 - Multiple files: `N个文件`
 - Clipboard image (screenshot etc.): dimensions W×H
 
@@ -184,4 +187,7 @@ Background click: only layer 1 fires → toast dismisses. Button click: both fir
 - **Window position constraint**: macOS constrains window frames to screen bounds. The window extends above `visibleFrame.maxY` using `screen.frame.maxY`, but further upward push is clamped by the WindowServer.
 - **macOS 26+ only**: `.glassEffect()` requires macOS 26. Lower versions would need `NSVisualEffectView` fallback.
 - **No Xcode project**: Built via `swiftc` in `build.sh`. To use Xcode, create a macOS App target and add all `.swift` files + `Info.plist`.
+- **Frameworks**: SwiftUI, AppKit, QuickLookThumbnailing (file thumbnails), ServiceManagement (login item). `build.sh` also ad-hoc codesigns for SMAppService.
+- **Settings**: Settings page (⌘, or menu → 设置…) with launch-at-login toggle (SMAppService, requires app in /Applications) and search engine picker (Google/Baidu/Bing/DuckDuckGo). Saved to UserDefaults `searchEngine`, read by `SearchTextAction`.
 - **Translation not yet implemented**: macOS lacks a clean public translation API. Menu item is grayed-out placeholder.
+- **GitHub release workflow**: Follow `docs/RELEASE.md` for every release — clone latest repo, replace target platform folder, commit, push, create release with DMG.

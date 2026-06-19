@@ -37,6 +37,12 @@ final class ToastWindowController {
             },
             onPerformAction: { [weak self] action in
                 self?.handlePerformAction(action)
+            },
+            onNeedsLayout: { [weak self] in
+                // Defer to next run loop so SwiftUI finishes layout before we measure
+                DispatchQueue.main.async {
+                    self?.updateWindowSize()
+                }
             }
         )
 
@@ -113,6 +119,7 @@ final class ToastWindowController {
             action.perform(content: content, controller: self)
             if !isDismissing {
                 isDismissing = true
+                viewModel.cancelAsyncThumbnail()
                 dismissToast(animated: true)
             }
         }
@@ -130,6 +137,7 @@ final class ToastWindowController {
     private func handleTap() {
         guard !isDismissing else { return }
         isDismissing = true
+        viewModel.cancelAsyncThumbnail()
         dismissToast(animated: true)
     }
 
@@ -151,6 +159,7 @@ final class ToastWindowController {
         ) { [weak self] _ in
             guard let self, !self.isDismissing else { return }
             self.isDismissing = true
+            self.viewModel.cancelAsyncThumbnail()
             self.dismissToast(animated: true)
         }
     }
@@ -193,6 +202,21 @@ final class ToastWindowController {
         w.contentView = cv
         window = w
         contentView = cv
+    }
+
+    func updateWindowSize() {
+        guard !isDismissing, let hosting = hostingView, let screen = NSScreen.main else { return }
+        hosting.layoutSubtreeIfNeeded()
+        let panelSize = hosting.fittingSize
+        let visibleFrame = screen.visibleFrame
+        let x = visibleFrame.midX - panelSize.width / 2
+        let screenTop = screen.frame.maxY
+        let y = screenTop - panelSize.height + 20
+        window?.setFrame(
+            NSRect(x: x, y: y, width: panelSize.width, height: panelSize.height),
+            display: true,
+            animate: true
+        )
     }
 
     func dismissToast(animated: Bool) {

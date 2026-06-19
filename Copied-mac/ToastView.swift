@@ -5,6 +5,7 @@ struct ToastView: View {
     let onHoverChanged: (Bool) -> Void
     let onTap: () -> Void
     let onPerformAction: ((any ClipboardAction)?) -> Void
+    let onNeedsLayout: (() -> Void)?
 
     @State private var animateIn = false
 
@@ -32,6 +33,13 @@ struct ToastView: View {
                         .aspectRatio(contentMode: .fill)
                         .frame(width: 64, height: 64)
                         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                } else if let asyncThumb = viewModel.asyncThumbnail {
+                    Image(nsImage: asyncThumb)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: 64, height: 64)
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .transition(.opacity)
                 } else {
                     Image(systemName: viewModel.iconSymbolName)
                         .font(.system(size: 32, weight: .medium))
@@ -45,13 +53,11 @@ struct ToastView: View {
                             .font(.system(size: 14, weight: .medium))
                             .foregroundStyle(.primary)
                             .lineLimit(2)
-                            .frame(maxWidth: .infinity, alignment: .leading)
                     } else {
                         Text(viewModel.previewText)
                             .font(.system(size: 14, weight: .medium))
                             .foregroundStyle(.primary)
                             .lineLimit(2)
-                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
 
                     VStack(alignment: .leading, spacing: 4) {
@@ -163,6 +169,9 @@ struct ToastView: View {
             )) {
                 animateIn = true
             }
+        }
+        .onChange(of: viewModel.asyncThumbnail) {
+            onNeedsLayout?()
         }
     }
 

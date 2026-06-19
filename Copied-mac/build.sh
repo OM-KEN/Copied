@@ -22,17 +22,24 @@ swiftc \
     -target arm64-apple-macosx26.0 \
     -framework SwiftUI \
     -framework AppKit \
+    -framework QuickLookThumbnailing \
+    -framework ServiceManagement \
     CopiedApp.swift \
     ClipboardMonitor.swift \
     SourceAppDetector.swift \
     ContentDetector.swift \
     ClipboardAction.swift \
+    FilePreviewGenerator.swift \
+    SettingsView.swift \
     ToastView.swift \
     ToastViewModel.swift \
     ToastWindowController.swift
 
 # Copy Info.plist
 cp Info.plist "$APP_BUNDLE/Contents/Info.plist"
+
+# Ad-hoc code sign (required by SMAppService for login item registration)
+codesign -s - -f "$APP_BUNDLE" 2>/dev/null || true
 
 echo ""
 echo "✅ Build complete!"
