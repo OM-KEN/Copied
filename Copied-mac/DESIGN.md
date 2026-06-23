@@ -147,6 +147,15 @@ Toast 窗口 `ignoresMouseEvents = false`，支持三层交互：
 
 退场动画期间悬停/点击被 `isDismissing` 守卫忽略。
 
+## 键盘交互
+
+Toast 显示期间，**按下并松开 ⌘ 键**触发右侧操作按钮，无需鼠标。
+
+- **触发机制**：`NSEvent.addGlobalMonitorForEvents(.flagsChanged)` 检测 ⌘ 按下/松开；`CGEventSource.counterForEventType(.hidSystemState, .keyDown)` HID 键盘计数器快照，⌘ 松开时若计数器未变则触发。
+- **快捷键保护**：⌘ 按住期间若其他键被按（计数器变了），不触发。⌘+C/⌘+A 等不会误触发。
+- **按钮反馈**：⌘ 按下时按钮缩放至 0.92、背景增亮、"松开"文案 + ⌘ SF Symbol；spring 动画 0.2s。
+- **预存 ⌘**：⌘C 复制后若 ⌘ 仍未松开，Toast 按钮不高亮、不触发。
+
 ## 内容展示规则
 
 - **短文本**（< 50 字符）：`text.alignleft` 图标，无字符数，仅来源行

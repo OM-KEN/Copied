@@ -14,6 +14,7 @@ final class ToastViewModel {
 
     // ── Action & detection state ──────────────────────────
     var primaryAction: (any ClipboardAction)? = nil
+    var isCommandPressed = false
     var menuActions: [any ClipboardAction] = []
     var detectedColor: NSColor? = nil
     var resultText: String? = nil
@@ -57,6 +58,7 @@ final class ToastViewModel {
         thumbnailImage = content.thumbnail
         rawContent = content
         resultText = nil  // clear previous result
+        isCommandPressed = false
 
         // Resolve actions
         let resolved = ActionResolver.resolve(for: content)

@@ -90,19 +90,22 @@ struct ToastView: View {
                         onPerformAction(action)
                     } label: {
                         HStack(spacing: 4) {
-                            Image(systemName: action.systemImage)
+                            Image(systemName: viewModel.isCommandPressed ? "command" : action.systemImage)
                                 .font(.system(size: 12, weight: .medium))
-                            Text(action.title)
+                            Text(viewModel.isCommandPressed ? "松开" : action.title)
                                 .font(.system(size: 12, weight: .medium))
                         }
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)
                         .background(
                             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .fill(.white.opacity(0.12))
+                                .fill(.white.opacity(viewModel.isCommandPressed ? 0.2 : 0.12))
                         )
+                        .animation(.spring(response: 0.2, dampingFraction: 0.6), value: viewModel.isCommandPressed)
                     }
                     .buttonStyle(.plain)
+                    .scaleEffect(viewModel.isCommandPressed ? 0.92 : 1.0)
+                    .animation(.spring(response: 0.2, dampingFraction: 0.6), value: viewModel.isCommandPressed)
                 }
             }
             .padding(16)

@@ -210,10 +210,21 @@ struct ContentDetector {
         cleaned = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleaned.isEmpty else { return nil }
 
+        // Reject multi-line — NSExpression can't parse newlines.
+        guard cleaned.rangeOfCharacter(from: .newlines) == nil else { return nil }
+
         // Must contain at least one digit and one operator
         let hasDigit = cleaned.range(of: #"\d"#, options: .regularExpression) != nil
-        let hasOperator = cleaned.range(of: #"[\+\-\*\/\%\^×÷]"#, options: .regularExpression) != nil
+        // NOTE: '%' is excluded — NSExpression treats it as a format placeholder, not modulo.
+        let hasOperator = cleaned.range(of: #"[\+\-\*\/\^×÷]"#, options: .regularExpression) != nil
         guard hasDigit && hasOperator else { return nil }
+
+        // Character whitelist: only digits, operators, parens, decimal, 'e'/'E', spaces.
+        // Rejects commas, %, newlines, and other chars that crash NSExpression.
+        let allowedChars = CharacterSet(charactersIn: "0123456789+-*/^.()eE×÷ ")
+        guard cleaned.rangeOfCharacter(from: allowedChars.inverted) == nil else {
+            return nil
+        }
 
         // Must not contain letters (except 'e' in scientific notation)
         let lettersExceptE = cleaned
@@ -235,22 +246,69 @@ struct ContentDetector {
     }
 
     /// Validate math expression structure without using NSExpression (which crashes on malformed input).
-    /// Requires: starts/ends with digit or paren, no consecutive operators, no operator at start/end.
+    /// Checks: no consecutive operators, no leading/trailing operator (except unary -),
+    /// no implied multiplication (adjacent operands), valid decimal numbers.
+    /// Whitespace is NOT ignored — operands separated by only whitespace (e.g. "1+1 2+3")
+    /// are rejected as implied multiplication.
     private static func isValidMathStructure(_ text: String) -> Bool {
-        let operators = Set("+-*/%^×÷")
-        var prev: Character? = nil
+        let operators = Set("+-*/^×÷")  // NOTE: '%' excluded — NSExpression treats it as format placeholder
+        var prevChar: Character? = nil
+        var justSkippedWhitespace = false
         var hasDigit = false
+        var decimalCountInCurrentNumber = 0
+
         for ch in text {
-            if ch.isNumber || ch == "." { hasDigit = true }
-            if operators.contains(ch), let p = prev, operators.contains(p) {
-                return false  // consecutive operators
+            // Whitespace itself is neutral, but we record that we skipped it
+            // so the next meaningful char can detect implied multiplication.
+            if ch == " " {
+                justSkippedWhitespace = true
+                continue
             }
-            prev = ch
+
+            // ── Decimal point validation ──────────────────────
+            if ch == "." {
+                decimalCountInCurrentNumber += 1
+                if decimalCountInCurrentNumber > 1 { return false }
+            } else if operators.contains(ch) || ch == "(" || ch == ")" {
+                decimalCountInCurrentNumber = 0
+            }
+
+            if ch.isNumber { hasDigit = true }
+
+            // ── Consecutive operators ─────────────────────────
+            if operators.contains(ch), let p = prevChar, operators.contains(p) {
+                if ch == "-" { /* OK, unary minus after operator: "*-3" */ }
+                else { return false }
+            }
+
+            // ── Implied multiplication (whitespace-separated operands) ──
+            // E.g. "1+1 2+3" → after first "1", space, "2" would be adjacent operands.
+            // No-whitespace adjacency: "2(3+4)", "(1+2)(3+4)", "(1+2)4"
+            if justSkippedWhitespace {
+                // Whitespace was skipped → prevChar and ch are separate tokens.
+                // Two operands with no operator between them = implied multiplication.
+                if ch.isNumber, let p = prevChar, (p.isNumber || p == ")" || p == ".") { return false }
+                if ch == "(", let p = prevChar, (p.isNumber || p == ")") { return false }
+                if ch == ".", let p = prevChar, p.isNumber { return false }
+            } else {
+                // No whitespace between prevChar and ch → adjacent chars.
+                // Multi-digit numbers are fine; implied multiplication via direct adjacency is not.
+                if ch == "(", let p = prevChar, (p.isNumber || p == ")") { return false }
+                if ch.isNumber, let p = prevChar, p == ")" { return false }
+            }
+
+            prevChar = ch
+            justSkippedWhitespace = false
         }
+
         guard hasDigit else { return false }
         // Must not start or end with operator (except leading minus for negative numbers)
-        if let first = text.first, operators.contains(first), first != "-" { return false }
-        if let last = text.last, operators.contains(last) { return false }
+        if let first = text.first(where: { $0 != " " }), operators.contains(first), first != "-" {
+            return false
+        }
+        if let last = text.last(where: { $0 != " " }), operators.contains(last) {
+            return false
+        }
         return true
     }
 

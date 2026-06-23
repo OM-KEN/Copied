@@ -124,7 +124,7 @@ After text is parsed, `ContentDetector.detect(in:)` scans for these types (order
 | 2 | Color (rgb/rgba/hsl) | Regex + manual NSColor parse |
 | 3 | URL | `NSDataDetector` with `.link` |
 | 4 | File path | `^(~\|/).+` → `expandingTildeInPath` → `FileManager.fileExists` |
-| 5 | Math expression | Digits + operators, no letters, balanced parens; cleaned before NSExpression |
+| 5 | Math expression | Digits + operators, no letters, balanced parens; char whitelist + multi-line/implied-mult/comma/% rejection → `isValidMathStructure` → NSExpression (ObjC exceptions uncatchable in Swift — all safety checks MUST live in detection layer) |
 | 6 | Chinese character | Exactly 1 char, U+4E00–U+9FFF |
 | 7 | English phrase | 2-10 ASCII words, no code delimiters |
 
@@ -165,6 +165,22 @@ Click handling uses TWO layers working together:
 Background click: only layer 1 fires → toast dismisses. Button click: both fire → dismiss + action execute together.
 
 `cancelDismiss()` resets `isDismissing=false`, increments `dismissGeneration` (invalidates stale animation), restores `alphaValue=1.0`.
+
+### ⌘ key quick-action
+
+When the toast has a primary action button, pressing and releasing ⌘ triggers it. Uses two mechanisms that work **without Accessibility permission**:
+
+1. **`NSEvent.addGlobalMonitorForEvents(.flagsChanged)`** — detects ⌘ press/release.
+2. **`CGEventSource.counterForEventType(.hidSystemState, .keyDown)`** — HID-level key-down counter. Snapshot at ⌘ press; if unchanged at ⌘ release, no other key was pressed → trigger. If changed, a shortcut (⌘+A etc.) was in progress → abort.
+
+Pre-existing ⌘ (from ⌘C copy) is detected via `NSEvent.modifierFlags` in `show()` → `cmdIsPreExisting = true` → button does NOT highlight and release does not trigger.
+
+Button visual feedback: `ToastViewModel.isCommandPressed` drives conditional SF Symbol (`"command"`), text (`"松开"`), background opacity (0.12→0.2), scale (1.0→0.92), with `.spring(response:0.2, dampingFraction:0.6)`.
+
+**Known dead-ends** (do not re-attempt):
+- `addGlobalMonitorForEvents(.keyDown/.keyUp)` — macOS filters ⌘+key shortcut events
+- `CGEvent.tapCreate` — ad-hoc signed LSUIElement app returns nil even with Accessibility
+- Timing-based heuristic — fast ⌘+A overlaps with slow intentional ⌘ tap
 
 ### Toast layout (current)
 
