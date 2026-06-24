@@ -223,19 +223,7 @@ Button visual feedback: `ToastViewModel.isCommandPressed` drives conditional SF 
 
 ## GitHub 推送规则（硬性）
 
-**涉及任何 git 操作（commit / push / pull / release）时，必须先调用 `git-push` skill。**
-
-项目已配置 **sparse-checkout**，工作树只包含 `Copied-mac/`，`Copied-win/` 不可见不可改。
-
-**日常提交：**
-```
-git pull --rebase && git push
-```
-mac 和 win 改不同文件夹，永不冲突，rebase 秒过。
-
-**发布 release：** 构建 DMG 后用 `gh release create vX.Y.Z --title … --notes … <dmg>`。（详见 `docs/RELEASE.md`）
-
-**只改 Copied-mac，只传 Copied-mac。根 README.md 不归你管。**
+**涉及任何 git 操作时必须先调用 `git-push` skill。** 核心原则：只改/只传 `Copied-mac/`，根 `README.md` 不归你管。
 
 ## Known limitations
 
