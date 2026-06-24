@@ -223,6 +223,8 @@ Button visual feedback: `ToastViewModel.isCommandPressed` drives conditional SF 
 
 ## GitHub 推送规则（硬性）
 
+**涉及任何 git 操作（commit / push / pull / release）时，必须先调用 `git-push` skill。**
+
 项目已配置 **sparse-checkout**，工作树只包含 `Copied-mac/`，`Copied-win/` 不可见不可改。
 
 **日常提交：**

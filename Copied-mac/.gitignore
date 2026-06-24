@@ -1,5 +1,6 @@
 .build/
-.claude/
+.claude/*
+!.claude/skills/
 .DS_Store
 *.dmg
 *.zip
