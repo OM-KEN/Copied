@@ -20,7 +20,7 @@ ContentDetector.swift          Detects URL/path/color/math/Chinese/English in te
 ClipboardAction.swift          Action protocol + 6 concrete actions + resolver
 FilePreviewGenerator.swift     QLThumbnailGenerator wrapper — async content thumbnails
 ToastWindowController.swift Manages the floating NSWindow + NSHostingView + actions
-ToastViewModel.swift           @Observable model, icon/color/action/async-thumbnail logic
+ToastViewModel.swift           @Observable model, icon/type-label/action/async-thumbnail logic
 ToastView.swift                SwiftUI card layout + glassEffect + button + swatch + menu
 SourceAppDetector.swift     NSWorkspace.frontmostApplication → name + icon
 SettingsView.swift              Settings page (launch-at-login + search engine picker)
@@ -87,23 +87,45 @@ Regex-based heuristics, checked in order:
 
 ### Icon mapping (ToastViewModel.iconSymbolName)
 
-When `detectedColor != nil`, returns `""` — ColorSwatchView replaces the icon entirely.
+Icon selection priority: **color swatch → detection type → content type / textKind**.
 
-| Kind | Short text | Long text (≥50) |
-|---|---|---|
-| `.plain` | `text.alignleft` | `text.quote` |
-| `.html` | `chevron.left.forwardslash.chevron.right` | same |
-| `.code` / `.swift` / `.css` / `.python` / `.javascript` | `curlybraces` | same |
+When `detectedColor != nil`, returns `""` — the color swatch replaces the icon entirely.
+
+| Condition | Icon |
+|-----------|------|
+| Color detected | (color swatch, no SF Symbol) |
+| URL detected | `safari` |
+| File path detected | `folder` |
+| Math expression detected | `function` |
+| Chinese character detected | `waveform` |
+| Single folder (Finder copy) | `folder` |
+| `.image` (screenshot, clipboard image) | `photo` |
+| `.file` (generic) | `doc.on.doc` |
+| `.html` | `chevron.left.forwardslash.chevron.right` |
+| `.swift` / `.css` / `.python` / `.javascript` / `.code` | `curlybraces` |
+| `.plain` (short text, <50 chars) | `text.alignleft` |
+| `.plain` (long text) | `text.quote` |
+
+`.englishPhrase` and color detections are **skipped** in `primaryDetection` — they don't affect the left icon.
 
 ### Detail line format
 
-- Plain short text: empty (not shown)
-- Plain long text: `N字符`
-- Code: `Swift · 120字符` (language label + character count if ≥50)
-- Single non-image file: file size via `ByteCountFormatter` (e.g., "25 KB") + async Quick Look content thumbnail
-- Single image file: dimensions W×H (e.g., "84×84") + sync NSImage thumbnail
-- Multiple files: `N个文件`
-- Clipboard image (screenshot etc.): dimensions W×H
+Driven by `ToastViewModel.typeLabel` (priority: image format → file type/folder → detection type → textKind).
+
+| Content | Detail line |
+|---------|------------|
+| Clipboard image (PNG screenshot) | `PNG 图片 · 1920×1080` |
+| Single image file (JPG) | `JPG 图片 · 800×600` |
+| Single folder (Finder copy) | `文件夹` |
+| Single non-image file (PDF) | `PDF 文件 · 2.5 MB` |
+| URL detected text | `链接 · 120字符` |
+| File path detected text | `路径 · 80字符` |
+| Math expression text | `公式 · 45字符` |
+| Chinese character text | `汉字` |
+| Code text (Swift) | `Swift · 120字符` |
+| Plain short text (<50 chars) | (empty — not shown) |
+| Plain long text | `N字符` |
+| Multiple files | `N个文件` |
 
 ### Deduplication
 
@@ -129,6 +151,8 @@ After text is parsed, `ContentDetector.detect(in:)` scans for these types (order
 | 7 | English phrase | 2-10 ASCII words, no code delimiters |
 
 Detection results stored in `ClipboardContent.detections`. Raw text stored in `ClipboardContent.rawText` (untruncated).
+
+**Display exclusion**: `.englishPhrase` and color detections are excluded from `primaryDetection` — they don't affect the left icon or detail label. Color uses the swatch instead; English phrase display is deferred until translation is implemented.
 
 ### Action system (`ClipboardAction` protocol)
 
@@ -190,7 +214,7 @@ Button visual feedback: `ToastViewModel.isCommandPressed` drives conditional SF 
 
 - **Color swatch**: 32×32 rounded rect (corner 8), replaces SF Symbol when `detectedColor != nil`. Has `.shadow` with the color itself.
 - **Thumbnail**: 64×64 for images (unchanged from original).
-- **Action button**: `HStack(spacing:4)` with SF Symbol 12pt + text 12pt, `.white.opacity(0.12)` background, 8pt corner radius.
+- **Action button**: `HStack(spacing:4)` with SF Symbol 12pt + text 12pt, `.white.opacity(0.12)` background, 8pt corner radius. When a special type is detected (URL/file path/math/Chinese), the button icon defaults to `"command"` (⌘) instead of the action's own icon — avoids duplicating the left-side type icon. `showCommandIcon` drives this.
 - **Context menu**: always shows 搜索 / 翻译(disabled) / 另存为…, plus content-specific items below a divider.
 
 ### Menu bar

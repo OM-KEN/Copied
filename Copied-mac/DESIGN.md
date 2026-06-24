@@ -63,16 +63,23 @@ Apple 风格的浮动通知卡片——轻盈、克制、不打扰。macOS 26 �
 
 使用 Apple SF Symbols（系统内置，零依赖），32pt，`.secondary` 着色。
 
+图标选择优先级：**色块 > 检测类型 > 内容类型 / textKind**。
+
 | 内容类型 | SF Symbol / 视觉 | 说明 |
 |----------|-----------|------|
+| 色值 (#RGB/hex) | **色块 32×32pt** | 圆角 8，同色调阴影，替代 SF Symbol |
+| URL 检测 | `safari` | Safari 浏览器 |
+| 文件路径检测 | `folder` | 文件夹 |
+| 公式检测 | `function` | 函数符号 |
+| 汉字检测 | `waveform` | 音波（拼音） |
+| 文件夹（访达复制） | `folder` | 文件夹 |
 | 短文本 (<50字) | `text.alignleft` | 左对齐文字 |
 | 长文本 (≥50字) | `text.quote` | 引用段落 |
-| 图片 | 缩略图 64×64pt | 中央裁剪正方形，圆角 16 |
-| 文件（多文件） | `doc.on.doc` | 多文档 |
-| 文件（单文件） | Quick Look 缩略图 64×64pt | PDF/视频/Office 等内容缩略图，加载失败则降级为 `doc.on.doc` |
+| 图片 | 缩略图 64×64pt / `photo` | 截图或剪贴板图片，缩略图优先 |
+| 单文件 | Quick Look 缩略图 64×64pt / `doc.on.doc` | PDF/视频/Office 内容缩略图；加载失败或非预览类型降级为 SF Symbol |
+| 多文件 | `doc.on.doc` | 多文档 |
 | HTML | `chevron.left.forwardslash.chevron.right` | `</>` 标签 |
 | 代码 (Swift/CSS/JS等) | `curlybraces` | `{ }` 花括号 |
-| **色值 (#RGB/6位hex)** | **色块 32×32pt** | **圆角 8，同色调阴影，替代 SF Symbol** |
 
 ## 操作按钮
 
@@ -92,17 +99,19 @@ Toast 右侧最多 1 个按钮，样式：`[SF Symbol 12pt] 文案(≤3字) 12pt
 
 在编程语言检测之外，新增 7 种内容识别：
 
-| 类型 | 检测方式 | API |
-|------|---------|-----|
-| 色值 Hex | `#RGB` / `#RRGGBB` / 纯6位hex → NSColor | 正则 + 手动解析 |
-| 色值 RGB/HSL | `rgb()` / `hsl()` → NSColor | 正则 + HSL→RGB 转换 |
-| URL | 整段文本为链接 | `NSDataDetector` |
-| 文件路径 | `~` 或 `/` 开头 + 文件存在 | `expandingTildeInPath` + `FileManager` |
-| 数学表达式 | 数字+运算符，无字母，括号平衡 | 清洗后 `NSExpression` |
-| 单个汉字 | 1 个 Unicode U+4E00–U+9FFF 字符 | Swift stdlib |
-| 英文短语 | 2-10 个纯 ASCII 单词 | 正则 |
+| 类型 | 检测方式 | API | 显示 |
+|------|---------|-----|------|
+| 色值 Hex | `#RGB` / `#RRGGBB` / 纯6位hex → NSColor | 正则 + 手动解析 | 色块 |
+| 色值 RGB/HSL | `rgb()` / `hsl()` → NSColor | 正则 + HSL→RGB 转换 | 色块 |
+| URL | 整段文本为链接 | `NSDataDetector` | `safari` + "链接" |
+| 文件路径 | `~` 或 `/` 开头 + 文件存在 | `expandingTildeInPath` + `FileManager` | `folder` + "路径" |
+| 数学表达式 | 数字+运算符，无字母，括号平衡 | 清洗后 `NSExpression` | `function` + "公式" |
+| 单个汉字 | 1 个 Unicode U+4E00–U+9FFF 字符 | Swift stdlib | `waveform` + "汉字" |
+| 英文短语 | 2-10 个纯 ASCII 单词 | 正则 | 无（翻译未实现，暂不特殊显示） |
 
 检测结果存储在 `ClipboardContent.detections`，由 `ActionResolver` 分配操作。
+
+`ToastViewModel.primaryDetection` 过滤掉色值和英文短语——前两者用色块/回退 textKind 显示，后者因翻译功能未实现暂不特殊显示。
 
 ## 动画
 
@@ -158,12 +167,16 @@ Toast 显示期间，**按下并松开 ⌘ 键**触发右侧操作按钮，无�
 
 ## 内容展示规则
 
-- **短文本**（< 50 字符）：`text.alignleft` 图标，无字符数，仅来源行
-- **长文本**（≥ 50 字符）：`text.quote` 图标，来源行 + "N字符"
-- **代码**：`curlybraces` 图标，来源行 + "Swift · 120字符"（语言标签 + 字符数）；HTML 用 `</>` 图标
-- **图片**：64×64 圆角缩略图 + 尺寸信息。截图（⌘⇧⌃4）和 app 内复制图片均可识别
-- **单图片文件**（Finder 复制图片文件）：读取文件内容生成缩略图，显示图片尺寸（W×H）
-- **单文件**（非图片）：异步加载 Quick Look 内容缩略图（PDF 首页/视频关键帧等）。先显示 `doc.on.doc` 图标，加载完成后淡入替换。显示文件大小（ByteCountFormatter，如 "25 KB"）
+详情行由 `ToastViewModel.typeLabel` 统一驱动，优先级：**图片格式 → 文件类型/文件夹 → 检测类型 → 代码语言**。
+
+- **特殊检测文本**：检测类型图标（`safari`/`folder`/`function`/`waveform`）+ 类型标签（"链接"/"路径"/"公式"/"汉字"）+ 字符数。右侧按钮图标改为 ⌘ 避免与左侧重复
+- **短文本**（< 50 字符，无检测）：`text.alignleft` 图标，无字符数，仅来源行
+- **长文本**（≥ 50 字符，无检测）：`text.quote` 图标，来源行 + "N字符"
+- **代码**（无特殊检测）：`curlybraces` 图标，来源行 + "Swift · 120字符"（语言标签 + 字符数）；HTML 用 `</>` 图标
+- **剪贴板图片**（截图等）：`photo` 图标 + 缩略图，"PNG 图片 · W×H"（从 pasteboard types 检测格式）
+- **单图片文件**（访达复制）：读取文件内容生成缩略图，"JPG 图片 · W×H"（从扩展名检测格式）
+- **单文件夹**（访达复制）：`folder` 图标，"文件夹"
+- **单文件**（非图片）：异步 Quick Look 缩略图，"PDF 文件 · 2.5 MB"（从扩展名检测类型 + 文件大小）
 - **多文件**：文件名逗号分隔（最多 3 个），详情显示"N个文件"，来源显示**文件夹名**而非"访达"
 - **来源行**："复制自" + App 图标 16pt + App 名称，Finder→文件夹名、Safari→Safari、VS Code→Code 等
 
@@ -185,7 +198,7 @@ Toast 显示期间，**按下并松开 ⌘ 键**触发右侧操作按钮，无�
 
 8. **swiftc 直接编译**：无 Xcode 工程、无 SPM、零第三方依赖。10 个 Swift 文件，链接 QuickLookThumbnailing + ServiceManagement 系统框架，build.sh 一键构建 + 代码签名。
 
-9. **操作协议可扩展**：`ClipboardAction` 协议定义 `id/title/systemImage/menuTitle/perform`，新增操作类型只需实现协议 + 在 `ActionResolver` 注册优先级。为未来插件体系预留接口。
+9. **操作协议可扩展**：`ClipboardAction` 协议定义 `id/title/systemImage/menuTitle/perform`，新增操作类型只需实现协议 + 在 `ActionResolver` 注册优先级。`showCommandIcon` 属性让检测类型对应的按钮图标自动切换为 ⌘，避免与左侧类型图标重复。为未来插件体系预留接口。
 
 10. **计算不写剪贴板**：`CalculateAction` 仅在 toast 内联显示结果（`showResultOverlay`），不触碰 `NSPasteboard`，避免触发新一轮复制检测导致双弹窗。
 

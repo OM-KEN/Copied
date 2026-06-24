@@ -38,6 +38,7 @@ struct ClipboardContent {
     // ── NEW: Extended content info ───────────────────────────
     let rawText: String?                    // full original text (before truncation)
     let detections: [DetectedContent]       // detected content types
+    let imageFormat: String?                // "PNG", "JPEG", "TIFF", "HEIC", etc.
 
     var hashValue: Int {
         var hasher = Hasher()
@@ -128,17 +129,24 @@ final class ClipboardMonitor {
             // Single image file → thumbnail + dimensions; single file → size
             var thumb: NSImage? = nil
             let detail: String
+            let imgFmt: String?
             if urls.count == 1 {
                 if isImageFile(urls[0]),
                    let fileImage = NSImage(contentsOf: urls[0]) {
                     thumb = createThumbnail(from: fileImage)
                     let (w, h) = imagePixelDimensions(fileImage)
                     detail = "\(w)×\(h)"
+                    imgFmt = urls[0].pathExtension.uppercased()
+                } else if (try? urls[0].resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true {
+                    detail = ""
+                    imgFmt = nil
                 } else {
                     detail = formatFileSize(urls[0])
+                    imgFmt = nil
                 }
             } else {
                 detail = "\(urls.count)个文件"
+                imgFmt = nil
             }
             return ClipboardContent(
                 type: .file,
@@ -148,7 +156,8 @@ final class ClipboardMonitor {
                 thumbnail: thumb,
                 fileURLs: urls,
                 rawText: nil,
-                detections: []
+                detections: [],
+                imageFormat: imgFmt
             )
         }
 
@@ -162,6 +171,23 @@ final class ClipboardMonitor {
            ) as? [NSImage], let img = images.first {
             let (w, h) = imagePixelDimensions(img)
             let thumb = createThumbnail(from: img)
+            // Detect image format from pasteboard types
+            let fmt: String?
+            if types.contains(.png) {
+                fmt = "PNG"
+            } else if types.contains(.tiff) {
+                fmt = "TIFF"
+            } else {
+                let utiFormats: [(String, String)] = [
+                    ("public.jpeg", "JPEG"),
+                    ("public.heic", "HEIC"),
+                    ("com.compuserve.gif", "GIF"),
+                    ("public.heif", "HEIF"),
+                    ("com.microsoft.bmp", "BMP"),
+                    ("org.webmproject.webp", "WebP"),
+                ]
+                fmt = utiFormats.first(where: { types.contains(NSPasteboard.PasteboardType($0.0)) })?.1
+            }
             return ClipboardContent(
                 type: .image,
                 textKind: .plain,
@@ -170,7 +196,8 @@ final class ClipboardMonitor {
                 thumbnail: thumb,
                 fileURLs: nil,
                 rawText: nil,
-                detections: []
+                detections: [],
+                imageFormat: fmt
             )
         }
 
@@ -197,7 +224,8 @@ final class ClipboardMonitor {
                         thumbnail: nil,
                         fileURLs: nil,
                         rawText: text,
-                        detections: detections
+                        detections: detections,
+                        imageFormat: nil
                     )
                 }
             }

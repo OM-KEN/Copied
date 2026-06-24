@@ -90,7 +90,7 @@ struct ToastView: View {
                         onPerformAction(action)
                     } label: {
                         HStack(spacing: 4) {
-                            Image(systemName: viewModel.isCommandPressed ? "command" : action.systemImage)
+                            Image(systemName: (viewModel.isCommandPressed || viewModel.showCommandIcon) ? "command" : action.systemImage)
                                 .font(.system(size: 12, weight: .medium))
                             Text(viewModel.isCommandPressed ? "松开" : action.title)
                                 .font(.system(size: 12, weight: .medium))

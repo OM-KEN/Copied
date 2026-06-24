@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import ServiceManagement
 
 struct SettingsView: View {
@@ -56,6 +57,9 @@ struct SettingsView: View {
         .formStyle(.grouped)
         .frame(width: 280)
         .fixedSize()
+        .onAppear {
+            NSApp.activate(ignoringOtherApps: true)
+        }
     }
 
     // MARK: - Login Item
