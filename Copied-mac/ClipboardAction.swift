@@ -64,13 +64,96 @@ struct CalculateAction: ClipboardAction {
             .replacingOccurrences(of: "^", with: "**")
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
-        let expr = NSExpression(format: cleaned)
-        guard let result = expr.expressionValue(with: nil, context: nil) else { return }
+        let isIntegerExpr = cleaned.rangeOfCharacter(from: CharacterSet(charactersIn: ".")) == nil
 
-        // Show result inline; separate display from copy text
-        let displayText = "\(expression)=\(result)"
-        let copyText = "\(result)"
-        controller?.showResultOverlay(displayText: displayText, copyText: copyText)
+        // ── Pre-checks for integer expressions ──────────────────
+        if isIntegerExpr {
+            // NSExpression returns 0 silently for integer division by zero.
+            if cleaned.range(of: #"/\s*0(?![.\d])"#, options: .regularExpression) != nil {
+                let displayText = "\(expression)\n无法计算"
+                controller?.showResultOverlay(displayText: displayText, copyText: "")
+                return
+            }
+
+            // Detect potential Int64 overflow: extract operands and check digit counts.
+            // Int64.max ≈ 9.22×10¹⁸ (19 digits). For multiplication, if the sum of
+            // the two largest operands' digit counts ≥ 19, the result might overflow.
+            let numbers = cleaned
+                .components(separatedBy: CharacterSet(charactersIn: "+-*/^").union(.whitespaces))
+                .filter { !$0.isEmpty }
+            let digitCounts = numbers.map { $0.count }.sorted(by: >)
+            let maxDigits = digitCounts.first ?? 0
+            let topTwoSum = digitCounts.prefix(2).reduce(0, +)
+            let overflowRisk: Bool
+            if cleaned.contains("*") {
+                overflowRisk = topTwoSum >= 19  // product of two N-digit nums can have 2N digits
+            } else {
+                overflowRisk = maxDigits >= 19  // addition needs 19-digit operand to overflow
+            }
+            if overflowRisk {
+                let displayText = "\(expression)\n数字过大"
+                controller?.showResultOverlay(displayText: displayText, copyText: "")
+                return
+            }
+        }
+
+        // ── Evaluate with NSExpression ──────────────────────────
+        let expr = NSExpression(format: cleaned)
+        guard let rawResult = expr.expressionValue(with: nil, context: nil) else { return }
+
+        // NSExpression may return NSNumber (Int64/Double) or Double directly.
+        let number: Double
+        let exactInteger: Int64?
+        if let d = rawResult as? Double {
+            number = d
+            exactInteger = nil
+        } else if let ns = rawResult as? NSNumber {
+            number = ns.doubleValue
+            let objCType = String(cString: ns.objCType)
+            if objCType == "q" || objCType == "Q" || objCType == "l" || objCType == "L"
+                || objCType == "i" || objCType == "I" || objCType == "s" || objCType == "S" {
+                exactInteger = ns.int64Value
+            } else {
+                exactInteger = nil
+            }
+        } else {
+            let displayText = "\(expression)\n=\(rawResult)"
+            controller?.showResultOverlay(displayText: displayText, copyText: "\(rawResult)")
+            return
+        }
+
+        // Handle non-finite floating result (e.g. 1.0/0.0 → inf)
+        guard number.isFinite else {
+            let displayText = "\(expression)\n无法计算"
+            controller?.showResultOverlay(displayText: displayText, copyText: "")
+            return
+        }
+
+        // Double precision loss for large integers (2^53 boundary)
+        let safeIntegerLimit: Double = 9_007_199_254_740_992.0
+        if isIntegerExpr && abs(number) > safeIntegerLimit && exactInteger == nil {
+            let displayText = "\(expression)\n数字过大"
+            controller?.showResultOverlay(displayText: displayText, copyText: "")
+            return
+        }
+
+        // Exact Int64 result (safe after pre-checks above)
+        if let exact = exactInteger, isIntegerExpr {
+            let displayText = "\(expression)\n=\(exact)"
+            controller?.showResultOverlay(displayText: displayText, copyText: "\(exact)")
+            return
+        }
+
+        // Round to 12 decimal places to eliminate floating-point noise
+        let rounded = (number * 1e12).rounded() / 1e12
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.maximumFractionDigits = 12
+        formatter.minimumFractionDigits = 0
+        let displayResult = formatter.string(from: NSNumber(value: rounded)) ?? "\(rounded)"
+
+        let displayText = "\(expression)\n=\(displayResult)"
+        controller?.showResultOverlay(displayText: displayText, copyText: displayResult)
     }
 }
 
@@ -117,6 +200,7 @@ struct ShowPinyinAction: ClipboardAction {
         // Keep tone marks — do NOT strip diacritics
         let pinyin = (mutable as String).trimmingCharacters(in: .whitespaces)
 
+        // Show result inline: first line = character, second line = pinyin
         let displayText = "\(character)  \(pinyin)"
         controller?.showResultOverlay(displayText: displayText, copyText: pinyin)
     }
@@ -168,6 +252,45 @@ struct CopyTextAction: ClipboardAction {
     }
 }
 
+// MARK: - Open Calendar Action
+
+struct OpenCalendarAction: ClipboardAction {
+    let date: Date
+    var id: String { "open-calendar" }
+    var title: String { "日历" }
+    var systemImage: String { "calendar" }
+    var menuTitle: String { "在日历中打开" }
+
+    func perform(content: ClipboardContent, controller: ToastWindowController?) {
+        let cal = Calendar.current
+        let y = cal.component(.year, from: date)
+        let m = cal.component(.month, from: date)
+        let d = cal.component(.day, from: date)
+        let h = cal.component(.hour, from: date)
+        let min = cal.component(.minute, from: date)
+        let script = """
+        tell application "Calendar"
+            activate
+            delay 0.3
+            set targetDate to current date
+            set year of targetDate to \(y)
+            set month of targetDate to \(m)
+            set day of targetDate to \(d)
+            set hours of targetDate to \(h)
+            set minutes of targetDate to \(min)
+            set seconds of targetDate to 0
+            view calendar at targetDate
+        end tell
+        """
+        // Use Process (osascript) instead of NSAppleScript — avoids main-thread
+        // silent-failure issues in SwiftUI button handlers.
+        let process = Process()
+        process.launchPath = "/usr/bin/osascript"
+        process.arguments = ["-e", script]
+        process.launch()
+    }
+}
+
 // MARK: - Action Resolver
 
 enum ActionResolver {
@@ -214,6 +337,11 @@ enum ActionResolver {
         case ContentKind.mathExpr.id:
             guard let expr = detection.value else { return nil }
             return CalculateAction(expression: expr)
+
+        case ContentKind.dateTime.id:
+            guard let tsStr = detection.value,
+                  let ts = TimeInterval(tsStr) else { return nil }
+            return OpenCalendarAction(date: Date(timeIntervalSinceReferenceDate: ts))
 
         case ContentKind.chineseChar.id:
             guard let charStr = detection.value, let char = charStr.first else { return nil }

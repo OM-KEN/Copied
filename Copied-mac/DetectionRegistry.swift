@@ -195,6 +195,7 @@ final class DetectionRegistry {
         register(URLDetector())
         register(FilePathDetector())
         register(MathExpressionDetector())
+        register(DateTimeDetector())
         register(ChineseCharDetector())
         register(EnglishPhraseDetector())
 

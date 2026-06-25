@@ -70,6 +70,7 @@ Apple 风格的浮动通知卡片——轻盈、克制、不打扰。macOS 26 �
 | 色值 (#RGB/hex) | **色块 32×32pt** | 圆角 8，同色调阴影，替代 SF Symbol |
 | URL 检测 | `safari` | Safari 浏览器 |
 | 文件路径检测 | `folder` | 文件夹 |
+| 日期时间检测 | `calendar` | 日历 |
 | 公式检测 | `function` | 函数符号 |
 | 汉字检测 | `waveform` | 音波（拼音） |
 | 文件夹（访达复制） | `folder` | 文件夹 |
@@ -87,9 +88,10 @@ Toast 右侧最多 1 个按钮，样式：`[SF Symbol 12pt] 文案(≤3字) 12pt
 
 按钮优先级（取最高匹配）：
 1. 打开（URL / 文件路径）→ `safari` / `folder`
-2. 计算（数学表达式）→ `function`
-3. 拼音（单个汉字）→ `waveform`
-4. 搜索（英文短语 / 普通文本）→ `magnifyingglass`
+2. 日历（日期时间）→ `calendar`
+3. 计算（数学表达式）→ `function`
+4. 拼音（单个汉字）→ `waveform`
+5. 搜索（英文短语 / 普通文本）→ `magnifyingglass`
 
 ## 右键菜单
 
@@ -97,13 +99,14 @@ Toast 右侧最多 1 个按钮，样式：`[SF Symbol 12pt] 文案(≤3字) 12pt
 
 ## 内容检测系统（ContentKind + DetectionRegistry）
 
-所有类型（语言 + 内容实体）统一为 `ContentKind` struct，通过 `DetectionRegistry` 优先级管道检测。内置 12 个检测器（`Detectors/` 目录），支持声明式插件扩展。
+所有类型（语言 + 内容实体）统一为 `ContentKind` struct，通过 `DetectionRegistry` 优先级管道检测。内置 13 个检测器（`Detectors/` 目录），支持声明式插件扩展。
 
 | 类型 | 检测器 | 优先级 | 检测方式 |
 |------|--------|--------|---------|
 | 色值 | `ColorDetector` | 300 | 正则 + 手动 NSColor 解析（hex/rgb/hsl）|
 | URL | `URLDetector` | 250 | `NSDataDetector(.link)` |
 | 文件路径 | `FilePathDetector` | 200 | 前缀 + `FileManager.fileExists` |
+| 日期时间 | `DateTimeDetector` | 190 | 预处理（M.D→M月D日 等）+ `NSDataDetector(.date)` |
 | 数学表达式 | `MathExpressionDetector` | 180 | 字符白名单 + 括号平衡 + 结构验证 |
 | 单个汉字 | `ChineseCharDetector` | 100 | U+4E00–U+9FFF |
 | 英文短语 | `EnglishPhraseDetector` | 80 | 2-10 ASCII 单词 |

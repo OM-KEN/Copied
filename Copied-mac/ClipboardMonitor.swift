@@ -114,7 +114,9 @@ final class ClipboardMonitor {
                     let (w, h) = imagePixelDimensions(fileImage)
                     detail = "\(w)×\(h)"
                     imgFmt = urls[0].pathExtension.uppercased()
-                } else if (try? urls[0].resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true {
+                } else if (try? urls[0].resourceValues(forKeys: [.isDirectoryKey, .isPackageKey]))
+                    .map({ $0.isDirectory == true && $0.isPackage != true }) == true {
+                    // Real folder (not a package like .app/.bundle/.rtfd)
                     detail = ""
                     imgFmt = nil
                 } else {
@@ -222,6 +224,12 @@ final class ClipboardMonitor {
     }()
 
     private func formatFileSize(_ url: URL) -> String {
+        // Use totalFileSize for accurate recursive size of packages (.app etc.)
+        if let totalSize = try? url.resourceValues(forKeys: [.totalFileSizeKey]).totalFileSize,
+           totalSize > 0 {
+            return Self.fileSizeFormatter.string(fromByteCount: Int64(totalSize))
+        }
+        // Fallback: attributesOfItem (fast but returns directory-entry size for packages)
         guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
               let size = attrs[.size] as? Int64 else { return "" }
         return Self.fileSizeFormatter.string(fromByteCount: size)

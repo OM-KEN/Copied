@@ -8,6 +8,7 @@ struct ToastView: View {
     let onNeedsLayout: (() -> Void)?
 
     @State private var animateIn = false
+    @State private var isActionButtonHovered = false
 
     var body: some View {
         ZStack {
@@ -53,6 +54,7 @@ struct ToastView: View {
                             .font(.system(size: 14, weight: .medium))
                             .foregroundStyle(.primary)
                             .lineLimit(2)
+                            .lineSpacing(4)
                             .opacity(viewModel.resultOverlay == nil ? 1 : 0)
 
                         if let overlay = viewModel.resultOverlay {
@@ -60,7 +62,7 @@ struct ToastView: View {
                                 .font(.system(size: 14, weight: .medium))
                                 .foregroundStyle(.primary)
                                 .lineLimit(2)
-                                .truncationMode(.head)
+                                .lineSpacing(4)
                                 .opacity(viewModel.resultOverlay != nil ? 1 : 0)
                         }
                     }
@@ -94,6 +96,8 @@ struct ToastView: View {
                 }
 
                 // ── Right: Action Button ──────────────────────────
+                let isHighlighted = viewModel.isCommandPressed || isActionButtonHovered
+
                 if let overlay = viewModel.resultOverlay {
                     // Result mode: "复制" button
                     Button {
@@ -109,13 +113,16 @@ struct ToastView: View {
                         .padding(.vertical, 6)
                         .background(
                             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .fill(.white.opacity(viewModel.isCommandPressed ? 0.2 : 0.12))
+                                .fill(.white.opacity(isHighlighted ? 0.2 : 0.12))
                         )
-                        .animation(.spring(response: 0.2, dampingFraction: 0.6), value: viewModel.isCommandPressed)
+                        .animation(.spring(response: 0.2, dampingFraction: 0.6), value: isHighlighted)
                     }
                     .buttonStyle(.plain)
                     .scaleEffect(viewModel.isCommandPressed ? 0.92 : 1.0)
                     .animation(.spring(response: 0.2, dampingFraction: 0.6), value: viewModel.isCommandPressed)
+                    .onHover { hovering in
+                        isActionButtonHovered = hovering
+                    }
                 } else if let action = viewModel.primaryAction {
                     Button {
                         onPerformAction(action)
@@ -130,13 +137,16 @@ struct ToastView: View {
                         .padding(.vertical, 6)
                         .background(
                             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .fill(.white.opacity(viewModel.isCommandPressed ? 0.2 : 0.12))
+                                .fill(.white.opacity(isHighlighted ? 0.2 : 0.12))
                         )
-                        .animation(.spring(response: 0.2, dampingFraction: 0.6), value: viewModel.isCommandPressed)
+                        .animation(.spring(response: 0.2, dampingFraction: 0.6), value: isHighlighted)
                     }
                     .buttonStyle(.plain)
                     .scaleEffect(viewModel.isCommandPressed ? 0.92 : 1.0)
                     .animation(.spring(response: 0.2, dampingFraction: 0.6), value: viewModel.isCommandPressed)
+                    .onHover { hovering in
+                        isActionButtonHovered = hovering
+                    }
                 }
             }
             .padding(16)

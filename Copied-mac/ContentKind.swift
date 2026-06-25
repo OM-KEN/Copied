@@ -96,6 +96,11 @@ extension ContentKind {
         label: "公式", icon: "function"
     )
 
+    static let dateTime = ContentKind(
+        id: "dateTime", category: .entity, source: .builtIn,
+        label: "日期", icon: "calendar"
+    )
+
     static let colorHex = ContentKind(
         id: "colorHex", category: .entity, source: .builtIn,
         label: "", icon: ""
@@ -133,6 +138,7 @@ extension ContentKind {
         .url,
         .filePath,
         .mathExpr,
+        .dateTime,
         .chineseChar,
         .englishPhrase,
         .html,

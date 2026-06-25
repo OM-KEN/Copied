@@ -59,7 +59,8 @@ final class ToastViewModel {
         if contentType == .file,
            let urls = rawContent?.fileURLs, urls.count == 1 {
             let url = urls[0]
-            if (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true {
+            let res = try? url.resourceValues(forKeys: [.isDirectoryKey, .isPackageKey])
+            if res?.isDirectory == true && res?.isPackage != true {
                 return "文件夹"
             }
             let ext = url.pathExtension.uppercased()
@@ -87,7 +88,8 @@ final class ToastViewModel {
             return "photo"
         case .file:
             if let url = rawContent?.fileURLs?.first,
-               (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true {
+               let res = try? url.resourceValues(forKeys: [.isDirectoryKey, .isPackageKey]),
+               res.isDirectory == true && res.isPackage != true {
                 return "folder"
             }
             return "doc.on.doc"
@@ -121,7 +123,29 @@ final class ToastViewModel {
         // Build detail line: type label + character count / dimensions
         // e.g. "链接 · 120字符", "PNG 图片 · 84×84", "Swift · 120字符"
         let label = typeLabel
-        if label.isEmpty {
+        let detailOverride: String? = {
+            // Date/time: use relative time description
+            if let dt = content.detections.first(where: { $0.kind == .dateTime }),
+               let tsStr = dt.value,
+               let ts = TimeInterval(tsStr) {
+                let date = Date(timeIntervalSinceReferenceDate: ts)
+                let formatter = RelativeDateTimeFormatter()
+                formatter.locale = Locale(identifier: "zh_CN")
+                formatter.unitsStyle = .full
+                formatter.dateTimeStyle = .named
+                let relative = formatter.localizedString(for: date, relativeTo: Date())
+                return relative
+            }
+            return nil
+        }()
+
+        if let detailOverride {
+            if label.isEmpty {
+                detailInfo = detailOverride
+            } else {
+                detailInfo = "\(label) · \(detailOverride)"
+            }
+        } else if label.isEmpty {
             detailInfo = content.detail
         } else if content.detail.isEmpty {
             detailInfo = label

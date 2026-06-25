@@ -20,6 +20,7 @@ SOURCES=(
     Detectors/URLDetector.swift
     Detectors/FilePathDetector.swift
     Detectors/MathExpressionDetector.swift
+    Detectors/DateTimeDetector.swift
     Detectors/ChineseCharDetector.swift
     Detectors/EnglishPhraseDetector.swift
     Detectors/HTMLDetector.swift

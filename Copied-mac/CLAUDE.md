@@ -19,12 +19,12 @@ ClipboardMonitor.swift      Timer polls NSPasteboard.changeCount every 0.15s
 DetectionRegistry.swift        Global registry: manages all detectors + throttle/priority
 ContentKind.swift              Unified type identifier (replaces old TextKind + DetectedContent)
 ContentDetection.swift         Detection result struct (kind + value + color + metadata)
-Detectors/                     Built-in detector files (14 total: Color, URL, FilePath, Math, etc.)
+Detectors/                     Built-in detector files (13 total: Color, URL, FilePath, DateTime, Math, etc.)
 PluginManifest.swift           manifest.json / rules.json Codable models
 PluginActionTemplate.swift     Action template types (openURL, search, transform, none)
 PluginAction.swift             Executes plugin-defined action templates
 PluginLoader.swift             Scans, validates, loads, installs .copiedplugin folders
-ClipboardAction.swift          Action protocol + 6 concrete actions + resolver
+ClipboardAction.swift          Action protocol + 8 concrete actions + resolver
 FilePreviewGenerator.swift     QLThumbnailGenerator wrapper — async content thumbnails
 ToastWindowController.swift Manages the floating NSWindow + NSHostingView + actions
 ToastViewModel.swift           @Observable model, icon/type-label/action/async-thumbnail logic
@@ -90,7 +90,7 @@ Closures `onHoverChanged` + `onTap` are injected from `ToastWindowController` in
 
 After text is parsed, `DetectionRegistry.shared.detectAll(in:)` runs all registered detectors in priority order. Detectors implement `ContentDetectorProtocol` and return `ContentDetection?`. The registry manages:
 
-- **14 built-in detectors** under `Detectors/`: `ColorDetector`, `URLDetector`, `FilePathDetector`, `MathExpressionDetector`, `ChineseCharDetector`, `EnglishPhraseDetector`, `HTMLDetector`, `SwiftDetector`, `PythonDetector`, `JavaScriptDetector`, `CSSDetector`, `CodeDetector`
+- **13 built-in detectors** under `Detectors/`: `ColorDetector`, `URLDetector`, `FilePathDetector`, `DateTimeDetector`, `MathExpressionDetector`, `ChineseCharDetector`, `EnglishPhraseDetector`, `HTMLDetector`, `SwiftDetector`, `PythonDetector`, `JavaScriptDetector`, `CSSDetector`, `CodeDetector`
 - **Plugin detectors** loaded from `~/Library/Application Support/Copied/Plugins/*.copiedplugin/` (each plugin = one `PluginDetector`)
 
 | Priority | Detector | Type | Method |
@@ -98,6 +98,7 @@ After text is parsed, `DetectionRegistry.shared.detectAll(in:)` runs all registe
 | 300 | `ColorDetector` | `.colorHex/.colorRGB/.colorHSL` | Regex + manual NSColor parse (hex, rgb, hsl) |
 | 250 | `URLDetector` | `.url` | `NSDataDetector` with `.link` |
 | 200 | `FilePathDetector` | `.filePath` | `^(~\|/).+` → `expandingTildeInPath` → `FileManager.fileExists` |
+| 190 | `DateTimeDetector` | `.dateTime` | Preprocessing (M.D→M月D日, H点→H:00) + `NSDataDetector(.date)` full-text match; `RelativeDateTimeFormatter` detail |
 | 180 | `MathExpressionDetector` | `.mathExpr` | Digits+operators, balanced parens, structure validation |
 | 100 | `ChineseCharDetector` | `.chineseChar` | Exactly 1 char, U+4E00–U+9FFF |
 | 80 | `EnglishPhraseDetector` | `.englishPhrase` | 2-10 ASCII words, no code delimiters |
@@ -145,6 +146,7 @@ Driven by `ToastViewModel.typeLabel` (priority: image format → file type/folde
 | Single non-image file (PDF) | `PDF 文件 · 2.5 MB` |
 | URL detected text | `链接 · 120字符` |
 | File path detected text | `路径 · 80字符` |
+| Date/time detected text | `日期 · 3天后` / `日期 · 2小时前` |
 | Math expression text | `公式 · 45字符` |
 | Chinese character text | `汉字` |
 | Code text (Swift) | `Swift · 120字符` |
@@ -167,14 +169,15 @@ protocol ClipboardAction: Identifiable {
 // Default: performsInlineUpdate = false
 ```
 
-**7 built-in actions + PluginAction** (resolved by `ActionResolver.resolve(for:)`):
+**8 built-in actions + PluginAction** (resolved by `ActionResolver.resolve(for:)`):
 
 | Action | Trigger (ContentKind) | Button text | Behavior |
 |--------|---------|:---:|------|
 | `OpenURLAction` | `.url` | 打开 | `NSWorkspace.shared.open` |
 | `RevealFileAction` | `.filePath` | 打开 | `NSWorkspace.shared.activateFileViewerSelecting` |
-| `CalculateAction` | `.mathExpr` | 计算 | NSExpression eval → `showResultOverlay(displayText:copyText:)` — inline update |
-| `ShowPinyinAction` | `.chineseChar` | 拼音 | `CFStringTransform` → `showResultOverlay(displayText:copyText:)` — inline update |
+| `OpenCalendarAction` | `.dateTime` | 日历 | `Process`/osascript → Calendar `view calendar at` with numeric date components (locale-independent) |
+| `CalculateAction` | `.mathExpr` | 计算 | Pre-checks (÷0→无法计算, Int64 overflow→数字过大) → NSExpression eval → `showResultOverlay(displayText:copyText:)` — inline, line 1=expression, line 2==result |
+| `ShowPinyinAction` | `.chineseChar` | 拼音 | `CFStringTransform` → `showResultOverlay(displayText:copyText:)` — inline, single-line `"字  拼音"` |
 | `SearchTextAction` | `.englishPhrase` / plain text | 搜索 | `NSWorkspace.open` search engine URL |
 | `SaveFileAction` | context menu | — | `NSSavePanel` → write to file |
 | `CopyTextAction` | result overlay (after Calculate/Pinyin) | 复制 | `NSPasteboard.general.setString` copies only the result/pinyin |
@@ -233,7 +236,7 @@ Button visual feedback: `ToastViewModel.isCommandPressed` drives conditional SF 
 
 - **Color swatch**: 32×32 rounded rect (corner 8), replaces SF Symbol when `detectedColor != nil`. Has `.shadow` with the color itself.
 - **Thumbnail**: 64×64 for images (unchanged from original).
-- **Text area**: ZStack with opacity crossfade between preview text and result overlay. Result text uses `.truncationMode(.head)` to keep the result number / pinyin visible when text is long.
+- **Text area**: ZStack with opacity crossfade between preview text and result overlay. Both texts use `.lineLimit(2)` + `.lineSpacing(4)`. Math result uses explicit `\n` for 2-line display (expression on top, `=result` on bottom); pinyin stays single-line. First line truncates naturally with default tail mode.
 - **Action button**: `HStack(spacing:4)` with SF Symbol 12pt + text 12pt, `.white.opacity(0.12)` background, 8pt corner radius. When a special type is detected, `showCommandIcon` makes the button icon `"command"` (⌘) to avoid duplicating the left-side type icon. **Result mode**: when `resultOverlay != nil`, the button becomes "复制" (`doc.on.doc` icon, triggers `CopyTextAction`).
 - **Context menu**: always shows 搜索 / 翻译(disabled) / 另存为…, plus content-specific items below a divider.
 
@@ -249,7 +252,7 @@ Button visual feedback: `ToastViewModel.isCommandPressed` drives conditional SF 
 
 - **Edge highlight**: Liquid Glass edge highlight is suppressed by the WindowServer compositor on non-key floating windows. The SwiftUI `.stroke(.white.opacity(0.25))` overlay compensates visually.
 - **Window position constraint**: macOS constrains window frames to screen bounds. The window extends above `visibleFrame.maxY` using `screen.frame.maxY`, but further upward push is clamped by the WindowServer.
-- **Window animation clipping**: During `showResultOverlay` window expansion, the `NSHostingView` content is already at full target width while the window frame is still animating, causing brief right-edge clipping. Multiple approaches were tried (CALayer mask, `clipsToBounds`, hosting view offset, constraints) — none eliminated the AppKit ↔ SwiftUI timing mismatch. Current workaround: 0.25s fast animation + `.truncationMode(.head)` keeps the result number visible + ZStack crossfade masks the transition.
+- **Window animation clipping**: During `showResultOverlay` window expansion, the `NSHostingView` content is already at full target width while the window frame is still animating, causing brief right-edge clipping. Multiple approaches were tried (CALayer mask, `clipsToBounds`, hosting view offset, constraints) — none eliminated the AppKit ↔ SwiftUI timing mismatch. Current workaround: 0.25s fast animation + explicit 2-line result format (result always on line 2, visible) + ZStack crossfade masks the transition.
 - **macOS 26+ only**: `.glassEffect()` requires macOS 26. Lower versions would need `NSVisualEffectView` fallback.
 - **No Xcode project**: Built via `swiftc` in `build.sh`. To use Xcode, create a macOS App target and add all `.swift` files + `Info.plist`.
 - **Frameworks**: SwiftUI, AppKit, QuickLookThumbnailing (file thumbnails), ServiceManagement (login item). `build.sh` also ad-hoc codesigns for SMAppService.
