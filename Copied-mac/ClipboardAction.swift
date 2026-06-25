@@ -349,7 +349,11 @@ enum ActionResolver {
 
         case ContentKind.englishPhrase.id:
             guard let text = detection.value else { return nil }
-            return SearchTextAction(text: text)
+            return TranslateAction(
+                text: text,
+                sourceLanguage: Locale.Language(identifier: "en"),
+                targetLanguage: Locale.Language(identifier: "zh_Hans")
+            )
 
         case ContentKind.colorHex.id,
              ContentKind.colorRGB.id,

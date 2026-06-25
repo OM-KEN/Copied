@@ -10,6 +10,8 @@ final class ToastWindowController {
 
     private var isDismissing = false
     private var dismissGeneration = 0
+    private(set) var translationGeneration = 0
+    var isTranslating = false  // 翻译进行中，阻止 toast 关闭
     private var localMouseMonitor: Any?
     private var localCmdMonitor: Any?
     private var cmdKeyDownCount: UInt32 = 0
@@ -21,6 +23,7 @@ final class ToastWindowController {
     func show(content: ClipboardContent, source: SourceAppInfo) {
         viewModel.configure(with: content, source: source)
         currentContent = content
+        translationGeneration += 1  // 使进行中的翻译过期
 
         isDismissing = false
         dismissToast(animated: false)
@@ -101,7 +104,15 @@ final class ToastWindowController {
 
     // MARK: - Action execution
 
-    func showResultOverlay(displayText: String, copyText: String) {
+    /// 替换已有 overlay 的文本，不调整窗口大小。
+    /// 用于异步操作的结果替换。窗口大小由首次 showResultOverlay 确定。
+    func updateResultText(displayText: String, copyText: String) {
+        cancelDismiss()
+        viewModel.resultOverlay = ResultOverlay(displayText: displayText, copyText: copyText)
+        if !isMouseInsideWindow() { startDismissTimer() }
+    }
+
+    func showResultOverlay(displayText: String, copyText: String, keepAlive: Bool = false) {
         cancelDismiss()
         viewModel.resultOverlay = ResultOverlay(displayText: displayText, copyText: copyText)
 
@@ -121,7 +132,11 @@ final class ToastWindowController {
             }
         }
 
-        if !isMouseInsideWindow() { startDismissTimer() }
+        if keepAlive {
+            pauseDismissTimer()
+        } else if !isMouseInsideWindow() {
+            startDismissTimer()
+        }
     }
 
     // MARK: - Interaction handlers
@@ -149,7 +164,7 @@ final class ToastWindowController {
     }
 
     private func handleTap() {
-        guard !isDismissing else { return }
+        guard !isDismissing, !isTranslating else { return }
         isDismissing = true
         viewModel.cancelAsyncThumbnail()
         // Defer dismiss to next run loop — gives button handler a chance
@@ -169,7 +184,28 @@ final class ToastWindowController {
         window?.orderFront(nil)
     }
 
+    /// 异步 inline action 的统一入口。处理 dismiss 竞态 + 非动画窗口 resize。
+    /// 公式（同步）和翻译（异步）都走这个方法展示结果。
+    func showInlineResult(displayText: String, copyText: String) {
+        cancelDismiss()
+        viewModel.resultOverlay = ResultOverlay(displayText: displayText, copyText: copyText)
+        updateWindowSize()
+        if !isMouseInsideWindow() { startDismissTimer() }
+    }
+
+    /// 异步操作开始前调用：阻止按钮点击触发的 handleTap 异步关闭。
+    func prepareForAsyncInlineAction() {
+        cancelDismiss()
+        pauseDismissTimer()
+    }
+
+    func nextTranslationGeneration() -> Int {
+        translationGeneration += 1
+        return translationGeneration
+    }
+
     func startDismissTimer() {
+        guard !isTranslating else { return }
         dismissTimer?.invalidate()
         dismissTimer = Timer.scheduledTimer(withTimeInterval: displayDuration, repeats: false) { [weak self] _ in
             guard let self, !self.isDismissing else { return }

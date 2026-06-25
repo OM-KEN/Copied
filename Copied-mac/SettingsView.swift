@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import ServiceManagement
+@preconcurrency import Translation
 
 struct SettingsView: View {
     // ── Launch at Login ────────────────────────────────────
@@ -66,6 +67,26 @@ struct SettingsView: View {
                 }
         }
         .frame(width: 380, height: 400)
+        .translationTask(
+            source: Locale.Language(identifier: "en"),
+            target: Locale.Language(identifier: "zh_Hans")
+        ) { session in
+            TranslationService.shared.registerSession(
+                session,
+                source: Locale.Language(identifier: "en"),
+                target: Locale.Language(identifier: "zh_Hans")
+            )
+        }
+        .translationTask(
+            source: Locale.Language(identifier: "zh_Hans"),
+            target: Locale.Language(identifier: "en")
+        ) { session in
+            TranslationService.shared.registerSession(
+                session,
+                source: Locale.Language(identifier: "zh_Hans"),
+                target: Locale.Language(identifier: "en")
+            )
+        }
         .onAppear {
             NSApp.activate(ignoringOtherApps: true)
         }

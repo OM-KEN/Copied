@@ -6,6 +6,9 @@ struct EnglishPhraseDetector: ContentDetectorProtocol {
     let priority = 80
 
     func detect(in text: String) -> ContentDetection? {
+        // 翻译开关关闭时跳过检测
+        guard UserDefaults.standard.bool(forKey: "translationEnabled") else { return nil }
+
         let words = text.split(separator: " ")
         guard (2...10).contains(words.count) else { return nil }
 

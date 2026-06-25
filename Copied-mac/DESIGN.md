@@ -95,7 +95,7 @@ Toast 右侧最多 1 个按钮，样式：`[SF Symbol 12pt] 文案(≤3字) 12pt
 
 ## 右键菜单
 
-始终显示：**搜索** | **翻译**（灰色占位）| **另存为…**，分隔线后追加内容专属操作。使用 SwiftUI `.contextMenu` modifier。
+始终显示：**搜索** | **翻译** | **另存为…**，分隔线后追加内容专属操作。使用 SwiftUI `.contextMenu` modifier。翻译需先在设置中下载模型（macOS 15 Translation 框架）。
 
 ## 内容检测系统（ContentKind + DetectionRegistry）
 

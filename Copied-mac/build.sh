@@ -39,6 +39,7 @@ SOURCES=(
     ToastView.swift
     ToastViewModel.swift
     ToastWindowController.swift
+    TranslateAction.swift
 )
 
 echo "🔨 Building Copied..."
@@ -65,6 +66,7 @@ swiftc \
     -framework AppKit \
     -framework QuickLookThumbnailing \
     -framework ServiceManagement \
+    -framework Translation \
     "${SOURCES[@]}"
 
 # Copy Info.plist

@@ -1,4 +1,5 @@
 import SwiftUI
+@preconcurrency import Translation
 
 struct ToastView: View {
     let viewModel: ToastViewModel
@@ -178,9 +179,31 @@ struct ToastView: View {
                 Button("搜索", systemImage: "magnifyingglass") { }
                     .disabled(true)
             }
-            // Translate — placeholder, always gray
-            Button("翻译", systemImage: "character.bubble") { }
-                .disabled(true)
+            // 翻译 — 中文→英文，其他→中文（截取前 200 字符）
+            let translationEnabled = UserDefaults.standard.translationEnabled
+            if translationEnabled,
+               viewModel.rawContent?.type == .text,
+               let text = viewModel.rawContent?.rawText, !text.isEmpty {
+                Button("翻译", systemImage: "character.bubble") {
+                    let source: Locale.Language
+                    let target: Locale.Language
+                    if isPredominantlyChinese(text) {
+                        source = Locale.Language(identifier: "zh_Hans")
+                        target = Locale.Language(identifier: "en")
+                    } else {
+                        source = Locale.Language(identifier: "en")
+                        target = Locale.Language(identifier: "zh_Hans")
+                    }
+                    onPerformAction(TranslateAction(
+                        text: String(text.prefix(200)),
+                        sourceLanguage: source,
+                        targetLanguage: target
+                    ))
+                }
+            } else {
+                Button("翻译", systemImage: "character.bubble") { }
+                    .disabled(true)
+            }
 
             Divider()
 
@@ -203,6 +226,26 @@ struct ToastView: View {
                     }
                 }
             }
+        }
+        .translationTask(
+            source: Locale.Language(identifier: "en"),
+            target: Locale.Language(identifier: "zh_Hans")
+        ) { session in
+            TranslationService.shared.registerSession(
+                session,
+                source: Locale.Language(identifier: "en"),
+                target: Locale.Language(identifier: "zh_Hans")
+            )
+        }
+        .translationTask(
+            source: Locale.Language(identifier: "zh_Hans"),
+            target: Locale.Language(identifier: "en")
+        ) { session in
+            TranslationService.shared.registerSession(
+                session,
+                source: Locale.Language(identifier: "zh_Hans"),
+                target: Locale.Language(identifier: "en")
+            )
         }
         .onAppear {
             withAnimation(.interpolatingSpring(

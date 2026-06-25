@@ -123,7 +123,7 @@ extension ContentKind {
 
     static let englishPhrase = ContentKind(
         id: "englishPhrase", category: .entity, source: .builtIn,
-        label: "", icon: ""
+        label: "英文", icon: "character.bubble"
     )
 }
 
