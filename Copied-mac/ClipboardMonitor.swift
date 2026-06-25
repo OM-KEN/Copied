@@ -5,40 +5,17 @@ import AppKit
 struct ClipboardContent {
     enum ContentType: Hashable { case text, image, file }
 
-    /// If text, what kind?
-    enum TextKind: String, Hashable {
-        case plain
-        case html
-        case swift
-        case css
-        case python
-        case javascript
-        case code  // generic fallback
-
-        var label: String {
-            switch self {
-            case .plain:      return ""
-            case .html:       return "HTML"
-            case .swift:      return "Swift"
-            case .css:        return "CSS"
-            case .python:     return "Python"
-            case .javascript: return "JavaScript"
-            case .code:       return "Code"
-            }
-        }
-    }
-
     let type: ContentType
-    let textKind: TextKind
     let preview: String
     let detail: String
     let thumbnail: NSImage?
     let fileURLs: [URL]?
 
-    // ── NEW: Extended content info ───────────────────────────
-    let rawText: String?                    // full original text (before truncation)
-    let detections: [DetectedContent]       // detected content types
-    let imageFormat: String?                // "PNG", "JPEG", "TIFF", "HEIC", etc.
+    // ── Extended content info ────────────────────────────────
+    let rawText: String?                         // full original text (before truncation)
+    let contentKind: ContentKind?                // primary type (highest-priority detection)
+    let detections: [ContentDetection]           // all detected content types
+    let imageFormat: String?                     // "PNG", "JPEG", "TIFF", "HEIC", etc.
 
     var hashValue: Int {
         var hasher = Hasher()
@@ -150,12 +127,12 @@ final class ClipboardMonitor {
             }
             return ClipboardContent(
                 type: .file,
-                textKind: .plain,
                 preview: preview,
                 detail: detail,
                 thumbnail: thumb,
                 fileURLs: urls,
                 rawText: nil,
+                contentKind: nil,
                 detections: [],
                 imageFormat: imgFmt
             )
@@ -190,12 +167,12 @@ final class ClipboardMonitor {
             }
             return ClipboardContent(
                 type: .image,
-                textKind: .plain,
                 preview: "图片",
                 detail: "\(w)×\(h)",
                 thumbnail: thumb,
                 fileURLs: nil,
                 rawText: nil,
+                contentKind: nil,
                 detections: [],
                 imageFormat: fmt
             )
@@ -214,16 +191,16 @@ final class ClipboardMonitor {
                     let detail = text.count >= longTextThreshold
                         ? "\(text.count)字符"
                         : ""
-                    let kind = detectTextKind(text)
-                    let detections = ContentDetector.detect(in: text)
+                    let detections = DetectionRegistry.shared.detectAll(in: text)
+                    let primaryKind = detections.first?.kind
                     return ClipboardContent(
                         type: .text,
-                        textKind: kind,
                         preview: preview,
                         detail: detail,
                         thumbnail: nil,
                         fileURLs: nil,
                         rawText: text,
+                        contentKind: primaryKind,
                         detections: detections,
                         imageFormat: nil
                     )
@@ -232,52 +209,6 @@ final class ClipboardMonitor {
         }
 
         return nil
-    }
-
-    /// Detect the specific language / text kind.
-    private func detectTextKind(_ text: String) -> ClipboardContent.TextKind {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return .plain }
-
-        // HTML: typical HTML/XML tags
-        if trimmed.range(of: #"</?[a-zA-Z]+\b"#, options: .regularExpression) != nil {
-            return .html
-        }
-
-        // ── Language-specific heuristics ──────────────────────────
-        let hasBraces = trimmed.contains("{") && trimmed.contains("}")
-        let hasSemicolons = trimmed.contains(";")
-        let hasSwiftKW = trimmed.range(of: #"\b(func|var|let|struct|class|enum|protocol|extension|guard|throws|async|await|import (SwiftUI|Foundation|UIKit|AppKit))\b"#, options: .regularExpression) != nil
-        let hasPyKW = trimmed.range(of: #"\b(def|import [a-z]+|elif|except|raise|yield|async def)\b"#, options: .regularExpression) != nil
-        let hasJSKW = trimmed.range(of: #"\b(function|const |let |var |=>|export |require|console\.|document\.)\b"#, options: .regularExpression) != nil
-        let hasCSSUnits = trimmed.range(of: #"\d+(px|em|rem|%|vh|vw|pt|cm)"#, options: .regularExpression) != nil
-        let hasCSSColors = trimmed.range(of: #"(#[0-9a-fA-F]{3,8}|rgb\(|rgba\(|hsl\()"#, options: .regularExpression) != nil
-        let hasCSSProps = trimmed.range(of: #"\b(margin|padding|display|flex|grid|color|font|background|border|width|height|position|align|justify|gap|opacity|transform|transition|animation)\s*:"#, options: .regularExpression) != nil
-        let hasColons = trimmed.contains(":")
-
-        // Swift
-        if hasSwiftKW { return .swift }
-
-        // Python
-        if hasPyKW { return .python }
-
-        // JavaScript / TypeScript
-        if hasJSKW || (hasBraces && hasSemicolons && trimmed.range(of: #"\b(const|let|var|function|class|import|export|new )\b"#, options: .regularExpression) != nil) {
-            return .javascript
-        }
-
-        // CSS: braces + colons + semicolons + CSS units/colors/properties, NO code keywords
-        if hasBraces && hasColons && hasSemicolons && (hasCSSUnits || hasCSSColors || hasCSSProps) {
-            return .css
-        }
-
-        // Generic code: has structural patterns but no specific language match
-        let hasGenericKW = trimmed.range(of: #"\b(func|var|let|class|struct|enum|import|def|function|const|return|if|for|while)\b"#, options: .regularExpression) != nil
-        if hasBraces || hasGenericKW || (hasSemicolons && trimmed.contains("\n")) {
-            return .code
-        }
-
-        return .plain
     }
 
     private static let imageExtensions: Set<String> = [

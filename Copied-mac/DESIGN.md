@@ -63,7 +63,7 @@ Apple 风格的浮动通知卡片——轻盈、克制、不打扰。macOS 26 �
 
 使用 Apple SF Symbols（系统内置，零依赖），32pt，`.secondary` 着色。
 
-图标选择优先级：**色块 > 检测类型 > 内容类型 / textKind**。
+图标选择优先级：**色块 > detection.kind.icon > content type 回退**。所有类型（语言+实体）统一通过 `ContentKind.icon` 提供图标。
 
 | 内容类型 | SF Symbol / 视觉 | 说明 |
 |----------|-----------|------|
@@ -95,23 +95,30 @@ Toast 右侧最多 1 个按钮，样式：`[SF Symbol 12pt] 文案(≤3字) 12pt
 
 始终显示：**搜索** | **翻译**（灰色占位）| **另存为…**，分隔线后追加内容专属操作。使用 SwiftUI `.contextMenu` modifier。
 
-## 内容检测类型
+## 内容检测系统（ContentKind + DetectionRegistry）
 
-在编程语言检测之外，新增 7 种内容识别：
+所有类型（语言 + 内容实体）统一为 `ContentKind` struct，通过 `DetectionRegistry` 优先级管道检测。内置 12 个检测器（`Detectors/` 目录），支持声明式插件扩展。
 
-| 类型 | 检测方式 | API | 显示 |
-|------|---------|-----|------|
-| 色值 Hex | `#RGB` / `#RRGGBB` / 纯6位hex → NSColor | 正则 + 手动解析 | 色块 |
-| 色值 RGB/HSL | `rgb()` / `hsl()` → NSColor | 正则 + HSL→RGB 转换 | 色块 |
-| URL | 整段文本为链接 | `NSDataDetector` | `safari` + "链接" |
-| 文件路径 | `~` 或 `/` 开头 + 文件存在 | `expandingTildeInPath` + `FileManager` | `folder` + "路径" |
-| 数学表达式 | 数字+运算符，无字母，括号平衡 | 清洗后 `NSExpression` | `function` + "公式" |
-| 单个汉字 | 1 个 Unicode U+4E00–U+9FFF 字符 | Swift stdlib | `waveform` + "汉字" |
-| 英文短语 | 2-10 个纯 ASCII 单词 | 正则 | 无（翻译未实现，暂不特殊显示） |
+| 类型 | 检测器 | 优先级 | 检测方式 |
+|------|--------|--------|---------|
+| 色值 | `ColorDetector` | 300 | 正则 + 手动 NSColor 解析（hex/rgb/hsl）|
+| URL | `URLDetector` | 250 | `NSDataDetector(.link)` |
+| 文件路径 | `FilePathDetector` | 200 | 前缀 + `FileManager.fileExists` |
+| 数学表达式 | `MathExpressionDetector` | 180 | 字符白名单 + 括号平衡 + 结构验证 |
+| 单个汉字 | `ChineseCharDetector` | 100 | U+4E00–U+9FFF |
+| 英文短语 | `EnglishPhraseDetector` | 80 | 2-10 ASCII 单词 |
+| HTML | `HTMLDetector` | 70 | `</?[a-zA-Z]+\b` |
+| Swift | `SwiftDetector` | 60 | 关键字 + import 模式 |
+| Python | `PythonDetector` | 50 | def/import/elif 关键字 |
+| JavaScript | `JavaScriptDetector` | 40 | function/=>/export 关键字 |
+| CSS | `CSSDetector` | 30 | 大括号 + 冒号 + CSS 单位/属性 |
+| 通用代码 | `CodeDetector` | 20 | 代码结构特征回退 |
 
-检测结果存储在 `ClipboardContent.detections`，由 `ActionResolver` 分配操作。
+检测结果存储为 `[ContentDetection]`（kind + value + color + pluginActionTemplate），由 `ActionResolver` 分配操作。
 
-`ToastViewModel.primaryDetection` 过滤掉色值和英文短语——前两者用色块/回退 textKind 显示，后者因翻译功能未实现暂不特殊显示。
+**性能熔断**：100KB 文本门槛（仅内置语言检测器运行）、50ms 单检测器超时、3 次连续超时自动禁用。
+
+**插件扩展**：`.copiedplugin` 文件夹（manifest.json + rules.json），声明式 JSON + 正则，不执行代码。安装到 `~/Library/Application Support/Copied/Plugins/`。
 
 ## 动画
 
@@ -188,7 +195,7 @@ Toast 显示期间，**按下并松开 ⌘ 键**触发右侧操作按钮，无�
 
 3. **pasteboard types 判类型，不用 readObjects 猜测**：`readObjects(forClasses:)` 会误判（RichText 有 NSImage 表示 → 误识别为图片）。用 `pasteboard.types` 直接读取类型列表精确判断。
 
-4. **代码语言检测**：基于正则启发式（无 ML），按优先级：HTML 标签 → Swift 关键字 → Python 关键字 → JS/TS 关键字 → CSS 属性/单位 → 通用代码特征。不依赖文件扩展名——用户可能在编辑器里复制代码片段。
+4. **代码语言检测**：基于正则启发式（无 ML），通过 DetectionRegistry 优先级管道管理 6 个语言检测器。不依赖文件扩展名——用户可能在编辑器里复制代码片段。用户可在 Settings 中调整优先级和启用/禁用。
 
 5. **固定位置 + 响应悬停点击**：Toast 固定屏幕顶部居中（不跟随鼠标移动——macOS 无官方 API 获取全局鼠标位置，且对通知而言固定位置更可预测）。但窗口响应鼠标悬停（暂停自动消失）和点击（立即退场），在保持通知式克制的同时提供交互便利。
 
@@ -196,9 +203,9 @@ Toast 显示期间，**按下并松开 ⌘ 键**触发右侧操作按钮，无�
 
 7. **MenuBarExtra 菜单栏常驻**：SwiftUI 原生 API，`LSUIElement` 隐藏 Dock 图标，纯菜单栏应用。
 
-8. **swiftc 直接编译**：无 Xcode 工程、无 SPM、零第三方依赖。10 个 Swift 文件，链接 QuickLookThumbnailing + ServiceManagement 系统框架，build.sh 一键构建 + 代码签名。
+8. **swiftc 增量编译**：无 Xcode 工程、无 SPM、零第三方依赖。~30 个 Swift 文件，链接 QuickLookThumbnailing + ServiceManagement 系统框架。build.sh 使用 SHA-256 指纹跳过未变编译 + 多线程并行。
 
-9. **操作协议可扩展**：`ClipboardAction` 协议定义 `id/title/systemImage/menuTitle/perform`，新增操作类型只需实现协议 + 在 `ActionResolver` 注册优先级。`showCommandIcon` 属性让检测类型对应的按钮图标自动切换为 ⌘，避免与左侧类型图标重复。为未来插件体系预留接口。
+9. **操作 + 类型双可扩展**：`ClipboardAction` 协议可新增操作类型，`PluginAction` 执行声明式动作模板（openURL/search/transform）。类型系统通过 `.copiedplugin` 文件夹扩展（JSON + 正则），插件在 Settings 中管理。`showCommandIcon` 在检测类型有 primaryDetection 时按钮图标切为 ⌘。
 
 10. **计算不写剪贴板**：`CalculateAction` 仅在 toast 内联显示结果（`showResultOverlay`），不触碰 `NSPasteboard`，避免触发新一轮复制检测导致双弹窗。
 

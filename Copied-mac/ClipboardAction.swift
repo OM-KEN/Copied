@@ -158,30 +158,9 @@ enum ActionResolver {
         var menu: [any ClipboardAction] = []
 
         for detection in content.detections {
-            switch detection {
-            case .url(let url):
-                let action = OpenURLAction(url: url)
+            let action = makeAction(for: detection)
+            if let action {
                 if primary == nil { primary = action } else { menu.append(action) }
-
-            case .filePath(let path):
-                let action = RevealFileAction(path: path)
-                if primary == nil { primary = action } else { menu.append(action) }
-
-            case .mathExpression(let expr):
-                let action = CalculateAction(expression: expr)
-                if primary == nil { primary = action } else { menu.append(action) }
-
-            case .chineseCharacter(let char):
-                let action = ShowPinyinAction(character: char)
-                if primary == nil { primary = action } else { menu.append(action) }
-
-            case .englishPhrase(let text):
-                let action = SearchTextAction(text: text)
-                if primary == nil { primary = action } else { menu.append(action) }
-
-            case .colorHex, .colorRGB, .colorHSL:
-                // Color is visual only (swatch), no action button
-                break
             }
         }
 
@@ -194,5 +173,47 @@ enum ActionResolver {
         }
 
         return (primary, menu)
+    }
+
+    /// Map a ContentDetection to its corresponding ClipboardAction.
+    private static func makeAction(for detection: ContentDetection) -> (any ClipboardAction)? {
+        // Built-in entity types
+        switch detection.kind.id {
+        case ContentKind.url.id:
+            guard let urlStr = detection.value, let url = URL(string: urlStr) else { return nil }
+            return OpenURLAction(url: url)
+
+        case ContentKind.filePath.id:
+            guard let path = detection.value else { return nil }
+            return RevealFileAction(path: path)
+
+        case ContentKind.mathExpr.id:
+            guard let expr = detection.value else { return nil }
+            return CalculateAction(expression: expr)
+
+        case ContentKind.chineseChar.id:
+            guard let charStr = detection.value, let char = charStr.first else { return nil }
+            return ShowPinyinAction(character: char)
+
+        case ContentKind.englishPhrase.id:
+            guard let text = detection.value else { return nil }
+            return SearchTextAction(text: text)
+
+        case ContentKind.colorHex.id,
+             ContentKind.colorRGB.id,
+             ContentKind.colorHSL.id:
+            return nil  // Color is visual only (swatch)
+
+        default:
+            break
+        }
+
+        // Plugin-defined action
+        if let template = detection.pluginActionTemplate {
+            return PluginAction(detection: detection, template: template)
+        }
+
+        // Language types — no primary button, just labeling
+        return nil
     }
 }

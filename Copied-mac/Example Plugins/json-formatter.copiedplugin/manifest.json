@@ -1,0 +1,11 @@
+{
+  "name": "JSON 检测器",
+  "identifier": "com.copied.json-formatter",
+  "version": "1.0.0",
+  "category": "language",
+  "author": "Copied",
+  "description": "检测 JSON 内容并提供格式化操作",
+  "icon": "curlybraces",
+  "label": "JSON",
+  "priority": 150
+}

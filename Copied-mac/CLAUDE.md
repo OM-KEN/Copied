@@ -16,17 +16,29 @@ open .build/Copied.app      # Launch (appears in menu bar, no Dock)
 ```
 CopiedApp.swift             Entry point: MenuBarExtra + AppDelegate + Settings scene
 ClipboardMonitor.swift      Timer polls NSPasteboard.changeCount every 0.15s
-ContentDetector.swift          Detects URL/path/color/math/Chinese/English in text
+DetectionRegistry.swift        Global registry: manages all detectors + throttle/priority
+ContentKind.swift              Unified type identifier (replaces old TextKind + DetectedContent)
+ContentDetection.swift         Detection result struct (kind + value + color + metadata)
+Detectors/                     Built-in detector files (14 total: Color, URL, FilePath, Math, etc.)
+PluginManifest.swift           manifest.json / rules.json Codable models
+PluginActionTemplate.swift     Action template types (openURL, search, transform, none)
+PluginAction.swift             Executes plugin-defined action templates
+PluginLoader.swift             Scans, validates, loads, installs .copiedplugin folders
 ClipboardAction.swift          Action protocol + 6 concrete actions + resolver
 FilePreviewGenerator.swift     QLThumbnailGenerator wrapper — async content thumbnails
 ToastWindowController.swift Manages the floating NSWindow + NSHostingView + actions
 ToastViewModel.swift           @Observable model, icon/type-label/action/async-thumbnail logic
 ToastView.swift                SwiftUI card layout + glassEffect + button + swatch + menu
 SourceAppDetector.swift     NSWorkspace.frontmostApplication → name + icon
-SettingsView.swift              Settings page (launch-at-login + search engine picker)
+SettingsView.swift              Settings page (launch-at-login + search engine picker + types tab)
+TypeSettingsView.swift         Type priority list + plugin management UI
 ```
 
-**Data flow:** `ClipboardMonitor` → `ClipboardContent` (+ detections from `ContentDetector`) → `ToastWindowController.show()` → `ToastViewModel` resolves actions + triggers async thumbnail → `NSHostingView` → `ToastView` (`.glassEffect()` + thumbnail + button + swatch + contextMenu)
+**Data flow:** `ClipboardMonitor` → `DetectionRegistry.detectAll()` → `ClipboardContent` (+ `[ContentDetection]`) → `ToastWindowController.show()` → `ToastViewModel` resolves actions + triggers async thumbnail → `NSHostingView` → `ToastView` (`.glassEffect()` + thumbnail + button + swatch + contextMenu)
+
+**Content type system:** Unified `ContentKind` (struct with static constants) replaces both old `TextKind` (enum, 7 cases) and `DetectedContent` (enum, 8 cases). Detection runs through `DetectionRegistry` — a priority-ordered pipeline of `ContentDetectorProtocol` instances. Each detector produces a `ContentDetection` with kind + extracted value + optional color + optional plugin action template.
+
+**Plugin system:** Declarative only (JSON + regex, no code execution). Format: `.copiedplugin` folder with `manifest.json` (name, icon, label, priority, category) + `rules.json` (regex patterns + action templates). Plugins loaded from `~/Library/Application Support/Copied/Plugins/`. Performance safeguards: 100KB text cutoff (only built-in language detectors run), 5ms per-detector timeout, 3-strike auto-disable.
 
 ## Key design decisions
 
@@ -74,43 +86,56 @@ Closures `onHoverChanged` + `onTap` are injected from `ToastWindowController` in
 - **Single image files**: synchronous `NSImage(contentsOf:)` thumbnail (fast, legacy path).
 - **Single non-image files**: async `QLThumbnailGenerator` thumbnail via `FilePreviewGenerator`. Loads content preview (PDF first page, video keyframe, etc.) in background; falls back to SF Symbol on failure. Toast window auto-resizes when thumbnail arrives.
 
-### Text kind detection (detectTextKind)
+### Content type detection (DetectionRegistry)
 
-Regex-based heuristics, checked in order:
-- HTML: `</?[a-zA-Z]+\b` tags → `.html`
-- Swift: `func|var|let|struct|class|import SwiftUI…` → `.swift`
-- Python: `def|import|elif|yield…` → `.python`
-- JavaScript: `function|const |=>|export |console.…` → `.javascript`
-- CSS: braces + colons + semicolons + `px|em|rem|#…|rgb(` → `.css`
-- Generic code: any braces or semicolons+newlines → `.code`
-- Otherwise: `.plain`
+After text is parsed, `DetectionRegistry.shared.detectAll(in:)` runs all registered detectors in priority order. Detectors implement `ContentDetectorProtocol` and return `ContentDetection?`. The registry manages:
+
+- **14 built-in detectors** under `Detectors/`: `ColorDetector`, `URLDetector`, `FilePathDetector`, `MathExpressionDetector`, `ChineseCharDetector`, `EnglishPhraseDetector`, `HTMLDetector`, `SwiftDetector`, `PythonDetector`, `JavaScriptDetector`, `CSSDetector`, `CodeDetector`
+- **Plugin detectors** loaded from `~/Library/Application Support/Copied/Plugins/*.copiedplugin/` (each plugin = one `PluginDetector`)
+
+| Priority | Detector | Type | Method |
+|----------|---------|------|--------|
+| 300 | `ColorDetector` | `.colorHex/.colorRGB/.colorHSL` | Regex + manual NSColor parse (hex, rgb, hsl) |
+| 250 | `URLDetector` | `.url` | `NSDataDetector` with `.link` |
+| 200 | `FilePathDetector` | `.filePath` | `^(~\|/).+` → `expandingTildeInPath` → `FileManager.fileExists` |
+| 180 | `MathExpressionDetector` | `.mathExpr` | Digits+operators, balanced parens, structure validation |
+| 100 | `ChineseCharDetector` | `.chineseChar` | Exactly 1 char, U+4E00–U+9FFF |
+| 80 | `EnglishPhraseDetector` | `.englishPhrase` | 2-10 ASCII words, no code delimiters |
+| 70 | `HTMLDetector` | `.html` | `</?[a-zA-Z]+\b` tags |
+| 60 | `SwiftDetector` | `.swift` | `func\|var\|let\|struct\|class\|import SwiftUI…` |
+| 50 | `PythonDetector` | `.python` | `def\|import\|elif\|yield…` |
+| 40 | `JavaScriptDetector` | `.javascript` | `function\|const \|=>\|export \|console.…` |
+| 30 | `CSSDetector` | `.css` | braces+colons+semicolons+CSS units/props |
+| 20 | `CodeDetector` | `.code` | Generic braces/semicolons/keywords |
+| — | (none) | `.plain` | Default when nothing matches |
+
+**Performance safeguards:**
+- **100KB text cutoff**: Text >100KB → only built-in `.language` detectors run (skip all `.entity` and plugins)
+- **5ms per-detector timeout**: After each detector runs, if elapsed >5ms → throttled for 30s
+- **3-strike auto-disable**: Consecutive throttles ≥3 → detector permanently disabled with system notification
+
+Detection results stored in `ClipboardContent.detections: [ContentDetection]`. Each detection carries `kind`, `value`, optional `color`, optional `pluginActionTemplate`.
 
 ### Icon mapping (ToastViewModel.iconSymbolName)
 
-Icon selection priority: **color swatch → detection type → content type / textKind**.
+Icon selection priority: **color swatch → detection icon → content type fallback**.
 
 When `detectedColor != nil`, returns `""` — the color swatch replaces the icon entirely.
 
 | Condition | Icon |
 |-----------|------|
 | Color detected | (color swatch, no SF Symbol) |
-| URL detected | `safari` |
-| File path detected | `folder` |
-| Math expression detected | `function` |
-| Chinese character detected | `waveform` |
-| Single folder (Finder copy) | `folder` |
+| Detection with non-empty `.icon` | Uses `ContentKind.icon` (e.g. `safari`, `folder`, `function`, `waveform`) |
 | `.image` (screenshot, clipboard image) | `photo` |
 | `.file` (generic) | `doc.on.doc` |
-| `.html` | `chevron.left.forwardslash.chevron.right` |
-| `.swift` / `.css` / `.python` / `.javascript` / `.code` | `curlybraces` |
-| `.plain` (short text, <50 chars) | `text.alignleft` |
-| `.plain` (long text) | `text.quote` |
+| Plain short text (<50 chars) | `text.alignleft` |
+| Plain long text | `text.quote` |
 
-`.englishPhrase` and color detections are **skipped** in `primaryDetection` — they don't affect the left icon.
+`.englishPhrase` and color detections have empty label/icon — they don't affect the left icon. Prioritization is determined by detection order (first = highest priority).
 
 ### Detail line format
 
-Driven by `ToastViewModel.typeLabel` (priority: image format → file type/folder → detection type → textKind).
+Driven by `ToastViewModel.typeLabel` (priority: image format → file type/folder → detection label → empty).
 
 | Content | Detail line |
 |---------|------------|
@@ -123,36 +148,10 @@ Driven by `ToastViewModel.typeLabel` (priority: image format → file type/folde
 | Math expression text | `公式 · 45字符` |
 | Chinese character text | `汉字` |
 | Code text (Swift) | `Swift · 120字符` |
+| Plugin-detected (JSON) | `JSON · 120字符` |
 | Plain short text (<50 chars) | (empty — not shown) |
 | Plain long text | `N字符` |
 | Multiple files | `N个文件` |
-
-### Deduplication
-
-500ms dedup window via `HashCode.Combine(type, preview)`. Same content within 500ms is silently dropped.
-
-### Source app display
-
-`SourceAppDetector.detect(for:)` reads `NSWorkspace.shared.frontmostApplication`. When it's Finder + `content.fileURLs` are present, the parent folder name replaces "访达". Multiple folders → `N个文件夹`.
-
-### Content detection (`ContentDetector`)
-
-After text is parsed, `ContentDetector.detect(in:)` scans for these types (ordered by priority):
-
-| Priority | Type | Detection method |
-|----------|------|-----------------|
-| 1 | Color (hex #RGB/#RRGGBB/#RRGGBBAA) | Regex + manual NSColor parse |
-| 1b | Color (bare 6-digit hex, no #) | Try prepending # → parse; skip if invalid |
-| 2 | Color (rgb/rgba/hsl) | Regex + manual NSColor parse |
-| 3 | URL | `NSDataDetector` with `.link` |
-| 4 | File path | `^(~\|/).+` → `expandingTildeInPath` → `FileManager.fileExists` |
-| 5 | Math expression | Digits + operators, no letters, balanced parens; char whitelist + multi-line/implied-mult/comma/% rejection → `isValidMathStructure` → NSExpression (ObjC exceptions uncatchable in Swift — all safety checks MUST live in detection layer) |
-| 6 | Chinese character | Exactly 1 char, U+4E00–U+9FFF |
-| 7 | English phrase | 2-10 ASCII words, no code delimiters |
-
-Detection results stored in `ClipboardContent.detections`. Raw text stored in `ClipboardContent.rawText` (untruncated).
-
-**Display exclusion**: `.englishPhrase` and color detections are excluded from `primaryDetection` — they don't affect the left icon or detail label. Color uses the swatch instead; English phrase display is deferred until translation is implemented.
 
 ### Action system (`ClipboardAction` protocol)
 
@@ -166,18 +165,29 @@ protocol ClipboardAction: Identifiable {
 }
 ```
 
-**6 concrete actions** (resolved by `ActionResolver.resolve(for:)`):
+**6 built-in actions + PluginAction** (resolved by `ActionResolver.resolve(for:)`):
 
-| Action | Trigger | Button text | Behavior |
+| Action | Trigger (ContentKind) | Button text | Behavior |
 |--------|---------|:---:|------|
 | `OpenURLAction` | `.url` | 打开 | `NSWorkspace.shared.open` |
 | `RevealFileAction` | `.filePath` | 打开 | `NSWorkspace.shared.activateFileViewerSelecting` |
-| `CalculateAction` | `.mathExpression` | 计算 | NSExpression eval → `showResultOverlay` (NO clipboard write) |
-| `ShowPinyinAction` | `.chineseCharacter` | 拼音 | `CFStringTransform` to Latin (keep tones) → `showResultOverlay` |
+| `CalculateAction` | `.mathExpr` | 计算 | NSExpression eval → `showResultOverlay` (NO clipboard write) |
+| `ShowPinyinAction` | `.chineseChar` | 拼音 | `CFStringTransform` to Latin (keep tones) → `showResultOverlay` |
 | `SearchTextAction` | `.englishPhrase` / plain text | 搜索 | `NSWorkspace.open` search engine URL (configurable via `UserDefaults("searchEngine")`) |
 | `SaveFileAction` | context menu | — | `NSSavePanel` → write to file |
+| `PluginAction` | Plugin-defined (any) | Template | openURL / searchWithEngine / transform / none |
 
-**Priority**: highest-priority detection → right-side button (max 1). Others → context menu. If no detection but text exists → button defaults to 搜索.
+**Priority**: first non-color detection → right-side button (max 1). Others → context menu. If no detection but text exists → button defaults to 搜索. Plugin actions are created from `ContentDetection.pluginActionTemplate` when `ContentKind.source == .plugin(...)`. Language-only types (swift, python, etc.) produce no button — they only add a label/icon.
+
+### Plugin system
+
+Declarative-only (JSON + regex, no code execution). Format: `.copiedplugin` folder:
+- `manifest.json` — name, identifier, version, category (`"language"`|`"entity"`), icon, label, priority
+- `rules.json` — array of `{id, pattern, extractValue?, action?}`
+
+Action types: `openURL` (with `{value}` template), `searchWithEngine`, `transform` (regex-replace + inline result), `none`.
+
+Install: open `.copiedplugin` folder via Settings → copied to `~/Library/Application Support/Copied/Plugins/`. Loaded at app startup via `PluginLoader.loadAllPlugins()`.
 
 ### Click handling (NSEvent monitor + SwiftUI Button coexistence)
 

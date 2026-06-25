@@ -18,45 +18,54 @@ struct SettingsView: View {
     ]
 
     var body: some View {
-        Form {
-            // ── General ────────────────────────────────────
-            Section {
-                Toggle("开机自启", isOn: Binding(
-                    get: { launchAtLogin },
-                    set: { toggle in
-                        let success = setLoginItem(enabled: toggle)
-                        if success {
-                            launchAtLogin = toggle
-                            loginItemError = nil
-                        } else {
-                            loginItemError = "需要将 Copied 移到 Applications 文件夹"
+        TabView {
+            // ── General + Search ─────────────────────────
+            Form {
+                Section {
+                    Toggle("开机自启", isOn: Binding(
+                        get: { launchAtLogin },
+                        set: { toggle in
+                            let success = setLoginItem(enabled: toggle)
+                            if success {
+                                launchAtLogin = toggle
+                                loginItemError = nil
+                            } else {
+                                loginItemError = "需要将 Copied 移到 Applications 文件夹"
+                            }
+                        }
+                    ))
+                    if let error = loginItemError {
+                        Text(error)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } header: {
+                    Text("通用")
+                }
+
+                Section {
+                    Picker("搜索引擎", selection: $searchEngine) {
+                        ForEach(searchEngineNames, id: \.id) { engine in
+                            Text(engine.label).tag(engine.id)
                         }
                     }
-                ))
-                if let error = loginItemError {
-                    Text(error)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    .pickerStyle(.menu)
+                } header: {
+                    Text("搜索")
                 }
-            } header: {
-                Text("通用")
+            }
+            .formStyle(.grouped)
+            .tabItem {
+                Label("通用", systemImage: "gearshape")
             }
 
-            // ── Search ─────────────────────────────────────
-            Section {
-                Picker("搜索引擎", selection: $searchEngine) {
-                    ForEach(searchEngineNames, id: \.id) { engine in
-                        Text(engine.label).tag(engine.id)
-                    }
+            // ── Types ─────────────────────────────────────
+            TypeSettingsView()
+                .tabItem {
+                    Label("类型", systemImage: "rectangle.grid.1x2")
                 }
-                .pickerStyle(.menu)
-            } header: {
-                Text("搜索")
-            }
         }
-        .formStyle(.grouped)
-        .frame(width: 280)
-        .fixedSize()
+        .frame(width: 380, height: 400)
         .onAppear {
             NSApp.activate(ignoringOtherApps: true)
         }

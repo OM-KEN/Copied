@@ -6,40 +6,74 @@ BUILD_DIR=".build"
 APP_BUNDLE="$BUILD_DIR/$APP_NAME.app"
 MACOS_DIR="$APP_BUNDLE/Contents/MacOS"
 RESOURCES_DIR="$APP_BUNDLE/Contents/Resources"
+FINGERPRINT="$BUILD_DIR/.source_fingerprint"
+
+SOURCES=(
+    ContentKind.swift
+    ContentDetection.swift
+    PluginActionTemplate.swift
+    PluginManifest.swift
+    PluginAction.swift
+    PluginLoader.swift
+    DetectionRegistry.swift
+    Detectors/ColorDetector.swift
+    Detectors/URLDetector.swift
+    Detectors/FilePathDetector.swift
+    Detectors/MathExpressionDetector.swift
+    Detectors/ChineseCharDetector.swift
+    Detectors/EnglishPhraseDetector.swift
+    Detectors/HTMLDetector.swift
+    Detectors/SwiftDetector.swift
+    Detectors/PythonDetector.swift
+    Detectors/JavaScriptDetector.swift
+    Detectors/CSSDetector.swift
+    Detectors/CodeDetector.swift
+    TypeSettingsView.swift
+    CopiedApp.swift
+    ClipboardMonitor.swift
+    SourceAppDetector.swift
+    ClipboardAction.swift
+    FilePreviewGenerator.swift
+    SettingsView.swift
+    ToastView.swift
+    ToastViewModel.swift
+    ToastWindowController.swift
+)
 
 echo "🔨 Building Copied..."
 
-# Clean
+# ── Fingerprint check (skip compilation if nothing changed) ──
+NPROC=$(sysctl -n hw.ncpu)
+NEW_FP=$(shasum -a 256 "${SOURCES[@]}" 2>/dev/null | shasum -a 256)
+OLD_FP=$(cat "$FINGERPRINT" 2>/dev/null || echo "")
+
+if [[ "$NEW_FP" == "$OLD_FP" ]] && [[ -f "$MACOS_DIR/$APP_NAME" ]]; then
+    echo "   no changes, skipping compilation"
+    exit 0
+fi
+
+# ── Clean & compile ─────────────────────────────────────────
 rm -rf "$APP_BUNDLE"
+mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
 
-# Create bundle structure
-mkdir -p "$MACOS_DIR"
-mkdir -p "$RESOURCES_DIR"
-
-# Compile all Swift sources
 swiftc \
+    -num-threads "$NPROC" \
     -o "$MACOS_DIR/$APP_NAME" \
     -target arm64-apple-macosx26.0 \
     -framework SwiftUI \
     -framework AppKit \
     -framework QuickLookThumbnailing \
     -framework ServiceManagement \
-    CopiedApp.swift \
-    ClipboardMonitor.swift \
-    SourceAppDetector.swift \
-    ContentDetector.swift \
-    ClipboardAction.swift \
-    FilePreviewGenerator.swift \
-    SettingsView.swift \
-    ToastView.swift \
-    ToastViewModel.swift \
-    ToastWindowController.swift
+    "${SOURCES[@]}"
 
 # Copy Info.plist
 cp Info.plist "$APP_BUNDLE/Contents/Info.plist"
 
 # Ad-hoc code sign (required by SMAppService for login item registration)
 codesign -s - -f "$APP_BUNDLE" 2>/dev/null || true
+
+# Store fingerprint for next build
+echo "$NEW_FP" > "$FINGERPRINT"
 
 echo ""
 echo "✅ Build complete!"

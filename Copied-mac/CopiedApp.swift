@@ -42,6 +42,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSLog("Copied: applicationDidFinishLaunching")
+
+        // Pre-warm NSDataDetector (lazy init ~20ms — do it now, not on first copy)
+        _ = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
+
+        // Register all built-in content detectors
+        DetectionRegistry.shared.registerBuiltInDetectors()
+
+        // Load installed plugins + install examples on first launch
+        let loader = PluginLoader()
+        loader.loadAllPlugins()
+        loader.installExamplePluginsIfNeeded()
+
         toastController = ToastWindowController()
         monitor = ClipboardMonitor(toastController: toastController!)
         monitor?.start()
