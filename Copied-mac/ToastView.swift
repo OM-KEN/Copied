@@ -47,18 +47,27 @@ struct ToastView: View {
                 }
 
                 VStack(alignment: .leading, spacing: 8) {
-                    // ── Preview or Result ──────────────────────
-                    if let result = viewModel.resultText {
-                        Text(result)
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundStyle(.primary)
-                            .lineLimit(2)
-                    } else {
+                    // ── Preview or Result (crossfade) ──────────
+                    ZStack(alignment: .leading) {
                         Text(viewModel.previewText)
                             .font(.system(size: 14, weight: .medium))
                             .foregroundStyle(.primary)
                             .lineLimit(2)
+                            .opacity(viewModel.resultOverlay == nil ? 1 : 0)
+
+                        if let overlay = viewModel.resultOverlay {
+                            Text(overlay.displayText)
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundStyle(.primary)
+                                .lineLimit(2)
+                                .truncationMode(.head)
+                                .opacity(viewModel.resultOverlay != nil ? 1 : 0)
+                        }
                     }
+                    .animation(
+                        .interpolatingSpring(mass: 1.2, stiffness: 120, damping: 14, initialVelocity: 3),
+                        value: viewModel.resultOverlay != nil
+                    )
 
                     VStack(alignment: .leading, spacing: 4) {
                         HStack(spacing: 4) {
@@ -84,8 +93,30 @@ struct ToastView: View {
                     }
                 }
 
-                // ── Right: Primary Action Button ──────────────
-                if let action = viewModel.primaryAction {
+                // ── Right: Action Button ──────────────────────────
+                if let overlay = viewModel.resultOverlay {
+                    // Result mode: "复制" button
+                    Button {
+                        onPerformAction(CopyTextAction(text: overlay.copyText))
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: viewModel.isCommandPressed ? "command" : "doc.on.doc")
+                                .font(.system(size: 12, weight: .medium))
+                            Text(viewModel.isCommandPressed ? "松开" : "复制")
+                                .font(.system(size: 12, weight: .medium))
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .fill(.white.opacity(viewModel.isCommandPressed ? 0.2 : 0.12))
+                        )
+                        .animation(.spring(response: 0.2, dampingFraction: 0.6), value: viewModel.isCommandPressed)
+                    }
+                    .buttonStyle(.plain)
+                    .scaleEffect(viewModel.isCommandPressed ? 0.92 : 1.0)
+                    .animation(.spring(response: 0.2, dampingFraction: 0.6), value: viewModel.isCommandPressed)
+                } else if let action = viewModel.primaryAction {
                     Button {
                         onPerformAction(action)
                     } label: {
@@ -174,6 +205,9 @@ struct ToastView: View {
             }
         }
         .onChange(of: viewModel.asyncThumbnail) {
+            onNeedsLayout?()
+        }
+        .onChange(of: viewModel.resultOverlay) {
             onNeedsLayout?()
         }
     }

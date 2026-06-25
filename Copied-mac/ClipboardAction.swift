@@ -8,7 +8,12 @@ protocol ClipboardAction: Identifiable {
     var title: String { get }          // button text, ≤3 Chinese chars
     var systemImage: String { get }    // SF Symbol name
     var menuTitle: String { get }      // right-click menu label
+    var performsInlineUpdate: Bool { get }  // true → keep popup open after perform (show result in-place)
     func perform(content: ClipboardContent, controller: ToastWindowController?)
+}
+
+extension ClipboardAction {
+    var performsInlineUpdate: Bool { false }
 }
 
 // MARK: - Open URL Action
@@ -48,6 +53,7 @@ struct CalculateAction: ClipboardAction {
     var title: String { "计算" }
     var systemImage: String { "function" }
     var menuTitle: String { "计算结果" }
+    var performsInlineUpdate: Bool { true }
 
     func perform(content: ClipboardContent, controller: ToastWindowController?) {
         // Clean: remove trailing =, replace operators, trim whitespace
@@ -61,9 +67,10 @@ struct CalculateAction: ClipboardAction {
         let expr = NSExpression(format: cleaned)
         guard let result = expr.expressionValue(with: nil, context: nil) else { return }
 
-        // Show result inline (no clipboard write to avoid re-triggering toast)
-        let fullText = "\(expression)=\(result)"
-        controller?.showResultOverlay(fullText)
+        // Show result inline; separate display from copy text
+        let displayText = "\(expression)=\(result)"
+        let copyText = "\(result)"
+        controller?.showResultOverlay(displayText: displayText, copyText: copyText)
     }
 }
 
@@ -102,6 +109,7 @@ struct ShowPinyinAction: ClipboardAction {
     var title: String { "拼音" }
     var systemImage: String { "waveform" }
     var menuTitle: String { "显示拼音" }
+    var performsInlineUpdate: Bool { true }
 
     func perform(content: ClipboardContent, controller: ToastWindowController?) {
         let mutable = NSMutableString(string: String(character))
@@ -109,8 +117,8 @@ struct ShowPinyinAction: ClipboardAction {
         // Keep tone marks — do NOT strip diacritics
         let pinyin = (mutable as String).trimmingCharacters(in: .whitespaces)
 
-        let resultText = "\(character)  \(pinyin)"
-        controller?.showResultOverlay(resultText)
+        let displayText = "\(character)  \(pinyin)"
+        controller?.showResultOverlay(displayText: displayText, copyText: pinyin)
     }
 }
 
@@ -141,6 +149,22 @@ struct SaveFileAction: ClipboardAction {
                 try? text.write(to: url, atomically: true, encoding: .utf8)
             }
         }
+    }
+}
+
+// MARK: - Copy Result Action (used after inline-update actions show result)
+
+struct CopyTextAction: ClipboardAction {
+    let text: String
+    var id: String { "copy-result" }
+    var title: String { "复制" }
+    var systemImage: String { "doc.on.doc" }
+    var menuTitle: String { "复制结果" }
+
+    func perform(content: ClipboardContent, controller: ToastWindowController?) {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
     }
 }
 

@@ -62,7 +62,7 @@ final class ToastWindowController {
             }
         }
 
-        if localCmdMonitor == nil, viewModel.primaryAction != nil {
+        if localCmdMonitor == nil, viewModel.primaryAction != nil || viewModel.resultOverlay != nil {
             localCmdMonitor = NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
                 guard let self,
                       let window = self.window,
@@ -81,9 +81,14 @@ final class ToastWindowController {
                     }
                     let newCount = CGEventSource.counterForEventType(.hidSystemState, eventType: .keyDown)
                     if newCount == self.cmdKeyDownCount,
-                       !self.isDismissing,
-                       let action = self.viewModel.primaryAction {
-                        self.handlePerformAction(action)
+                       !self.isDismissing {
+                        // In result mode, ⌘ triggers copy; otherwise primary action.
+                        let action: (any ClipboardAction)? = self.viewModel.resultOverlay.map {
+                            CopyTextAction(text: $0.copyText)
+                        } ?? self.viewModel.primaryAction
+                        if let action {
+                            self.handlePerformAction(action)
+                        }
                     }
                 }
             }
@@ -96,20 +101,39 @@ final class ToastWindowController {
 
     // MARK: - Action execution
 
-    func showResultOverlay(_ text: String) {
+    func showResultOverlay(displayText: String, copyText: String) {
         cancelDismiss()
-        viewModel.resultText = text
-        startDismissTimer()
+        viewModel.resultOverlay = ResultOverlay(displayText: displayText, copyText: copyText)
+
+        if !isDismissing, let hosting = hostingView, let screen = NSScreen.main {
+            hosting.layoutSubtreeIfNeeded()
+            let panelSize = hosting.fittingSize
+            let x = screen.visibleFrame.midX - panelSize.width / 2
+            let y = screen.frame.maxY - panelSize.height + 20
+
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.25
+                ctx.allowsImplicitAnimation = true
+                window?.animator().setFrame(
+                    NSRect(x: x, y: y, width: panelSize.width, height: panelSize.height),
+                    display: true
+                )
+            }
+        }
+
+        if !isMouseInsideWindow() { startDismissTimer() }
     }
 
     // MARK: - Interaction handlers
 
     private func handlePerformAction(_ action: (any ClipboardAction)?) {
         guard let action, let content = currentContent else { return }
-        let isResultAction = action is CalculateAction || action is ShowPinyinAction
-        if isResultAction {
+        if action.performsInlineUpdate {
+            // Inline-update actions (Calculate, Pinyin, Plugin transform):
+            // perform updates popup content in-place, do not dismiss.
             action.perform(content: content, controller: self)
         } else {
+            // Regular actions: perform then dismiss.
             action.perform(content: content, controller: self)
             if !isDismissing {
                 isDismissing = true
@@ -128,7 +152,12 @@ final class ToastWindowController {
         guard !isDismissing else { return }
         isDismissing = true
         viewModel.cancelAsyncThumbnail()
-        dismissToast(animated: true)
+        // Defer dismiss to next run loop — gives button handler a chance
+        // to call cancelDismiss() for inline-update actions (Calculate / Pinyin).
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.isDismissing else { return }
+            self.dismissToast(animated: true)
+        }
     }
 
     // MARK: - Dismiss
@@ -189,7 +218,11 @@ final class ToastWindowController {
         let panelSize = hosting.fittingSize
         let x = screen.visibleFrame.midX - panelSize.width / 2
         let y = screen.frame.maxY - panelSize.height + 20
-        window?.setFrame(NSRect(x: x, y: y, width: panelSize.width, height: panelSize.height), display: true, animate: true)
+        window?.setFrame(
+            NSRect(x: x, y: y, width: panelSize.width, height: panelSize.height),
+            display: true,
+            animate: false
+        )
     }
 
     func dismissToast(animated: Bool) {

@@ -2,6 +2,12 @@ import SwiftUI
 import AppKit
 import Observation
 
+/// Describes an in-place result overlay shown after an inline-update action.
+struct ResultOverlay: Equatable {
+    let displayText: String   // shown in the popup
+    let copyText: String      // copied when user taps "复制"
+}
+
 @Observable
 final class ToastViewModel {
     var previewText: String = ""
@@ -16,7 +22,7 @@ final class ToastViewModel {
     var isCommandPressed = false
     var menuActions: [any ClipboardAction] = []
     var detectedColor: NSColor? = nil
-    var resultText: String? = nil
+    var resultOverlay: ResultOverlay? = nil
     var rawContent: ClipboardContent? = nil
 
     // ── Async thumbnail (Quick Look) ──────────────────────
@@ -101,7 +107,7 @@ final class ToastViewModel {
         sourceAppIcon = source.icon
         thumbnailImage = content.thumbnail
         rawContent = content
-        resultText = nil  // clear previous result
+        resultOverlay = nil  // clear previous result
         isCommandPressed = false
 
         // Resolve actions

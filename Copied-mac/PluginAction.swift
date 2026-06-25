@@ -11,6 +11,7 @@ struct PluginAction: ClipboardAction {
     var title: String { template.title }
     var systemImage: String { template.icon }
     var menuTitle: String { template.title }
+    var performsInlineUpdate: Bool { template.type == .transform }
 
     func perform(content: ClipboardContent, controller: ToastWindowController?) {
         switch template.type {
@@ -26,7 +27,7 @@ struct PluginAction: ClipboardAction {
 
         case .transform:
             let result = applyTransform(template, on: detection.value ?? "")
-            controller?.showResultOverlay(result)
+            controller?.showResultOverlay(displayText: result, copyText: result)
 
         case .none:
             break

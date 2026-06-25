@@ -57,8 +57,8 @@ Toast 显示期间，**再次按下 ⌘ 键并松开**可快速触发右侧操�
 | 复制长文本 (≥50字) | `text.quote` | 搜索 | "N字符" |
 | 复制 URL | `safari` | ⌘ 打开 | "链接 · N字符" |
 | 复制文件路径 | `folder` | ⌘ 打开 | "路径 · N字符" |
-| 复制公式 | `function` | ⌘ 计算 | "公式 · N字符" |
-| 复制单个汉字 | `waveform` | ⌘ 拼音 | "汉字" |
+| 复制公式 | `function` | ⌘ 计算 | 结果弹出，按钮变「复制」 |
+| 复制单个汉字 | `waveform` | ⌘ 拼音 | 拼音弹出，按钮变「复制」 |
 | 截图到剪贴板 (⌘⇧⌃4) | `photo` | — | "PNG 图片 · W×H" |
 | 复制单个图片文件 | 缩略图 | — | "JPG 图片 · W×H" |
 | 复制单个 PDF | Quick Look 缩略图 | — | "PDF 文件 · 25 KB" |
@@ -76,7 +76,7 @@ Toast 显示期间，**再次按下 ⌘ 键并松开**可快速触发右侧操�
 CopiedApp.swift             — 入口：MenuBarExtra + AppDelegate + Settings 场景
 ClipboardMonitor.swift      — NSPasteboard 轮询 + 内容解析 + 代码检测
 ContentDetector.swift       — 智能内容检测（URL/路径/色值/数学/汉字/英文）
-ClipboardAction.swift       — 操作协议 + 6 个操作 + 优先级解析
+ClipboardAction.swift       — 操作协议 + 7 个操作（含复制结果）+ 优先级解析
 FilePreviewGenerator.swift  — QLThumbnailGenerator 异步文件缩略图
 SourceAppDetector.swift     — NSWorkspace 前台 App 检测
 ToastWindowController.swift — NSWindow + NSHostingView 管理 + 操作执行

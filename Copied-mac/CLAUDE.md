@@ -158,24 +158,29 @@ Driven by `ToastViewModel.typeLabel` (priority: image format → file type/folde
 ```swift
 protocol ClipboardAction: Identifiable {
     var id: String { get }
-    var title: String { get }       // ≤3 Chinese chars for button
-    var systemImage: String { get } // SF Symbol
-    var menuTitle: String { get }   // context menu label
+    var title: String { get }            // ≤3 Chinese chars for button
+    var systemImage: String { get }      // SF Symbol
+    var menuTitle: String { get }        // context menu label
+    var performsInlineUpdate: Bool { get } // true → keep popup open after perform
     func perform(content:, controller:)
 }
+// Default: performsInlineUpdate = false
 ```
 
-**6 built-in actions + PluginAction** (resolved by `ActionResolver.resolve(for:)`):
+**7 built-in actions + PluginAction** (resolved by `ActionResolver.resolve(for:)`):
 
 | Action | Trigger (ContentKind) | Button text | Behavior |
 |--------|---------|:---:|------|
 | `OpenURLAction` | `.url` | 打开 | `NSWorkspace.shared.open` |
 | `RevealFileAction` | `.filePath` | 打开 | `NSWorkspace.shared.activateFileViewerSelecting` |
-| `CalculateAction` | `.mathExpr` | 计算 | NSExpression eval → `showResultOverlay` (NO clipboard write) |
-| `ShowPinyinAction` | `.chineseChar` | 拼音 | `CFStringTransform` to Latin (keep tones) → `showResultOverlay` |
-| `SearchTextAction` | `.englishPhrase` / plain text | 搜索 | `NSWorkspace.open` search engine URL (configurable via `UserDefaults("searchEngine")`) |
+| `CalculateAction` | `.mathExpr` | 计算 | NSExpression eval → `showResultOverlay(displayText:copyText:)` — inline update |
+| `ShowPinyinAction` | `.chineseChar` | 拼音 | `CFStringTransform` → `showResultOverlay(displayText:copyText:)` — inline update |
+| `SearchTextAction` | `.englishPhrase` / plain text | 搜索 | `NSWorkspace.open` search engine URL |
 | `SaveFileAction` | context menu | — | `NSSavePanel` → write to file |
-| `PluginAction` | Plugin-defined (any) | Template | openURL / searchWithEngine / transform / none |
+| `CopyTextAction` | result overlay (after Calculate/Pinyin) | 复制 | `NSPasteboard.general.setString` copies only the result/pinyin |
+| `PluginAction` | Plugin-defined (any) | Template | openURL / searchWithEngine / transform (`.transform` sets `performsInlineUpdate = true`) / none |
+
+**Inline update pattern** (`performsInlineUpdate = true`): After performing, the popup stays open and shows a **result overlay** (`ResultOverlay { displayText, copyText }`). The right button changes to "复制" (`CopyTextAction`). Used by `CalculateAction`, `ShowPinyinAction`, and plugin `.transform` actions. The `handleTap()` event monitor uses async dismiss (`DispatchQueue.main.async`) to avoid a race condition with the button's `cancelDismiss()` call.
 
 **Priority**: first non-color detection → right-side button (max 1). Others → context menu. If no detection but text exists → button defaults to 搜索. Plugin actions are created from `ContentDetection.pluginActionTemplate` when `ContentKind.source == .plugin(...)`. Language-only types (swift, python, etc.) produce no button — they only add a label/icon.
 
@@ -193,23 +198,27 @@ Install: open `.copiedplugin` folder via Settings → copied to `~/Library/Appli
 
 Click handling uses TWO layers working together:
 
-1. **NSEvent local monitor** (`leftMouseDown`): fires first. If click inside window → calls `handleTap()` (starts dismiss). **Returns the event** (does NOT consume it) so SwiftUI still processes it.
-2. **SwiftUI Button**: receives the same click. For result actions (Calculate/Pinyin) → calls `cancelDismiss()` to undo the monitor's dismiss, then shows result overlay + restarts timer. For other actions → performs action + lets dismiss proceed.
+1. **NSEvent local monitor** (`leftMouseDown`): fires first. If click inside window → calls `handleTap()` which sets `isDismissing=true` then schedules dismiss via `DispatchQueue.main.async` (deferred to next run loop).
+2. **SwiftUI Button**: receives the same click synchronously. For inline-update actions (`performsInlineUpdate = true`) → calls `cancelDismiss()` which sets `isDismissing=false` (the async dismiss block then skips itself). For other actions → performs action; dismiss proceeds when the async block fires.
 
-Background click: only layer 1 fires → toast dismisses. Button click: both fire → dismiss + action execute together.
+Background click: only layer 1 fires → async dismiss fires → toast dismisses. Button click on inline-update action: layer 1 sets dirty flag → button handler clears it → async block sees clean flag and skips.
+
+The async deferral (added 2026-06-25) eliminates a race condition where the monitor's immediate `dismissToast(animated:true)` animation competed with `cancelDismiss()`'s `alphaValue=1.0` restoration.
 
 `cancelDismiss()` resets `isDismissing=false`, increments `dismissGeneration` (invalidates stale animation), restores `alphaValue=1.0`.
 
 ### ⌘ key quick-action
 
-When the toast has a primary action button, pressing and releasing ⌘ triggers it. Uses two mechanisms that work **without Accessibility permission**:
+When the toast has a primary action button (or a result overlay), pressing and releasing ⌘ triggers it. Uses two mechanisms that work **without Accessibility permission**:
 
 1. **`NSEvent.addGlobalMonitorForEvents(.flagsChanged)`** — detects ⌘ press/release.
 2. **`CGEventSource.counterForEventType(.hidSystemState, .keyDown)`** — HID-level key-down counter. Snapshot at ⌘ press; if unchanged at ⌘ release, no other key was pressed → trigger. If changed, a shortcut (⌘+A etc.) was in progress → abort.
 
 Pre-existing ⌘ (from ⌘C copy) is detected via `NSEvent.modifierFlags` in `show()` → `cmdIsPreExisting = true` → button does NOT highlight and release does not trigger.
 
-Button visual feedback: `ToastViewModel.isCommandPressed` drives conditional SF Symbol (`"command"`), text (`"松开"`), background opacity (0.12→0.2), scale (1.0→0.92), with `.spring(response:0.2, dampingFraction:0.6)`.
+**Result mode**: When `viewModel.resultOverlay != nil` (after Calculate/Pinyin), ⌘ release triggers `CopyTextAction(text: overlay.copyText)` instead of `primaryAction`. The monitor guard checks `viewModel.primaryAction != nil || viewModel.resultOverlay != nil`.
+
+Button visual feedback: `ToastViewModel.isCommandPressed` drives conditional SF Symbol (`"command"`), text (`"松开"`), background opacity (0.12→0.2), scale (1.0→0.92), with `.spring(response:0.2, dampingFraction:0.6)`. In result mode the icon is `"doc.on.doc"` and text is `"复制"`.
 
 **Known dead-ends** (do not re-attempt):
 - `addGlobalMonitorForEvents(.keyDown/.keyUp)` — macOS filters ⌘+key shortcut events
@@ -224,7 +233,8 @@ Button visual feedback: `ToastViewModel.isCommandPressed` drives conditional SF 
 
 - **Color swatch**: 32×32 rounded rect (corner 8), replaces SF Symbol when `detectedColor != nil`. Has `.shadow` with the color itself.
 - **Thumbnail**: 64×64 for images (unchanged from original).
-- **Action button**: `HStack(spacing:4)` with SF Symbol 12pt + text 12pt, `.white.opacity(0.12)` background, 8pt corner radius. When a special type is detected (URL/file path/math/Chinese), the button icon defaults to `"command"` (⌘) instead of the action's own icon — avoids duplicating the left-side type icon. `showCommandIcon` drives this.
+- **Text area**: ZStack with opacity crossfade between preview text and result overlay. Result text uses `.truncationMode(.head)` to keep the result number / pinyin visible when text is long.
+- **Action button**: `HStack(spacing:4)` with SF Symbol 12pt + text 12pt, `.white.opacity(0.12)` background, 8pt corner radius. When a special type is detected, `showCommandIcon` makes the button icon `"command"` (⌘) to avoid duplicating the left-side type icon. **Result mode**: when `resultOverlay != nil`, the button becomes "复制" (`doc.on.doc` icon, triggers `CopyTextAction`).
 - **Context menu**: always shows 搜索 / 翻译(disabled) / 另存为…, plus content-specific items below a divider.
 
 ### Menu bar
@@ -239,6 +249,7 @@ Button visual feedback: `ToastViewModel.isCommandPressed` drives conditional SF 
 
 - **Edge highlight**: Liquid Glass edge highlight is suppressed by the WindowServer compositor on non-key floating windows. The SwiftUI `.stroke(.white.opacity(0.25))` overlay compensates visually.
 - **Window position constraint**: macOS constrains window frames to screen bounds. The window extends above `visibleFrame.maxY` using `screen.frame.maxY`, but further upward push is clamped by the WindowServer.
+- **Window animation clipping**: During `showResultOverlay` window expansion, the `NSHostingView` content is already at full target width while the window frame is still animating, causing brief right-edge clipping. Multiple approaches were tried (CALayer mask, `clipsToBounds`, hosting view offset, constraints) — none eliminated the AppKit ↔ SwiftUI timing mismatch. Current workaround: 0.25s fast animation + `.truncationMode(.head)` keeps the result number visible + ZStack crossfade masks the transition.
 - **macOS 26+ only**: `.glassEffect()` requires macOS 26. Lower versions would need `NSVisualEffectView` fallback.
 - **No Xcode project**: Built via `swiftc` in `build.sh`. To use Xcode, create a macOS App target and add all `.swift` files + `Info.plist`.
 - **Frameworks**: SwiftUI, AppKit, QuickLookThumbnailing (file thumbnails), ServiceManagement (login item). `build.sh` also ad-hoc codesigns for SMAppService.
