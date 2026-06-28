@@ -37,7 +37,6 @@ final class ToastViewModel {
             let isVisualOnly = d.kind.id == ContentKind.colorHex.id
                 || d.kind.id == ContentKind.colorRGB.id
                 || d.kind.id == ContentKind.colorHSL.id
-                || d.kind.id == ContentKind.englishPhrase.id
             if !isVisualOnly { return d }
         }
         return nil

@@ -3,8 +3,6 @@ import Observation
 
 /// 类型设置视图 — 管理 ContentKind 优先级、启用/禁用、插件。
 struct TypeSettingsView: View {
-    @AppStorage("translationEnabled") private var translationEnabled = true
-    @State private var service = TranslationService.shared
 
     /// 列表结构版本（仅在安装/移除插件时递增，toggle 不触发）。
     @State private var listVersion = 0
@@ -34,78 +32,6 @@ struct TypeSettingsView: View {
 
     var body: some View {
         Form {
-            // ── 翻译 ────────────────────────────────────────
-            Section {
-                // 开关
-                HStack(spacing: 10) {
-                    Image(systemName: "character.bubble")
-                        .frame(width: 20)
-                        .foregroundStyle(.secondary)
-
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("翻译")
-                            .font(.system(size: 13))
-                        Text("英文短语检测 + 右键翻译")
-                            .font(.system(size: 10))
-                            .foregroundStyle(.tertiary)
-                    }
-
-                    Spacer()
-
-                    Toggle("", isOn: $translationEnabled)
-                        .toggleStyle(.switch)
-                        .controlSize(.small)
-                        .onChange(of: translationEnabled) { oldValue, newValue in
-                            DetectionRegistry.shared.setEnabled(newValue, kindID: ContentKind.englishPhrase.id)
-                        }
-                }
-                .padding(.vertical, 2)
-
-                // 下载管理（仅在开关打开时显示）
-                if translationEnabled {
-                    if service.allReady {
-                        HStack {
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundStyle(.green)
-                            Text("翻译模型已就绪")
-                                .font(.system(size: 12))
-                            Spacer()
-                            Button("重置…") {
-                                service.removeModels()
-                            }
-                            .font(.system(size: 11))
-                            .buttonStyle(.borderless)
-                        }
-                        .padding(.top, 6)
-                    } else if service.isDownloading {
-                        HStack {
-                            ProgressView()
-                                .scaleEffect(0.7)
-                                .frame(width: 16, height: 16)
-                            Text("正在下载翻译模型…")
-                                .font(.system(size: 12))
-                        }
-                        .padding(.top, 6)
-                    } else {
-                        Button {
-                            Task { await service.downloadModels() }
-                        } label: {
-                            Text("下载翻译模型")
-                                .font(.system(size: 12))
-                        }
-                        .padding(.top, 4)
-                    }
-
-                    if let error = service.downloadError {
-                        Text(error)
-                            .font(.system(size: 11))
-                            .foregroundStyle(.red)
-                    }
-                }
-            } header: {
-                Text("翻译")
-            }
-
             // ── Language Types ──────────────────────────────
             if !languageKinds.isEmpty {
                 Section {
@@ -155,9 +81,6 @@ struct TypeSettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .task {
-            await service.refreshReadiness()
-        }
     }
 
     // MARK: - Install Plugin

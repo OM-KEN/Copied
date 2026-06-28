@@ -70,17 +70,22 @@ final class ClipboardMonitor {
         lastChangeCount = currentCount
         NSLog("Copied: clipboard change detected (count=\(currentCount))")
 
-        guard let content = readClipboardContent(pasteboard) else { return }
+        guard let content = readClipboardContent(pasteboard) else {
+            NSLog("Copied: readClipboardContent returned nil (types=\(pasteboard.types ?? []))")
+            return
+        }
 
         let now = Date()
         if content.hashValue == lastHash,
            now.timeIntervalSince(lastShowTime) < dedupWindow {
+            NSLog("Copied: dedup skip (hash=\(content.hashValue), elapsed=\(String(format: "%.3f", now.timeIntervalSince(lastShowTime)))s)")
             return
         }
         lastHash = content.hashValue
         lastShowTime = now
 
         let source = SourceAppDetector.detect(for: content)
+        NSLog("Copied: dispatching show (type=\(content.type), preview=\(content.preview.prefix(50)))")
 
         DispatchQueue.main.async { [weak self] in
             self?.toastController?.show(content: content, source: source)

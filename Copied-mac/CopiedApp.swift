@@ -1,11 +1,6 @@
 import SwiftUI
 import AppKit
-@preconcurrency import Translation
 
-// MARK: - 翻译会话注册视图
-
-/// 包裹菜单栏内容的视图，附加 `.translationTask` 以注册翻译会话。
-/// 用户点击菜单栏图标时触发，若模型未下载则弹出系统授权。
 private struct MenuBarContent: View {
     @AppStorage("isPaused") private var isPaused = false
     let onPauseToggle: (Bool) -> Void
@@ -27,26 +22,6 @@ private struct MenuBarContent: View {
                 NSApp.terminate(nil)
             }
             .keyboardShortcut("q")
-        }
-        .translationTask(
-            source: Locale.Language(identifier: "en"),
-            target: Locale.Language(identifier: "zh_Hans")
-        ) { session in
-            TranslationService.shared.registerSession(
-                session,
-                source: Locale.Language(identifier: "en"),
-                target: Locale.Language(identifier: "zh_Hans")
-            )
-        }
-        .translationTask(
-            source: Locale.Language(identifier: "zh_Hans"),
-            target: Locale.Language(identifier: "en")
-        ) { session in
-            TranslationService.shared.registerSession(
-                session,
-                source: Locale.Language(identifier: "zh_Hans"),
-                target: Locale.Language(identifier: "en")
-            )
         }
     }
 }
@@ -78,9 +53,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSLog("Copied: applicationDidFinishLaunching")
-
-        // 注册默认值：翻译开关默认开启
-        UserDefaults.standard.register(defaults: ["translationEnabled": true])
 
         // Pre-warm NSDataDetector (lazy init ~20ms — do it now, not on first copy)
         _ = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)

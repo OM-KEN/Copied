@@ -73,6 +73,7 @@ Apple 风格的浮动通知卡片——轻盈、克制、不打扰。macOS 26 �
 | 日期时间检测 | `calendar` | 日历 |
 | 公式检测 | `function` | 函数符号 |
 | 汉字检测 | `waveform` | 音波（拼音） |
+| 英文单词检测 | `character.bubble` | 对话气泡（查词翻译） |
 | 文件夹（访达复制） | `folder` | 文件夹 |
 | 短文本 (<50字) | `text.alignleft` | 左对齐文字 |
 | 长文本 (≥50字) | `text.quote` | 引用段落 |
@@ -91,11 +92,11 @@ Toast 右侧最多 1 个按钮，样式：`[SF Symbol 12pt] 文案(≤3字) 12pt
 2. 日历（日期时间）→ `calendar`
 3. 计算（数学表达式）→ `function`
 4. 拼音（单个汉字）→ `waveform`
-5. 搜索（英文短语 / 普通文本）→ `magnifyingglass`
+5. 翻译（英文单词）→ `character.bubble`
 
 ## 右键菜单
 
-始终显示：**搜索** | **翻译** | **另存为…**，分隔线后追加内容专属操作。使用 SwiftUI `.contextMenu` modifier。翻译需先在设置中下载模型（macOS 15 Translation 框架）。
+始终显示：**搜索** | **另存为…**，分隔线后追加内容专属操作。使用 SwiftUI `.contextMenu` modifier。
 
 ## 内容检测系统（ContentKind + DetectionRegistry）
 
@@ -109,7 +110,7 @@ Toast 右侧最多 1 个按钮，样式：`[SF Symbol 12pt] 文案(≤3字) 12pt
 | 日期时间 | `DateTimeDetector` | 190 | 预处理（M.D→M月D日 等）+ `NSDataDetector(.date)` |
 | 数学表达式 | `MathExpressionDetector` | 180 | 字符白名单 + 括号平衡 + 结构验证 |
 | 单个汉字 | `ChineseCharDetector` | 100 | U+4E00–U+9FFF |
-| 英文短语 | `EnglishPhraseDetector` | 80 | 2-10 ASCII 单词 |
+| 英文单词 | `EnglishPhraseDetector` | 80 | 单个 ASCII 单词 |
 | HTML | `HTMLDetector` | 70 | `</?[a-zA-Z]+\b` |
 | Swift | `SwiftDetector` | 60 | 关键字 + import 模式 |
 | Python | `PythonDetector` | 50 | def/import/elif 关键字 |

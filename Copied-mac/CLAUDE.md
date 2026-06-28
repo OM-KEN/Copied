@@ -20,19 +20,20 @@ DetectionRegistry.swift        Global registry: manages all detectors + throttle
 ContentKind.swift              Unified type identifier (replaces old TextKind + DetectedContent)
 ContentDetection.swift         Detection result struct (kind + value + color + metadata)
 Detectors/                     Built-in detector files (13 total: Color, URL, FilePath, DateTime, Math, etc.)
-TranslateAction.swift          Translation service + TranslateAction + language detection
+DictionaryLookupService.swift  System dictionary lookup (DCSCopyTextDefinition, zero-config)
+LookupAction.swift             Dictionary lookup action — inline result like pinyin
 PluginManifest.swift           manifest.json / rules.json Codable models
 PluginActionTemplate.swift     Action template types (openURL, search, transform, none)
 PluginAction.swift             Executes plugin-defined action templates
 PluginLoader.swift             Scans, validates, loads, installs .copiedplugin folders
-ClipboardAction.swift          Action protocol + 9 concrete actions (incl. TranslateAction) + resolver
+ClipboardAction.swift          Action protocol + 9 concrete actions (incl. LookupAction) + resolver
 FilePreviewGenerator.swift     QLThumbnailGenerator wrapper — async content thumbnails
 ToastWindowController.swift Manages the floating NSWindow + NSHostingView + actions
 ToastViewModel.swift           @Observable model, icon/type-label/action/async-thumbnail logic
 ToastView.swift                SwiftUI card layout + glassEffect + button + swatch + menu
 SourceAppDetector.swift     NSWorkspace.frontmostApplication → name + icon
 SettingsView.swift              Settings page (launch-at-login + search engine picker + types tab)
-TypeSettingsView.swift         Type priority list + plugin management UI + translation download
+TypeSettingsView.swift         Type priority list + plugin management
 ```
 
 **Data flow:** `ClipboardMonitor` → `DetectionRegistry.detectAll()` → `ClipboardContent` (+ `[ContentDetection]`) → `ToastWindowController.show()` → `ToastViewModel` resolves actions + triggers async thumbnail → `NSHostingView` → `ToastView` (`.glassEffect()` + thumbnail + button + swatch + contextMenu)
@@ -62,7 +63,7 @@ All entry animation lives in `ToastView` via `@State + .onAppear + withAnimation
 
 Spring: `mass: 1.2, stiffness: 120, damping: 14, initialVelocity: 3` (~550ms perceptual). Asymmetric padding (top:20, bottom:12, horizontal:18) outside the animation absorbs spring overshoot. Window positioned via `screen.frame.maxY` for tight-to-top placement.
 
-Exit animation: 200ms AppKit `easeIn` fade-out. Triggered by 3s timer expiry or user click.
+Exit animation: 200ms AppKit `easeIn` fade-out via `NSAnimationContext.runAnimationGroup`, cleanup via `DispatchQueue.main.asyncAfter` (+0.25s) — GCD timer used instead of animation `completionHandler` to prevent stale callbacks leaving window onscreen at alpha=0 after long runtime.
 
 ### Mouse interaction: hover-to-pause + click-to-dismiss
 
@@ -102,7 +103,7 @@ After text is parsed, `DetectionRegistry.shared.detectAll(in:)` runs all registe
 | 190 | `DateTimeDetector` | `.dateTime` | Preprocessing (M.D→M月D日, H点→H:00) + `NSDataDetector(.date)` full-text match; `RelativeDateTimeFormatter` detail |
 | 180 | `MathExpressionDetector` | `.mathExpr` | Digits+operators, balanced parens, structure validation |
 | 100 | `ChineseCharDetector` | `.chineseChar` | Exactly 1 char, U+4E00–U+9FFF |
-| 80 | `EnglishPhraseDetector` | `.englishPhrase` | 2-10 ASCII words, no code delimiters |
+| 80 | `EnglishPhraseDetector` | `.englishPhrase` | Single ASCII word, no code delimiters |
 | 70 | `HTMLDetector` | `.html` | `</?[a-zA-Z]+\b` tags |
 | 60 | `SwiftDetector` | `.swift` | `func\|var\|let\|struct\|class\|import SwiftUI…` |
 | 50 | `PythonDetector` | `.python` | `def\|import\|elif\|yield…` |
@@ -113,7 +114,7 @@ After text is parsed, `DetectionRegistry.shared.detectAll(in:)` runs all registe
 
 **Performance safeguards:**
 - **100KB text cutoff**: Text >100KB → only built-in `.language` detectors run (skip all `.entity` and plugins)
-- **5ms per-detector timeout**: After each detector runs, if elapsed >5ms → throttled for 30s
+- **50ms per-detector timeout**: After each detector runs, if elapsed >50ms → throttled for 30s
 - **3-strike auto-disable**: Consecutive throttles ≥3 → detector permanently disabled with system notification
 
 Detection results stored in `ClipboardContent.detections: [ContentDetection]`. Each detection carries `kind`, `value`, optional `color`, optional `pluginActionTemplate`.
@@ -179,15 +180,17 @@ protocol ClipboardAction: Identifiable {
 | `OpenCalendarAction` | `.dateTime` | 日历 | `Process`/osascript → Calendar `view calendar at` |
 | `CalculateAction` | `.mathExpr` | 计算 | NSExpression eval → `showResultOverlay` — inline, line 1=expression, line 2==result |
 | `ShowPinyinAction` | `.chineseChar` | 拼音 | `CFStringTransform` → `showResultOverlay` — inline |
-| `TranslateAction` | `.englishPhrase` / context menu | 翻译 | macOS Translation 框架 → `prepareForAsyncInlineAction` + `showInlineResult` — inline, 仅显示译文 |
+| `LookupAction` | `.englishPhrase` | 翻译 | `DCSCopyTextDefinition` → system dictionary (Oxford CN-EN) → `showInlineResult` — inline, line 1=word+pron, line 2=Chinese translations |
 | `SearchTextAction` | plain text (fallback) | 搜索 | `NSWorkspace.open` search engine URL |
 | `SaveFileAction` | context menu | — | `NSSavePanel` → write to file |
 | `CopyTextAction` | result overlay (after Calculate/Pinyin/Translate) | 复制 | `NSPasteboard.general.setString` |
 | `PluginAction` | Plugin-defined (any) | Template | openURL / searchWithEngine / transform / none |
 
-**Inline update pattern** (`performsInlineUpdate = true`): After performing, the popup stays open and shows a **result overlay** (`ResultOverlay { displayText, copyText }`). The right button changes to "复制" (`CopyTextAction`). Used by `CalculateAction`, `ShowPinyinAction`, `TranslateAction`, and plugin `.transform` actions. For async actions (Translate), call `prepareForAsyncInlineAction()` synchronously before the async work to prevent the `handleTap()` dismiss race; then call `showInlineResult(displayText:copyText:)` when done — identical non-animated resize path for all async inline actions.
+**Inline update pattern** (`performsInlineUpdate = true`): After performing, the popup stays open and shows a **result overlay** (`ResultOverlay { displayText, copyText }`). The right button changes to "复制" (`CopyTextAction`). Used by `CalculateAction`, `ShowPinyinAction`, `LookupAction`, and plugin `.transform` actions. All are synchronous — `showInlineResult(displayText:copyText:)` is called directly.
 
-**Translation**: Uses macOS 15 `Translation` framework. Session registered via `.translationTask` on MenuBar, Settings, and Toast views. Model download is manually triggered from Settings → Types → Translation section (uses `LanguageAvailability` to check status, `prepareTranslation()` to download). Settings toggle (`translationEnabled` in UserDefaults) controls English phrase detection + right-click translate. If models not installed, clicking "翻译" shows NSAlert guiding user to Settings.
+**Result overlay layout**: The overlay's `displayText` is split by `\n` and each segment is rendered in its own `Text` with `.lineLimit(1)` — preventing first-line overflow from pushing into the second line. This supports two-line formats (word+pronunciation / translations, expression / =result, character / pinyin).
+
+**Dictionary lookup** (`LookupAction`): Uses `DCSCopyTextDefinition` from CoreServices/DictionaryServices to query macOS's built-in Oxford Chinese-English dictionary. No download, no network, zero configuration. Returns: line 1 = "`{word} 英 {pron}`", line 2 = Chinese translations (≤5-char CJK groups, filtered for core definitions, max 8, comma-separated). The detector (`EnglishPhraseDetector`) triggers on single ASCII words only — phrase-level lookup is not supported by the dictionary API.
 
 **Priority**: first non-color detection → right-side button (max 1). Others → context menu. If no detection but text exists → button defaults to 搜索. Plugin actions are created from `ContentDetection.pluginActionTemplate` when `ContentKind.source == .plugin(...)`. Language-only types (swift, python, etc.) produce no button — they only add a label/icon.
 
@@ -240,9 +243,9 @@ Button visual feedback: `ToastViewModel.isCommandPressed` drives conditional SF 
 
 - **Color swatch**: 32×32 rounded rect (corner 8), replaces SF Symbol when `detectedColor != nil`. Has `.shadow` with the color itself.
 - **Thumbnail**: 64×64 for images (unchanged from original).
-- **Text area**: ZStack with opacity crossfade between preview text and result overlay. Both texts use `.lineLimit(2)` + `.lineSpacing(4)`. Math result uses explicit `\n` for 2-line display (expression on top, `=result` on bottom); pinyin stays single-line. First line truncates naturally with default tail mode.
+- **Text area**: ZStack with opacity crossfade between preview text and result overlay. Preview uses `.lineLimit(2)` + `.lineSpacing(4)`. Result overlay splits `displayText` by `\n` into a `VStack` of `Text` views each with `.lineLimit(1)` — independent truncation prevents any line from overflowing into the next.
 - **Action button**: `HStack(spacing:4)` with SF Symbol 12pt + text 12pt, `.white.opacity(0.12)` background, 8pt corner radius. When a special type is detected, `showCommandIcon` makes the button icon `"command"` (⌘) to avoid duplicating the left-side type icon. **Result mode**: when `resultOverlay != nil`, the button becomes "复制" (`doc.on.doc` icon, triggers `CopyTextAction`).
-- **Context menu**: always shows 搜索 / 翻译 / 另存为…, plus content-specific items below a divider. 翻译 available when `translationEnabled` UserDefaults is true (中文→英文, other→中文, 200-char cap).
+- **Context menu**: always shows 搜索 / 另存为…, plus content-specific items below a divider.
 
 ### Menu bar
 
@@ -259,7 +262,7 @@ Button visual feedback: `ToastViewModel.isCommandPressed` drives conditional SF 
 - **Window animation clipping**: During `showResultOverlay` window expansion, the `NSHostingView` content is already at full target width while the window frame is still animating, causing brief right-edge clipping. Multiple approaches were tried (CALayer mask, `clipsToBounds`, hosting view offset, constraints) — none eliminated the AppKit ↔ SwiftUI timing mismatch. Current workaround: 0.25s fast animation + explicit 2-line result format (result always on line 2, visible) + ZStack crossfade masks the transition.
 - **macOS 26+ only**: `.glassEffect()` requires macOS 26. Lower versions would need `NSVisualEffectView` fallback.
 - **No Xcode project**: Built via `swiftc` in `build.sh`. To use Xcode, create a macOS App target and add all `.swift` files + `Info.plist`.
-- **Frameworks**: SwiftUI, AppKit, QuickLookThumbnailing (file thumbnails), ServiceManagement (login item), Translation (macOS 15+ neural translation). `build.sh` also ad-hoc codesigns for SMAppService.
-- **Settings**: Settings page (⌘, or menu → 设置…) with launch-at-login toggle, search engine picker, type management, and translation download/status. UserDefaults keys: `searchEngine`, `translationEnabled`, `translationModelsInstalled`.
-- **Translation**: Implemented via macOS 15 `Translation` framework. English phrase → TranslateAction (en→zh_Hans). Right-click translate detects Chinese vs non-Chinese for source/target. Model download in Settings → Types → Translation. `prepareForAsyncInlineAction()` + `showInlineResult()` pattern reusable for future async inline actions.
+- **Frameworks**: SwiftUI, AppKit, QuickLookThumbnailing (file thumbnails), ServiceManagement (login item), CoreServices (DictionaryServices for word lookup). `build.sh` also ad-hoc codesigns for SMAppService.
+- **Settings**: Settings page (⌘, or menu → 设置…) with launch-at-login toggle, search engine picker, type management. UserDefaults keys: `searchEngine`.
+- **Dictionary lookup**: Implemented via `DCSCopyTextDefinition` from CoreServices/DictionaryServices. Returns results from macOS built-in Oxford Chinese-English dictionary. No download, no network. Single-word only (dictionary API limitation, not phrase-level). `showInlineResult()` pattern shared with Calculate/Pinyin actions.
 

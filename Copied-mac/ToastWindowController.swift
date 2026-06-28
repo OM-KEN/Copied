@@ -10,8 +10,6 @@ final class ToastWindowController {
 
     private var isDismissing = false
     private var dismissGeneration = 0
-    private(set) var translationGeneration = 0
-    var isTranslating = false  // 翻译进行中，阻止 toast 关闭
     private var localMouseMonitor: Any?
     private var localCmdMonitor: Any?
     private var cmdKeyDownCount: UInt32 = 0
@@ -21,9 +19,9 @@ final class ToastWindowController {
     private var currentContent: ClipboardContent?
 
     func show(content: ClipboardContent, source: SourceAppInfo) {
+        NSLog("Copied: show() entry — preview=\(content.preview.prefix(40)), isDismissing=\(isDismissing), windowExists=\(window != nil)")
         viewModel.configure(with: content, source: source)
         currentContent = content
-        translationGeneration += 1  // 使进行中的翻译过期
 
         isDismissing = false
         dismissToast(animated: false)
@@ -47,13 +45,18 @@ final class ToastWindowController {
         contentView?.addSubview(newHosting)
         newHosting.layoutSubtreeIfNeeded()
 
-        guard let screen = NSScreen.main else { return }
+        guard let screen = NSScreen.main else {
+            NSLog("Copied: NSScreen.main is nil — cannot position window!")
+            return
+        }
         let panelSize = newHosting.fittingSize
         let x = screen.visibleFrame.midX - panelSize.width / 2
         let y = screen.frame.maxY - panelSize.height + 20
+        NSLog("Copied: positioning — screen.frame=\(screen.frame), visibleFrame=\(screen.visibleFrame), panelSize=\(panelSize), target=(\(x), \(y))")
         window?.setFrame(NSRect(x: x, y: y, width: panelSize.width, height: panelSize.height), display: true, animate: false)
         window?.alphaValue = 1.0
         window?.orderFront(nil)
+        NSLog("Copied: after orderFront — isVisible=\(window?.isVisible ?? false), alpha=\(window?.alphaValue ?? -1), frame=\(window?.frame ?? .zero), hostingInSuperview=\(newHosting.superview != nil)")
 
         if isMouseInsideWindow() {} else { startDismissTimer() }
 
@@ -164,7 +167,7 @@ final class ToastWindowController {
     }
 
     private func handleTap() {
-        guard !isDismissing, !isTranslating else { return }
+        guard !isDismissing else { return }
         isDismissing = true
         viewModel.cancelAsyncThumbnail()
         // Defer dismiss to next run loop — gives button handler a chance
@@ -199,13 +202,7 @@ final class ToastWindowController {
         pauseDismissTimer()
     }
 
-    func nextTranslationGeneration() -> Int {
-        translationGeneration += 1
-        return translationGeneration
-    }
-
     func startDismissTimer() {
-        guard !isTranslating else { return }
         dismissTimer?.invalidate()
         dismissTimer = Timer.scheduledTimer(withTimeInterval: displayDuration, repeats: false) { [weak self] _ in
             guard let self, !self.isDismissing else { return }
@@ -270,7 +267,10 @@ final class ToastWindowController {
                 ctx.duration = 0.2
                 ctx.timingFunction = CAMediaTimingFunction(name: .easeIn)
                 window?.animator().alphaValue = 0
-            } completionHandler: { [weak self] in
+            }
+            // 用 GCD timer 替代 completionHandler — 不依赖 AppKit 动画回调，
+            // 避免长时间运行后回调丢失导致窗口残留 alpha=0
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
                 guard let self, self.dismissGeneration == gen else { return }
                 self.window?.orderOut(nil)
                 self.isDismissing = false
