@@ -72,8 +72,8 @@ Apple 风格的浮动通知卡片——轻盈、克制、不打扰。macOS 26 �
 | 文件路径检测 | `folder` | 文件夹 |
 | 日期时间检测 | `calendar` | 日历 |
 | 公式检测 | `function` | 函数符号 |
-| 汉字检测 | `waveform` | 音波（拼音） |
-| 英文单词检测 | `character.bubble` | 对话气泡（查词翻译） |
+| 汉字检测 | `character` | 字符（拼音） |
+| 英文单词检测 | `abc` | 字母（查词翻译） |
 | 文件夹（访达复制） | `folder` | 文件夹 |
 | 短文本 (<50字) | `text.alignleft` | 左对齐文字 |
 | 长文本 (≥50字) | `text.quote` | 引用段落 |
@@ -88,11 +88,11 @@ Apple 风格的浮动通知卡片——轻盈、克制、不打扰。macOS 26 �
 Toast 右侧最多 1 个按钮，样式：`[SF Symbol 12pt] 文案(≤3字) 12pt Medium`，水平内边距 10，垂直 6，圆角 8，`.white.opacity(0.12)` 背景，`.buttonStyle(.plain)`。
 
 按钮优先级（取最高匹配）：
-1. 打开（URL / 文件路径）→ `safari` / `folder`
+1. 打开（URL / 文件路径）→ `arrow.up.forward`
 2. 日历（日期时间）→ `calendar`
-3. 计算（数学表达式）→ `function`
-4. 拼音（单个汉字）→ `waveform`
-5. 翻译（英文单词）→ `character.bubble`
+3. 计算（数学表达式）→ `equal`
+4. 拼音（单个汉字）→ `keyboard`
+5. 翻译（英文单词）→ `translate`
 
 ## 右键菜单
 
@@ -176,17 +176,28 @@ Toast 显示期间，**按下并松开 ⌘ 键**触发右侧操作按钮，无�
 - **按钮反馈**：⌘ 按下时按钮缩放至 0.92、背景增亮、"松开"文案 + ⌘ SF Symbol；spring 动画 0.2s。
 - **预存 ⌘**：⌘C 复制后若 ⌘ 仍未松开，Toast 按钮不高亮、不触发。
 
+## 左右键快捷复制（CopyGestureManager）
+
+设置 → 手势中可开启。按住左键时点击右键 → 自动 ⌘C，不区分应用和内容类型。
+
+- **监听方式**：`CGEvent.tapCreate(.cgSessionEventTap, .headInsertEventTap)` — 拦截 leftMouseDown/leftMouseUp/rightMouseDown 三个事件
+- **Core 逻辑**：仅维护 `isLeftPressed` 状态变量；rightMouseDown 且 isLeftPressed → 吞掉右键（return nil）+ 15ms 后发送完整 ⌘C 序列（⌘Down → CDown → CUp → ⌘Up）
+- **状态兜底**：App 失焦、系统锁屏、系统休眠时自动 `isLeftPressed = false`
+- **EventTap 恢复**：收到 `tapDisabledByTimeout/tapDisabledByUserInput` 时重新 enable
+- **权限要求**：辅助功能权限（CGEventTap 要求）。App 需位于 `/Applications` 等标准路径（`.build` 隐藏目录会被 TCC 拒绝）
+- **按钮反馈**：Hover 进入立刻响应，离开延迟 100ms（防抖，避免边缘闪烁）
+
 ## 内容展示规则
 
 详情行由 `ToastViewModel.typeLabel` 统一驱动，优先级：**图片格式 → 文件类型/文件夹 → 检测类型 → 代码语言**。
 
-- **特殊检测文本**：检测类型图标（`safari`/`folder`/`function`/`waveform`）+ 类型标签（"链接"/"路径"/"公式"/"汉字"）+ 字符数。右侧按钮图标改为 ⌘ 避免与左侧重复
+- **特殊检测文本**：检测类型图标（`safari`/`folder`/`function`/`character`）+ 类型标签（"链接"/"路径"/"公式"/"汉字"）+ 字符数。右侧按钮平时显示操作图标（`arrow.up.forward`/`equal`/`keyboard`/`translate`），悬浮或按 ⌘ 时切换为 `command` 图标
 - **短文本**（< 50 字符，无检测）：`text.alignleft` 图标，无字符数，仅来源行
 - **长文本**（≥ 50 字符，无检测）：`text.quote` 图标，来源行 + "N字符"
 - **代码**（无特殊检测）：`curlybraces` 图标，来源行 + "Swift · 120字符"（语言标签 + 字符数）；HTML 用 `</>` 图标
 - **剪贴板图片**（截图等）：`photo` 图标 + 缩略图，"PNG 图片 · W×H"（从 pasteboard types 检测格式）
 - **单图片文件**（访达复制）：读取文件内容生成缩略图，"JPG 图片 · W×H"（从扩展名检测格式）
-- **单文件夹**（访达复制）：`folder` 图标，"文件夹"
+- **单文件夹**（访达复制）：`folder` 图标，"文件夹 · 128.5 MB"（含递归大小）
 - **单文件**（非图片）：异步 Quick Look 缩略图，"PDF 文件 · 2.5 MB"（从扩展名检测类型 + 文件大小）
 - **多文件**：文件名逗号分隔（最多 3 个），详情显示"N个文件"，来源显示**文件夹名**而非"访达"
 - **来源行**："复制自" + App 图标 16pt + App 名称，Finder→文件夹名、Safari→Safari、VS Code→Code 等
@@ -209,7 +220,7 @@ Toast 显示期间，**按下并松开 ⌘ 键**触发右侧操作按钮，无�
 
 8. **swiftc 增量编译**：无 Xcode 工程、无 SPM、零第三方依赖。~30 个 Swift 文件，链接 QuickLookThumbnailing + ServiceManagement 系统框架。build.sh 使用 SHA-256 指纹跳过未变编译 + 多线程并行。
 
-9. **操作 + 类型双可扩展**：`ClipboardAction` 协议可新增操作类型，`PluginAction` 执行声明式动作模板（openURL/search/transform）。类型系统通过 `.copiedplugin` 文件夹扩展（JSON + 正则），插件在 Settings 中管理。`showCommandIcon` 在检测类型有 primaryDetection 时按钮图标切为 ⌘。
+9. **操作 + 类型双可扩展**：`ClipboardAction` 协议可新增操作类型，`PluginAction` 执行声明式动作模板（openURL/search/transform）。类型系统通过 `.copiedplugin` 文件夹扩展（JSON + 正则），插件在 Settings 中管理。
 
 10. **计算不写剪贴板**：`CalculateAction` 仅在 toast 内联显示结果（`showResultOverlay`），不触碰 `NSPasteboard`，避免触发新一轮复制检测导致双弹窗。
 

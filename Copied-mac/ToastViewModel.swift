@@ -42,11 +42,6 @@ final class ToastViewModel {
         return nil
     }
 
-    /// Right button shows ⌘ icon when a special type is detected (avoiding icon duplication).
-    var showCommandIcon: Bool {
-        primaryDetection != nil
-    }
-
     /// Human-readable type label for the detail line.
     /// Priority: image format → file type/folder → detection label → language label.
     var typeLabel: String {

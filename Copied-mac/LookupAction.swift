@@ -7,7 +7,7 @@ struct LookupAction: ClipboardAction {
 
     var id: String { "lookup" }
     var title: String { "翻译" }
-    var systemImage: String { "character.bubble" }
+    var systemImage: String { "translate" }
     var menuTitle: String { "翻译" }
     var performsInlineUpdate: Bool { true }
 

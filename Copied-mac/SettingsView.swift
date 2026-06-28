@@ -17,8 +17,12 @@ struct SettingsView: View {
         ("duckduckgo", "DuckDuckGo"),
     ]
 
+    // ── Copy Gesture ───────────────────────────────────────
+    @AppStorage("copyGestureEnabled") private var copyGestureEnabled = false
+    @State private var selectedTab = "general"
+
     var body: some View {
-        TabView {
+        TabView(selection: $selectedTab) {
             // ── General + Search ─────────────────────────
             Form {
                 Section {
@@ -58,16 +62,83 @@ struct SettingsView: View {
             .tabItem {
                 Label("通用", systemImage: "gearshape")
             }
+            .tag("general")
 
             // ── Types ─────────────────────────────────────
             TypeSettingsView()
                 .tabItem {
                     Label("类型", systemImage: "rectangle.grid.1x2")
                 }
+                .tag("types")
+
+            // ── Gesture ───────────────────────────────────
+            gestureTab
+                .tabItem {
+                    Label("手势", systemImage: "hand.tap")
+                }
+                .tag("gesture")
         }
         .frame(width: 380, height: 400)
         .onAppear {
             NSApp.activate(ignoringOtherApps: true)
+        }
+    }
+
+    // MARK: - Gesture Tab
+
+    private var gestureTab: some View {
+        Form {
+            Section {
+                Toggle("左右键快捷复制", isOn: Binding(
+                    get: { copyGestureEnabled },
+                    set: { enabled in
+                        copyGestureEnabled = enabled
+                        if enabled {
+                            CopyGestureManager.shared.start()
+                        } else {
+                            CopyGestureManager.shared.stop()
+                        }
+                    }
+                ))
+
+                Text("按住左键时点击右键 → 自动 ⌘C 复制")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } header: {
+                Text("功能")
+            }
+
+            Section {
+                HStack {
+                    Image(systemName: CopyGestureManager.shared.isRunning
+                          ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                        .foregroundStyle(CopyGestureManager.shared.isRunning ? .green : .yellow)
+                    Text(CopyGestureManager.shared.isRunning ? "运行中" : "未运行")
+                    if !CopyGestureManager.shared.isRunning {
+                        Button("打开辅助功能设置…") {
+                            openAccessibilityPrefs()
+                        }
+                    }
+                }
+                if !CopyGestureManager.shared.lastDiagnostic.isEmpty {
+                    Text(CopyGestureManager.shared.lastDiagnostic)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+                Text("此功能需要辅助功能权限来监听鼠标事件。授权或撤销后需重启 Copied。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } header: {
+                Text("权限")
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    private func openAccessibilityPrefs() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+            NSWorkspace.shared.open(url)
         }
     }
 

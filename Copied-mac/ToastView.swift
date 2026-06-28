@@ -9,6 +9,7 @@ struct ToastView: View {
 
     @State private var animateIn = false
     @State private var isActionButtonHovered = false
+    @State private var hoverDebounceTask: Task<Void, Never>?
 
     var body: some View {
         ZStack {
@@ -108,8 +109,9 @@ struct ToastView: View {
                         onPerformAction(CopyTextAction(text: overlay.copyText))
                     } label: {
                         HStack(spacing: 4) {
-                            Image(systemName: viewModel.isCommandPressed ? "command" : "doc.on.doc")
+                            Image(systemName: (viewModel.isCommandPressed || isActionButtonHovered) ? "command" : "doc.on.doc")
                                 .font(.system(size: 12, weight: .medium))
+                                .frame(height: 14)
                             Text(viewModel.isCommandPressed ? "松开" : "复制")
                                 .font(.system(size: 12, weight: .medium))
                         }
@@ -125,15 +127,27 @@ struct ToastView: View {
                     .scaleEffect(viewModel.isCommandPressed ? 0.92 : 1.0)
                     .animation(.spring(response: 0.2, dampingFraction: 0.6), value: viewModel.isCommandPressed)
                     .onHover { hovering in
-                        isActionButtonHovered = hovering
+                        if hovering {
+                            hoverDebounceTask?.cancel()
+                            isActionButtonHovered = true
+                        } else {
+                            hoverDebounceTask?.cancel()
+                            hoverDebounceTask = Task {
+                                try? await Task.sleep(for: .milliseconds(100))
+                                if !Task.isCancelled {
+                                    isActionButtonHovered = false
+                                }
+                            }
+                        }
                     }
                 } else if let action = viewModel.primaryAction {
                     Button {
                         onPerformAction(action)
                     } label: {
                         HStack(spacing: 4) {
-                            Image(systemName: (viewModel.isCommandPressed || viewModel.showCommandIcon) ? "command" : action.systemImage)
+                            Image(systemName: (viewModel.isCommandPressed || isActionButtonHovered) ? "command" : action.systemImage)
                                 .font(.system(size: 12, weight: .medium))
+                                .frame(height: 14)
                             Text(viewModel.isCommandPressed ? "松开" : action.title)
                                 .font(.system(size: 12, weight: .medium))
                         }
@@ -149,7 +163,18 @@ struct ToastView: View {
                     .scaleEffect(viewModel.isCommandPressed ? 0.92 : 1.0)
                     .animation(.spring(response: 0.2, dampingFraction: 0.6), value: viewModel.isCommandPressed)
                     .onHover { hovering in
-                        isActionButtonHovered = hovering
+                        if hovering {
+                            hoverDebounceTask?.cancel()
+                            isActionButtonHovered = true
+                        } else {
+                            hoverDebounceTask?.cancel()
+                            hoverDebounceTask = Task {
+                                try? await Task.sleep(for: .milliseconds(100))
+                                if !Task.isCancelled {
+                                    isActionButtonHovered = false
+                                }
+                            }
+                        }
                     }
                 }
             }

@@ -34,6 +34,7 @@ SOURCES=(
     ClipboardMonitor.swift
     SourceAppDetector.swift
     ClipboardAction.swift
+    CopyGestureManager.swift
     FilePreviewGenerator.swift
     DictionaryLookupService.swift
     LookupAction.swift

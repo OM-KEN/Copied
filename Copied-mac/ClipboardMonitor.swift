@@ -122,7 +122,7 @@ final class ClipboardMonitor {
                 } else if (try? urls[0].resourceValues(forKeys: [.isDirectoryKey, .isPackageKey]))
                     .map({ $0.isDirectory == true && $0.isPackage != true }) == true {
                     // Real folder (not a package like .app/.bundle/.rtfd)
-                    detail = ""
+                    detail = formatFileSize(urls[0])
                     imgFmt = nil
                 } else {
                     detail = formatFileSize(urls[0])
@@ -229,15 +229,54 @@ final class ClipboardMonitor {
     }()
 
     private func formatFileSize(_ url: URL) -> String {
-        // Use totalFileSize for accurate recursive size of packages (.app etc.)
-        if let totalSize = try? url.resourceValues(forKeys: [.totalFileSizeKey]).totalFileSize,
-           totalSize > 0 {
+        let res = try? url.resourceValues(forKeys: [
+            .totalFileSizeKey, .fileSizeKey, .isDirectoryKey, .isPackageKey
+        ])
+
+        // Fast path: totalFileSize (recursive, works for most packages/directories)
+        if let totalSize = res?.totalFileSize, totalSize > 0 {
             return Self.fileSizeFormatter.string(fromByteCount: Int64(totalSize))
         }
-        // Fallback: attributesOfItem (fast but returns directory-entry size for packages)
-        guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
-              let size = attrs[.size] as? Int64 else { return "" }
-        return Self.fileSizeFormatter.string(fromByteCount: size)
+
+        // Regular file: use fileSize
+        if let fileSize = res?.fileSize, fileSize > 0,
+           res?.isDirectory != true {
+            return Self.fileSizeFormatter.string(fromByteCount: Int64(fileSize))
+        }
+
+        // Directory/package fallback: recursively enumerate to get real size
+        let isDirOrPackage = (res?.isDirectory == true) || (res?.isPackage == true)
+        if isDirOrPackage {
+            let recursiveSize = calculateRecursiveSize(url)
+            if recursiveSize > 0 {
+                return Self.fileSizeFormatter.string(fromByteCount: recursiveSize)
+            }
+        }
+
+        // Last resort: attributesOfItem
+        if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+           let size = attrs[.size] as? Int64, size > 0 {
+            return Self.fileSizeFormatter.string(fromByteCount: size)
+        }
+        return ""
+    }
+
+    /// Recursively sum file sizes under a directory or package.
+    private func calculateRecursiveSize(_ url: URL) -> Int64 {
+        guard let enumerator = FileManager.default.enumerator(
+            at: url,
+            includingPropertiesForKeys: [.fileSizeKey, .isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else { return 0 }
+
+        var total: Int64 = 0
+        for case let fileURL as URL in enumerator {
+            guard let res = try? fileURL.resourceValues(forKeys: [.fileSizeKey, .isDirectoryKey]),
+                  res.isDirectory != true,
+                  let size = res.fileSize else { continue }
+            total += Int64(size)
+        }
+        return total
     }
 
     private func imagePixelDimensions(_ image: NSImage) -> (Int, Int) {

@@ -22,7 +22,7 @@ struct OpenURLAction: ClipboardAction {
     let url: URL
     var id: String { "open-url" }
     var title: String { "打开" }
-    var systemImage: String { "safari" }
+    var systemImage: String { "arrow.up.forward" }
     var menuTitle: String { "打开链接" }
 
     func perform(content: ClipboardContent, controller: ToastWindowController?) {
@@ -36,7 +36,7 @@ struct RevealFileAction: ClipboardAction {
     let path: String
     var id: String { "reveal-file" }
     var title: String { "打开" }
-    var systemImage: String { "folder" }
+    var systemImage: String { "arrow.up.forward" }
     var menuTitle: String { "打开文件位置" }
 
     func perform(content: ClipboardContent, controller: ToastWindowController?) {
@@ -51,7 +51,7 @@ struct CalculateAction: ClipboardAction {
     let expression: String
     var id: String { "calculate" }
     var title: String { "计算" }
-    var systemImage: String { "function" }
+    var systemImage: String { "equal" }
     var menuTitle: String { "计算结果" }
     var performsInlineUpdate: Bool { true }
 
@@ -190,7 +190,7 @@ struct ShowPinyinAction: ClipboardAction {
     let character: Character
     var id: String { "pinyin" }
     var title: String { "拼音" }
-    var systemImage: String { "waveform" }
+    var systemImage: String { "keyboard" }
     var menuTitle: String { "显示拼音" }
     var performsInlineUpdate: Bool { true }
 

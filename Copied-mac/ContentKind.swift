@@ -118,12 +118,12 @@ extension ContentKind {
 
     static let chineseChar = ContentKind(
         id: "chineseCharacter", category: .entity, source: .builtIn,
-        label: "汉字", icon: "waveform"
+        label: "汉字", icon: "character"
     )
 
     static let englishPhrase = ContentKind(
         id: "englishPhrase", category: .entity, source: .builtIn,
-        label: "英文", icon: "character.bubble"
+        label: "英文", icon: "abc"
     )
 }
 

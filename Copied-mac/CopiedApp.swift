@@ -46,6 +46,7 @@ struct CopiedApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var monitor: ClipboardMonitor?
     private var toastController: ToastWindowController?
+    @AppStorage("copyGestureEnabled") private var copyGestureEnabled = false
 
     func applicationWillFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -69,9 +70,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         monitor = ClipboardMonitor(toastController: toastController!)
         monitor?.start()
         NSLog("Copied: monitor started")
+
+        // Copy gesture — enabled via Settings
+        if copyGestureEnabled {
+            CopyGestureManager.shared.start()
+        }
     }
 
     func setPaused(_ paused: Bool) {
         if paused { monitor?.stop() } else { monitor?.start() }
+    }
+
+    func setCopyGestureEnabled(_ enabled: Bool) {
+        if enabled {
+            CopyGestureManager.shared.start()
+        } else {
+            CopyGestureManager.shared.stop()
+        }
     }
 }

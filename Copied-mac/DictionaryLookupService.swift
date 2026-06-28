@@ -51,7 +51,7 @@ enum DictionaryLookupService {
         // ── 3. 组装（对齐拼音格式：第一行原词+音标，第二行中文） ──
         // 每行由 ToastView 独立渲染（lineLimit(1)），不会互相挤压。
         var line1 = word
-        if !bre.isEmpty { line1 += "  英 \(bre)" }
+        if !bre.isEmpty { line1 += "  \(bre)" }
 
         if chinese.isEmpty {
             return bre.isEmpty && ame.isEmpty ? nil : line1

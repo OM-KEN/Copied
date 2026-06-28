@@ -16,6 +16,7 @@ open .build/Copied.app      # Launch (appears in menu bar, no Dock)
 ```
 CopiedApp.swift             Entry point: MenuBarExtra + AppDelegate + Settings scene
 ClipboardMonitor.swift      Timer polls NSPasteboard.changeCount every 0.15s
+CopyGestureManager.swift    Global left-hold + right-click → ⌘C gesture (CGEventTap)
 DetectionRegistry.swift        Global registry: manages all detectors + throttle/priority
 ContentKind.swift              Unified type identifier (replaces old TextKind + DetectedContent)
 ContentDetection.swift         Detection result struct (kind + value + color + metadata)
@@ -32,7 +33,7 @@ ToastWindowController.swift Manages the floating NSWindow + NSHostingView + acti
 ToastViewModel.swift           @Observable model, icon/type-label/action/async-thumbnail logic
 ToastView.swift                SwiftUI card layout + glassEffect + button + swatch + menu
 SourceAppDetector.swift     NSWorkspace.frontmostApplication → name + icon
-SettingsView.swift              Settings page (launch-at-login + search engine picker + types tab)
+SettingsView.swift              Settings (launch-at-login, search engine, types, gesture tabs)
 TypeSettingsView.swift         Type priority list + plugin management
 ```
 
@@ -128,13 +129,13 @@ When `detectedColor != nil`, returns `""` — the color swatch replaces the icon
 | Condition | Icon |
 |-----------|------|
 | Color detected | (color swatch, no SF Symbol) |
-| Detection with non-empty `.icon` | Uses `ContentKind.icon` (e.g. `safari`, `folder`, `function`, `waveform`) |
+| Detection with non-empty `.icon` | Uses `ContentKind.icon` (e.g. `safari`, `folder`, `function`, `character`) |
 | `.image` (screenshot, clipboard image) | `photo` |
 | `.file` (generic) | `doc.on.doc` |
 | Plain short text (<50 chars) | `text.alignleft` |
 | Plain long text | `text.quote` |
 
-`.englishPhrase` has `label: "英文"`, `icon: "character.bubble"`. Color detections still have empty label/icon. Prioritization is determined by detection order (first = highest priority).
+`.chineseChar` icon=`character`, `.englishPhrase` icon=`abc`. Prioritization is determined by detection order (first = highest priority).
 
 ### Detail line format
 
@@ -144,7 +145,7 @@ Driven by `ToastViewModel.typeLabel` (priority: image format → file type/folde
 |---------|------------|
 | Clipboard image (PNG screenshot) | `PNG 图片 · 1920×1080` |
 | Single image file (JPG) | `JPG 图片 · 800×600` |
-| Single folder (Finder copy) | `文件夹` |
+| Single folder (Finder copy) | `文件夹 · 128.5 MB` |
 | Single non-image file (PDF) | `PDF 文件 · 2.5 MB` |
 | URL detected text | `链接 · 120字符` |
 | File path detected text | `路径 · 80字符` |
@@ -232,7 +233,7 @@ Button visual feedback: `ToastViewModel.isCommandPressed` drives conditional SF 
 
 **Known dead-ends** (do not re-attempt):
 - `addGlobalMonitorForEvents(.keyDown/.keyUp)` — macOS filters ⌘+key shortcut events
-- `CGEvent.tapCreate` — ad-hoc signed LSUIElement app returns nil even with Accessibility
+- `CGEvent.tapCreate` for ⌘ detection — ad-hoc signed app fails from `.build/`; works from `/Applications/` (used by `CopyGestureManager`)
 - Timing-based heuristic — fast ⌘+A overlaps with slow intentional ⌘ tap
 
 ### Toast layout (current)
@@ -244,12 +245,33 @@ Button visual feedback: `ToastViewModel.isCommandPressed` drives conditional SF 
 - **Color swatch**: 32×32 rounded rect (corner 8), replaces SF Symbol when `detectedColor != nil`. Has `.shadow` with the color itself.
 - **Thumbnail**: 64×64 for images (unchanged from original).
 - **Text area**: ZStack with opacity crossfade between preview text and result overlay. Preview uses `.lineLimit(2)` + `.lineSpacing(4)`. Result overlay splits `displayText` by `\n` into a `VStack` of `Text` views each with `.lineLimit(1)` — independent truncation prevents any line from overflowing into the next.
-- **Action button**: `HStack(spacing:4)` with SF Symbol 12pt + text 12pt, `.white.opacity(0.12)` background, 8pt corner radius. When a special type is detected, `showCommandIcon` makes the button icon `"command"` (⌘) to avoid duplicating the left-side type icon. **Result mode**: when `resultOverlay != nil`, the button becomes "复制" (`doc.on.doc` icon, triggers `CopyTextAction`).
+- **Action button**: `HStack(spacing:4)` with SF Symbol 12pt + text 12pt, `.white.opacity(0.12)` background, 8pt corner radius. Icon `.frame(height: 14)` for consistent sizing. Shows action's own SF Symbol (`arrow.up.forward`/`equal`/`magnifyingglass`/`keyboard`/`translate`). On **hover** or **⌘ press**, icon switches to `"command"` + text to "松开" (⌘ only). Hover exit debounced 100ms to prevent edge flickering. **Result mode**: when `resultOverlay != nil`, the button becomes "复制" (`doc.on.doc` icon, triggers `CopyTextAction`).
 - **Context menu**: always shows 搜索 / 另存为…, plus content-specific items below a divider.
 
 ### Menu bar
 
 `MenuBarExtra` with `doc.on.clipboard` SF Symbol. Pause/resume via `@AppStorage("isPaused")` → `ClipboardMonitor` reads `UserDefaults` directly (avoids binding propagation complexity). `LSUIElement = YES` in Info.plist hides Dock icon.
+
+### Copy gesture (left-hold + right-click → ⌘C)
+
+Toggle in Settings → 手势, off by default. Uses `CGEventTap` to intercept mouse events:
+
+- `.leftMouseDown` → `isLeftPressed = true` (pass through)
+- `.leftMouseUp` → `isLeftPressed = false` (pass through)
+- `.rightMouseDown` → if `isLeftPressed`: consume event (return nil) + send ⌘C after 15ms
+
+**Permission**: Requires Accessibility (CGEventTap). App MUST run from `/Applications/` or another standard location — `.build/` hidden dir causes TCC to reject even with permission granted. Settings tab shows live `isRunning` status + diagnostic text.
+
+**Key files**: `CopyGestureManager.swift` (singleton, CGEventTap + ⌘C simulation), `CopiedApp.swift` (`@AppStorage("copyGestureEnabled")` + lifecycle), `SettingsView.swift` (gesture tab with toggle + permission UI).
+
+### File/folder size calculation
+
+`formatFileSize` in `ClipboardMonitor.swift` uses three-tier strategy:
+1. `totalFileSizeKey` — fast recursive size (works for most packages/directories)
+2. `fileSizeKey` — regular files
+3. `calculateRecursiveSize()` — `FileManager.enumerator` fallback for dirs/packages when totalFileSize returns 0
+
+Single folders now show size (was empty before 2026-06-29).
 
 ## GitHub 推送规则（硬性）
 
