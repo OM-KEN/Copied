@@ -148,8 +148,9 @@ Toast 右侧最多 1 个按钮，样式：`[SF Symbol 12pt] 文案(≤3字) 12pt
 | 属性 | 起始值 | 结束值 |
 |------|--------|--------|
 | Opacity | 1.0 | 0.0 |
+| CIGaussianBlur | 0px | 4px |
 
-`NSAnimationContext` AppKit 原生动画，`CAMediaTimingFunction(name: .easeIn)`。
+`NSAnimationContext` AppKit 原生动画（淡出）+ `CABasicAnimation` Core Animation 模糊（keyPath `"filters.dismissBlur.inputRadius"`），`CAMediaTimingFunction(name: .easeIn)`。Content View 需 `layerUsesCoreImageFilters = true`。清理覆盖三条路径：动画 cleanup block、`cancelDismiss()`、非动画 dismiss。
 
 ## 显示模式
 
@@ -178,13 +179,13 @@ Toast 显示期间，**按下并松开 ⌘ 键**触发右侧操作按钮，无�
 
 ## 左右键快捷复制（CopyGestureManager）
 
-设置 → 手势中可开启。按住左键时点击右键 → 自动 ⌘C，不区分应用和内容类型。
+设置 → 手势中可开启，**默认关闭**。按住左键时点击右键 → 自动 ⌘C，不区分应用和内容类型。
 
 - **监听方式**：`CGEvent.tapCreate(.cgSessionEventTap, .headInsertEventTap)` — 拦截 leftMouseDown/leftMouseUp/rightMouseDown 三个事件
-- **Core 逻辑**：仅维护 `isLeftPressed` 状态变量；rightMouseDown 且 isLeftPressed → 吞掉右键（return nil）+ 15ms 后发送完整 ⌘C 序列（⌘Down → CDown → CUp → ⌘Up）
+- **Core 逻辑**：仅维护 `isLeftPressed` 状态变量；rightMouseDown 且 isLeftPressed → 吞掉右键（return nil）+ 15ms 后发送完整 ⌘C 序列
 - **状态兜底**：App 失焦、系统锁屏、系统休眠时自动 `isLeftPressed = false`
-- **EventTap 恢复**：收到 `tapDisabledByTimeout/tapDisabledByUserInput` 时重新 enable
-- **权限要求**：辅助功能权限（CGEventTap 要求）。App 需位于 `/Applications` 等标准路径（`.build` 隐藏目录会被 TCC 拒绝）
+- **权限 UX 三保障**：① 无权限时 Toggle 强制 OFF（getter = `copyGestureEnabled && isGestureTrusted`）② 尝试开启弹出重启引导 Alert ③ 启动时若开关 ON 但权限丢失自动回正
+- **签名与 TCC**：Apple Development 证书签名（Team ID `683MU5Q6FB`），TCC 凭 Team ID 识别 App 而非 CDHash，**更新后权限不丢失**（已弃用 ad-hoc 签名）
 - **按钮反馈**：Hover 进入立刻响应，离开延迟 100ms（防抖，避免边缘闪烁）
 
 ## 内容展示规则
@@ -218,7 +219,7 @@ Toast 显示期间，**按下并松开 ⌘ 键**触发右侧操作按钮，无�
 
 7. **MenuBarExtra 菜单栏常驻**：SwiftUI 原生 API，`LSUIElement` 隐藏 Dock 图标，纯菜单栏应用。
 
-8. **swiftc 增量编译**：无 Xcode 工程、无 SPM、零第三方依赖。~30 个 Swift 文件，链接 QuickLookThumbnailing + ServiceManagement 系统框架。build.sh 使用 SHA-256 指纹跳过未变编译 + 多线程并行。
+8. **swiftc 增量编译 + actool 图标**：无 Xcode 工程、无 SPM、零第三方依赖。~30 个 Swift 文件，链接 QuickLookThumbnailing + ServiceManagement 系统框架。build.sh 使用 SHA-256 指纹跳过未变编译 + 多线程并行。Xcode 26 用于 `actool`（Liquid Glass `.icon` 编译）和 Apple Development 代码签名。
 
 9. **操作 + 类型双可扩展**：`ClipboardAction` 协议可新增操作类型，`PluginAction` 执行声明式动作模板（openURL/search/transform）。类型系统通过 `.copiedplugin` 文件夹扩展（JSON + 正则），插件在 Settings 中管理。
 

@@ -14,12 +14,12 @@ macOS 智能复制反馈工具——按下 ⌘C，屏幕顶部弹出精美的液
 - macOS 26 原生液态玻璃卡片 UI，SF Symbols 系统图标
 - 智能代码语言检测：Swift / Python / JavaScript / CSS / HTML 自动识别
 - 来源 App 真实图标 + 名称（Finder 显示文件夹名）
-- Q 弹弹簧入场动画（缩放+飞入+模糊+淡入，~550ms）/ 简洁淡出退场（200ms）
+- 弹簧入场动画（缩放+飞入+模糊+淡入，~550ms）/ 模糊淡出退场（200ms，高斯模糊 0→4px）
 - 鼠标悬停保持显示、点击立即关闭，交互自然不打扰
 - 500ms 去重窗口，避免重复弹窗
-- 菜单栏图标常驻，支持暂停/恢复
+- 菜单栏自定义图标常驻，支持暂停/恢复
 - **设置页**：开机自启、搜索引擎选择（Google/Baidu/Bing/DuckDuckGo）
-- 纯 Swift + AppKit + SwiftUI，swiftc 编译，零第三方依赖
+- 纯 Swift + AppKit + SwiftUI，swiftc + actool 编译，零第三方依赖。Xcode 26 用于图标编译和代码签名
 - CPU 占用接近 0%
 
 ## 系统要求
@@ -75,14 +75,20 @@ Toast 显示期间，**再次按下 ⌘ 键并松开**可快速触发右侧操�
 ```
 CopiedApp.swift             — 入口：MenuBarExtra + AppDelegate + Settings 场景
 ClipboardMonitor.swift      — NSPasteboard 轮询 + 内容解析 + 代码检测
-ContentDetector.swift       — 智能内容检测（URL/路径/色值/数学/汉字/英文）
-ClipboardAction.swift       — 操作协议 + 7 个操作（含复制结果）+ 优先级解析
+CopyGestureManager.swift    — 全局鼠标手势（CGEventTap）+ ⌘C 模拟
+DetectionRegistry.swift     — 全局检测器注册中心 + 优先级管道
+ContentKind.swift           — 统一类型标识（16 内置 + 插件动态）
+Detectors/                  — 13 个内置检测器（Color/URL/File/DateTime/Math/语言等）
+PluginLoader.swift          — .copiedplugin 扩展加载/管理
+ClipboardAction.swift       — 操作协议 + 9 个操作 + 优先级解析
 FilePreviewGenerator.swift  — QLThumbnailGenerator 异步文件缩略图
 SourceAppDetector.swift     — NSWorkspace 前台 App 检测
-ToastWindowController.swift — NSWindow + NSHostingView 管理 + 操作执行
+ToastWindowController.swift — NSWindow + NSHostingView 管理 + 模糊退场
 ToastView.swift             — SwiftUI 卡片布局 + 按钮 + 色块 + 右键菜单
 ToastViewModel.swift        — @Observable 数据模型 + 异步缩略图 + 操作状态
-SettingsView.swift          — 设置页（开机自启 + 搜索引擎）
-Info.plist                  — LSUIElement 隐藏 Dock
-build.sh                    — swiftc 一键构建 + 代码签名
+SettingsView.swift          — 设置页（通用/类型/手势三个 Tab）
+Copied.icon                 — Liquid Glass 分层图标（Icon Composer）
+Copied.svg                  — 菜单栏 template 图标
+Info.plist                  — LSUIElement + CFBundleIconName
+build.sh                    — swiftc + actool + codesign 一键构建
 ```

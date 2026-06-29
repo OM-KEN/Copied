@@ -20,6 +20,8 @@ struct SettingsView: View {
     // ── Copy Gesture ───────────────────────────────────────
     @AppStorage("copyGestureEnabled") private var copyGestureEnabled = false
     @State private var selectedTab = "general"
+    @State private var isGestureTrusted = AXIsProcessTrusted()
+    @State private var showRestartAlert = false
 
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -90,12 +92,17 @@ struct SettingsView: View {
         Form {
             Section {
                 Toggle("左右键快捷复制", isOn: Binding(
-                    get: { copyGestureEnabled },
+                    get: { copyGestureEnabled && isGestureTrusted },
                     set: { enabled in
-                        copyGestureEnabled = enabled
                         if enabled {
-                            CopyGestureManager.shared.start()
+                            if isGestureTrusted {
+                                copyGestureEnabled = true
+                                CopyGestureManager.shared.start()
+                            } else {
+                                showRestartAlert = true
+                            }
                         } else {
+                            copyGestureEnabled = false
                             CopyGestureManager.shared.stop()
                         }
                     }
@@ -134,6 +141,26 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
+        .alert("需要辅助功能权限", isPresented: $showRestartAlert) {
+            Button("请求权限") {
+                requestAccessibilityAndRetry()
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("此功能需要系统辅助功能权限来监听鼠标事件。授权后请重启 Copied 使权限生效。")
+        }
+        .onAppear {
+            isGestureTrusted = AXIsProcessTrusted()
+        }
+    }
+
+    private func requestAccessibilityAndRetry() {
+        let opts = [kAXTrustedCheckOptionPrompt.takeRetainedValue() as String: true] as CFDictionary
+        AXIsProcessTrustedWithOptions(opts)
+        // 给系统弹窗一点时间，然后刷新状态
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+            isGestureTrusted = AXIsProcessTrusted()
+        }
     }
 
     private func openAccessibilityPrefs() {

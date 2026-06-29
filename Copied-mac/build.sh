@@ -43,12 +43,15 @@ SOURCES=(
     ToastViewModel.swift
     ToastWindowController.swift
 )
+ICON_FILES=(Copied.icon/icon.json Copied.icon/Assets/)
+
+RESOURCES=(Info.plist "${ICON_FILES[@]}")
 
 echo "🔨 Building Copied..."
 
 # ── Fingerprint check (skip compilation if nothing changed) ──
 NPROC=$(sysctl -n hw.ncpu)
-NEW_FP=$(shasum -a 256 "${SOURCES[@]}" 2>/dev/null | shasum -a 256)
+NEW_FP=$(shasum -a 256 "${SOURCES[@]}" "${RESOURCES[@]}" 2>/dev/null | shasum -a 256)
 OLD_FP=$(cat "$FINGERPRINT" 2>/dev/null || echo "")
 
 if [[ "$NEW_FP" == "$OLD_FP" ]] && [[ -f "$MACOS_DIR/$APP_NAME" ]]; then
@@ -73,8 +76,24 @@ swiftc \
 # Copy Info.plist
 cp Info.plist "$APP_BUNDLE/Contents/Info.plist"
 
-# Ad-hoc code sign (required by SMAppService for login item registration)
-codesign -s - -f "$APP_BUNDLE" 2>/dev/null || true
+# Menu bar icon — strip white background (template image for dark/light mode)
+sed '/fill="white"/d' Copied.svg > "$RESOURCES_DIR/Copied-menu.svg"
+
+# Compile Liquid Glass app icon (macOS 26+ .icon → Assets.car + legacy .icns)
+xcrun actool Copied.icon --compile "$RESOURCES_DIR" \
+  --output-format human-readable-text \
+  --notices --warnings \
+  --app-icon Copied \
+  --include-all-app-icons \
+  --enable-on-demand-resources NO \
+  --development-region en \
+  --target-device mac \
+  --minimum-deployment-target 26.0 \
+  --platform macosx \
+  --output-partial-info-plist /tmp/copied-icon-plist.plist
+
+# Sign with Apple Development certificate (stable TCC identity across rebuilds)
+codesign -s "Apple Development" -f "$APP_BUNDLE" 2>/dev/null || true
 
 # Store fingerprint for next build
 echo "$NEW_FP" > "$FINGERPRINT"

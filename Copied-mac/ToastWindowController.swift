@@ -183,6 +183,8 @@ final class ToastWindowController {
     private func cancelDismiss() {
         isDismissing = false
         dismissGeneration += 1
+        contentView?.layer?.filters = nil
+        contentView?.layer?.removeAnimation(forKey: "dismissBlurAnim")
         window?.alphaValue = 1.0
         window?.orderFront(nil)
     }
@@ -239,6 +241,7 @@ final class ToastWindowController {
         w.ignoresMouseEvents = false
         let cv = NSView()
         cv.wantsLayer = true
+        cv.layerUsesCoreImageFilters = true
         cv.layer?.backgroundColor = NSColor.clear.cgColor
         w.contentView = cv
         window = w
@@ -263,6 +266,24 @@ final class ToastWindowController {
         dismissTimer = nil
         if animated {
             let gen = dismissGeneration
+
+            // 原生模糊退场动画
+            if let layer = contentView?.layer, let blurFilter = CIFilter(name: "CIGaussianBlur") {
+                blurFilter.setDefaults()
+                blurFilter.setValue(0.0, forKey: kCIInputRadiusKey)
+                blurFilter.name = "dismissBlur"
+                layer.filters = [blurFilter]
+
+                let anim = CABasicAnimation(keyPath: "filters.dismissBlur.inputRadius")
+                anim.fromValue = 0.0
+                anim.toValue = 4.0
+                anim.duration = 0.2
+                anim.timingFunction = CAMediaTimingFunction(name: .easeIn)
+                anim.fillMode = .forwards
+                anim.isRemovedOnCompletion = false
+                layer.add(anim, forKey: "dismissBlurAnim")
+            }
+
             NSAnimationContext.runAnimationGroup { ctx in
                 ctx.duration = 0.2
                 ctx.timingFunction = CAMediaTimingFunction(name: .easeIn)
@@ -272,12 +293,15 @@ final class ToastWindowController {
             // 避免长时间运行后回调丢失导致窗口残留 alpha=0
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
                 guard let self, self.dismissGeneration == gen else { return }
+                self.contentView?.layer?.filters = nil
+                self.contentView?.layer?.removeAnimation(forKey: "dismissBlurAnim")
                 self.window?.orderOut(nil)
                 self.isDismissing = false
                 self.removeAllMonitors()
             }
         } else {
             dismissGeneration += 1
+            contentView?.layer?.filters = nil
             window?.orderOut(nil)
             isDismissing = false
         }

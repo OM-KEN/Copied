@@ -31,9 +31,19 @@ struct CopiedApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @AppStorage("isPaused") private var isPaused = false
 
+    private let menuBarIcon: NSImage = {
+        let icon = Bundle.main.url(forResource: "Copied-menu", withExtension: "svg")
+            .flatMap { NSImage(contentsOf: $0) }
+        icon?.isTemplate = true
+        icon?.size = NSSize(width: 18, height: 18)
+        return icon ?? NSImage(systemSymbolName: "doc.on.clipboard", accessibilityDescription: "Copied")!
+    }()
+
     var body: some Scene {
-        MenuBarExtra("Copied", systemImage: "doc.on.clipboard") {
+        MenuBarExtra {
             MenuBarContent(onPauseToggle: { appDelegate.setPaused($0) })
+        } label: {
+            Image(nsImage: menuBarIcon)
         }
 
         Settings {
@@ -72,8 +82,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSLog("Copied: monitor started")
 
         // Copy gesture — enabled via Settings
+        // 如果上次开关 ON 但权限丢失（更新后签名不匹配），自动置 OFF
         if copyGestureEnabled {
-            CopyGestureManager.shared.start()
+            if AXIsProcessTrusted() {
+                CopyGestureManager.shared.start()
+            } else {
+                NSLog("Copied: gesture toggle was ON but AX not trusted — resetting to OFF")
+                copyGestureEnabled = false
+            }
         }
     }
 

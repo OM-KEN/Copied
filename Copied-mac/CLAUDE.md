@@ -9,7 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 open .build/Copied.app      # Launch (appears in menu bar, no Dock)
 ```
 
-`build.sh` uses `swiftc` directly (no Xcode project). Requires macOS 26+ for `.glassEffect()` (Liquid Glass).
+`build.sh` uses `swiftc` + `actool` (Liquid Glass icon) + `codesign` (Apple Development). Requires macOS 26+ & Xcode 26 (for `actool`).
 
 ## Architecture
 
@@ -64,7 +64,7 @@ All entry animation lives in `ToastView` via `@State + .onAppear + withAnimation
 
 Spring: `mass: 1.2, stiffness: 120, damping: 14, initialVelocity: 3` (~550ms perceptual). Asymmetric padding (top:20, bottom:12, horizontal:18) outside the animation absorbs spring overshoot. Window positioned via `screen.frame.maxY` for tight-to-top placement.
 
-Exit animation: 200ms AppKit `easeIn` fade-out via `NSAnimationContext.runAnimationGroup`, cleanup via `DispatchQueue.main.asyncAfter` (+0.25s) — GCD timer used instead of animation `completionHandler` to prevent stale callbacks leaving window onscreen at alpha=0 after long runtime.
+Exit animation: 200ms `easeIn` fade-out + `CIGaussianBlur` 0→4px via `CABasicAnimation` (keyPath `"filters.dismissBlur.inputRadius"`), cleanup via `DispatchQueue.main.asyncAfter` (+0.25s). Content view needs `layerUsesCoreImageFilters = true`. `CIFilter.name` must match the animation keyPath. Cleanup (remove filter + animation) happens in: animated cleanup block, `cancelDismiss()`, and non-animated dismiss — all three paths.
 
 ### Mouse interaction: hover-to-pause + click-to-dismiss
 
@@ -250,19 +250,28 @@ Button visual feedback: `ToastViewModel.isCommandPressed` drives conditional SF 
 
 ### Menu bar
 
-`MenuBarExtra` with `doc.on.clipboard` SF Symbol. Pause/resume via `@AppStorage("isPaused")` → `ClipboardMonitor` reads `UserDefaults` directly (avoids binding propagation complexity). `LSUIElement = YES` in Info.plist hides Dock icon.
+`MenuBarExtra(content:label:)` with custom `Copied.svg` template image (loaded via `NSImage`, `isTemplate = true`, size 18×18pt). SVG has white background stripped at build time (`sed '/fill="white"/d'`). Pause/resume via `@AppStorage("isPaused")` → `ClipboardMonitor` reads `UserDefaults` directly (avoids binding propagation complexity). `LSUIElement = YES` in Info.plist hides Dock icon.
+
+### App icon
+
+Liquid Glass `.icon` format (Icon Composer) — 2 layers: background shape + foreground clipboard symbol, with translucency + neutral shadow. Compiled via `actool` → `Assets.car` (macOS 26+) + `Copied.icns` (legacy). `CFBundleIconName = Copied` in Info.plist. Icon changes tracked in build fingerprint.
 
 ### Copy gesture (left-hold + right-click → ⌘C)
 
-Toggle in Settings → 手势, off by default. Uses `CGEventTap` to intercept mouse events:
+Toggle in Settings → 手势, **off by default**. Uses `CGEventTap` to intercept mouse events.
 
 - `.leftMouseDown` → `isLeftPressed = true` (pass through)
 - `.leftMouseUp` → `isLeftPressed = false` (pass through)
 - `.rightMouseDown` → if `isLeftPressed`: consume event (return nil) + send ⌘C after 15ms
 
-**Permission**: Requires Accessibility (CGEventTap). App MUST run from `/Applications/` or another standard location — `.build/` hidden dir causes TCC to reject even with permission granted. Settings tab shows live `isRunning` status + diagnostic text.
+**Permission UX** (3 guards):
+1. **Toggle disabled without permission**: getter = `copyGestureEnabled && isGestureTrusted`, toggle shows OFF when `AXIsProcessTrusted() == false`
+2. **Restart alert**: attempting ON without permission → alert "授权后请重启 Copied 使权限生效" → [请求权限] calls `AXIsProcessTrustedWithOptions`
+3. **Auto-reset on permission loss**: `CopiedApp.applicationDidFinishLaunching` — if `copyGestureEnabled && !AXIsProcessTrusted()` → sets to `false` (handles rebuild signature mismatch)
 
-**Key files**: `CopyGestureManager.swift` (singleton, CGEventTap + ⌘C simulation), `CopiedApp.swift` (`@AppStorage("copyGestureEnabled")` + lifecycle), `SettingsView.swift` (gesture tab with toggle + permission UI).
+**Signing**: Apple Development certificate (`TeamIdentifier = 683MU5Q6FB`). TCC uses Team ID (stable) not CDHash (per-build). WWDR G3 intermediate cert required in keychain. Without proper signing, ad-hoc CDHash changes every rebuild → permission lost.
+
+**Key files**: `CopyGestureManager.swift` (CGEventTap + ⌘C), `CopiedApp.swift` (lifecycle + auto-reset), `SettingsView.swift` (gesture tab with guards + alert), `build.sh` (codesign + actool).
 
 ### File/folder size calculation
 
@@ -283,8 +292,8 @@ Single folders now show size (was empty before 2026-06-29).
 - **Window position constraint**: macOS constrains window frames to screen bounds. The window extends above `visibleFrame.maxY` using `screen.frame.maxY`, but further upward push is clamped by the WindowServer.
 - **Window animation clipping**: During `showResultOverlay` window expansion, the `NSHostingView` content is already at full target width while the window frame is still animating, causing brief right-edge clipping. Multiple approaches were tried (CALayer mask, `clipsToBounds`, hosting view offset, constraints) — none eliminated the AppKit ↔ SwiftUI timing mismatch. Current workaround: 0.25s fast animation + explicit 2-line result format (result always on line 2, visible) + ZStack crossfade masks the transition.
 - **macOS 26+ only**: `.glassEffect()` requires macOS 26. Lower versions would need `NSVisualEffectView` fallback.
-- **No Xcode project**: Built via `swiftc` in `build.sh`. To use Xcode, create a macOS App target and add all `.swift` files + `Info.plist`.
-- **Frameworks**: SwiftUI, AppKit, QuickLookThumbnailing (file thumbnails), ServiceManagement (login item), CoreServices (DictionaryServices for word lookup). `build.sh` also ad-hoc codesigns for SMAppService.
+- **No Xcode project**: Built via `swiftc` in `build.sh`. Xcode 26 required for `actool` (icon compilation) and code signing certificate.
+- **Frameworks**: SwiftUI, AppKit, QuickLookThumbnailing (file thumbnails), ServiceManagement (login item), CoreServices (DictionaryServices for word lookup). `build.sh` signs with Apple Development certificate (TCC-stable identity).
 - **Settings**: Settings page (⌘, or menu → 设置…) with launch-at-login toggle, search engine picker, type management. UserDefaults keys: `searchEngine`.
 - **Dictionary lookup**: Implemented via `DCSCopyTextDefinition` from CoreServices/DictionaryServices. Returns results from macOS built-in Oxford Chinese-English dictionary. No download, no network. Single-word only (dictionary API limitation, not phrase-level). `showInlineResult()` pattern shared with Calculate/Pinyin actions.
 

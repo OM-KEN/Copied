@@ -18,5 +18,7 @@
 	<string>26.0</string>
 	<key>LSUIElement</key>
 	<true/>
+	<key>CFBundleIconName</key>
+	<string>Copied</string>
 </dict>
 </plist>

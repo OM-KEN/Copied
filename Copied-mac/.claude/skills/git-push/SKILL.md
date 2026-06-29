@@ -78,8 +78,11 @@ gh release list --limit 1
 ```
 
 版本号规则：
-- `feat:` → Y+1（v1.4.0 → v1.5.0）
-- `fix:` → Z+1（v1.4.0 → v1.4.1）
+- **每段 ≤ 9**：每个版本段（major、minor、patch）不超过 9
+- 1.9.0 → 2.0.0（不是 1.10.0），自然进位
+- 只有用户明确要求时才能超过 9
+- `feat:` → Y+1（v1.4.0 → v1.5.0，v1.9.0 → v2.0.0）
+- `fix:` → Z+1（v1.4.0 → v1.4.1，v1.4.9 → v1.5.0）
 
 ### Step 7: 构建 DMG
 
@@ -146,7 +149,7 @@ VER=$(gh release list --limit 1 --json tagName -q '.[0].tagName' | sed 's/v//')
 MAJOR=$(echo $VER | cut -d. -f1)
 MINOR=$(echo $VER | cut -d. -f2)
 PATCH=$(echo $VER | cut -d. -f3)
-NEW="v$MAJOR.$((MINOR+1)).0"  # feat → minor+1
+NEW="v$MAJOR.$((MINOR+1)).0"  # feat → minor+1（注意 ≤9 规则：若 MINOR==9 则 NEW="v$((MAJOR+1)).0.0"）
 cd Copied-mac && ./build.sh
 hdiutil create -volname Copied -srcfolder .build/Copied.app -ov -format UDZO Copied.dmg
 gh release create $NEW --title "Copied $NEW (macOS)" --notes-file /tmp/release-notes.md Copied.dmg
