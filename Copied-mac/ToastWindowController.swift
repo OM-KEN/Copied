@@ -12,8 +12,10 @@ final class ToastWindowController {
     private var dismissGeneration = 0
     private var localMouseMonitor: Any?
     private var localCmdMonitor: Any?
+    private var localOtherEventMonitor: Any?  // 监听 ⌘ 按下期间的其他按键/鼠标事件
     private var cmdKeyDownCount: UInt32 = 0
     private var cmdIsPreExisting = false  // ⌘ was already held when toast appeared
+    private var cmdCancelledByOtherEvent = false  // ⌘ 按下期间有其他按键/鼠标事件
     private let displayDuration: TimeInterval = 3.0
 
     private var currentContent: ClipboardContent?
@@ -75,8 +77,15 @@ final class ToastWindowController {
                       window.isVisible,
                       !self.isDismissing else { return }
                 let isCmd = event.modifierFlags.contains(.command)
+                let wasCmdPressed = self.viewModel.isCommandPressed
                 if isCmd {
                     self.cmdIsPreExisting = false
+                    // 仅在 ⌘ 从未按下到按下的「转换」时重置取消标志，而非每次
+                    // flagsChanged 都重置。避免其他修饰键变化（Shift 等）在
+                    // ⌘ 按住期间错误地清除已设置的取消标志。
+                    if !wasCmdPressed {
+                        self.cmdCancelledByOtherEvent = false
+                    }
                     self.cmdKeyDownCount = CGEventSource.counterForEventType(.hidSystemState, eventType: .keyDown)
                     self.viewModel.isCommandPressed = true
                 } else {
@@ -85,9 +94,19 @@ final class ToastWindowController {
                         self.cmdIsPreExisting = false
                         return
                     }
-                    let newCount = CGEventSource.counterForEventType(.hidSystemState, eventType: .keyDown)
-                    if newCount == self.cmdKeyDownCount,
-                       !self.isDismissing {
+                    // 双保险：本地事件取消标志 + HID 计数器（延迟到下一个 runloop
+                    // 让 HID 计数器有足够时间反映 ⌘+key 组合键的 keyDown 事件）。
+                    let capturedCmdKeyDownCount = self.cmdKeyDownCount
+                    let capturedCancelled = self.cmdCancelledByOtherEvent
+                    let capturedDismissGen = self.dismissGeneration
+                    self.cmdCancelledByOtherEvent = false
+                    DispatchQueue.main.async { [weak self] in
+                        guard let self,
+                              !self.isDismissing,
+                              self.dismissGeneration == capturedDismissGen,
+                              !capturedCancelled else { return }
+                        let newCount = CGEventSource.counterForEventType(.hidSystemState, eventType: .keyDown)
+                        guard newCount == capturedCmdKeyDownCount else { return }
                         // In result mode, ⌘ triggers copy; otherwise primary action.
                         let action: (any ClipboardAction)? = self.viewModel.resultOverlay.map {
                             CopyTextAction(text: $0.copyText)
@@ -97,6 +116,21 @@ final class ToastWindowController {
                         }
                     }
                 }
+            }
+        }
+
+        // ⌘ 按下期间有其他按键或鼠标事件 → 取消触发。
+        // 本地监听器能看到 ⌘+key 组合（全局监听器会被 macOS 过滤），
+        // 作为 HID 计数器之外的「双保险」安全网。
+        if localOtherEventMonitor == nil {
+            localOtherEventMonitor = NSEvent.addLocalMonitorForEvents(
+                matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown]
+            ) { [weak self] event in
+                guard let self else { return event }
+                if self.viewModel.isCommandPressed {
+                    self.cmdCancelledByOtherEvent = true
+                }
+                return event
             }
         }
 
@@ -310,7 +344,9 @@ final class ToastWindowController {
     private func removeAllMonitors() {
         if let m = localMouseMonitor { NSEvent.removeMonitor(m); localMouseMonitor = nil }
         if let m = localCmdMonitor  { NSEvent.removeMonitor(m); localCmdMonitor = nil }
+        if let m = localOtherEventMonitor { NSEvent.removeMonitor(m); localOtherEventMonitor = nil }
         cmdIsPreExisting = false
+        cmdCancelledByOtherEvent = false
         viewModel.isCommandPressed = false
     }
 }

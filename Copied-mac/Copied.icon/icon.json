@@ -1,8 +1,8 @@
 {
   "fill" : {
     "linear-gradient" : [
-      "extended-gray:1.00000,1.00000",
-      "display-p3:0.96362,0.98097,0.99810,1.00000"
+      "display-p3:0.00000,0.53333,1.00000,1.00000",
+      "srgb:0.00000,0.34500,0.90000,1.00000"
     ],
     "orientation" : {
       "start" : {
@@ -19,29 +19,13 @@
     {
       "layers" : [
         {
-          "blend-mode" : "normal",
-          "fill" : "automatic",
-          "glass" : true,
-          "hidden" : false,
-          "image-name" : "Group 2139.svg",
-          "name" : "Group 2139",
+          "image-name" : "Copied3 2.svg",
+          "name" : "Copied3 2",
           "position" : {
-            "scale" : 1,
+            "scale" : 28.444443999999997,
             "translation-in-points" : [
-              121.9,
-              97.52
-            ]
-          }
-        },
-        {
-          "glass" : true,
-          "image-name" : "Rectangle 2314.svg",
-          "name" : "Rectangle 2314",
-          "position" : {
-            "scale" : 1,
-            "translation-in-points" : [
-              -148.4,
-              -133.6
+              0,
+              0
             ]
           }
         }

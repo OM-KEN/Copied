@@ -1,299 +1,293 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+此文件为 Claude Code 提供本仓库的编码指引。
 
-## Build & Run
+## 构建与运行
 
 ```bash
-./build.sh                     # Compile → .build/Copied.app
-open .build/Copied.app      # Launch (appears in menu bar, no Dock)
+./build.sh                     # 编译 → .build/Copied.app
+open .build/Copied.app      # 启动（菜单栏显示，无 Dock 图标）
 ```
 
-`build.sh` uses `swiftc` + `actool` (Liquid Glass icon) + `codesign` (Apple Development). Requires macOS 26+ & Xcode 26 (for `actool`).
+`build.sh` 使用 `swiftc` + `actool`（Liquid Glass 图标）+ `codesign`（Apple Development）。需 macOS 26+ 及 Xcode 26（供 `actool` 使用）。
 
-## Architecture
+## 架构
 
 ```
-CopiedApp.swift             Entry point: MenuBarExtra + AppDelegate + Settings scene
-ClipboardMonitor.swift      Timer polls NSPasteboard.changeCount every 0.15s
-CopyGestureManager.swift    Global left-hold + right-click → ⌘C gesture (CGEventTap)
-DetectionRegistry.swift        Global registry: manages all detectors + throttle/priority
-ContentKind.swift              Unified type identifier (replaces old TextKind + DetectedContent)
-ContentDetection.swift         Detection result struct (kind + value + color + metadata)
-Detectors/                     Built-in detector files (13 total: Color, URL, FilePath, DateTime, Math, etc.)
-DictionaryLookupService.swift  System dictionary lookup (DCSCopyTextDefinition, zero-config)
-LookupAction.swift             Dictionary lookup action — inline result like pinyin
-PluginManifest.swift           manifest.json / rules.json Codable models
-PluginActionTemplate.swift     Action template types (openURL, search, transform, none)
-PluginAction.swift             Executes plugin-defined action templates
-PluginLoader.swift             Scans, validates, loads, installs .copiedplugin folders
-ClipboardAction.swift          Action protocol + 9 concrete actions (incl. LookupAction) + resolver
-FilePreviewGenerator.swift     QLThumbnailGenerator wrapper — async content thumbnails
-ToastWindowController.swift Manages the floating NSWindow + NSHostingView + actions
-ToastViewModel.swift           @Observable model, icon/type-label/action/async-thumbnail logic
-ToastView.swift                SwiftUI card layout + glassEffect + button + swatch + menu
-SourceAppDetector.swift     NSWorkspace.frontmostApplication → name + icon
-SettingsView.swift              Settings (launch-at-login, search engine, types, gesture tabs)
-TypeSettingsView.swift         Type priority list + plugin management
+CopiedApp.swift             MenuBarExtra + AppDelegate + Settings 入口
+ClipboardMonitor.swift      Timer 每 0.15s 轮询 NSPasteboard.changeCount
+CopyGestureManager.swift    全局左键按住 + 右键 → ⌘C 手势（CGEventTap）
+DetectionRegistry.swift        全局注册中心：管理所有检测器 + 限流/优先级
+ContentKind.swift              统一类型标识（struct + 静态常量）
+ContentDetection.swift         检测结果结构体（kind + value + color + metadata）
+Detectors/                     13 个内置检测器（Color, URL, FilePath, DateTime, Math 等）
+DictionaryLookupService.swift  系统词典查询（DCSCopyTextDefinition，零配置）
+LookupAction.swift             词典查询 Action — 内联展示结果，同拼音模式
+PluginManifest.swift           manifest.json / rules.json Codable 模型
+PluginActionTemplate.swift     Action 模板类型（openURL, search, transform, none）
+PluginAction.swift             执行插件定义的 Action 模板
+PluginLoader.swift             扫描、校验、加载、安装 .copiedplugin 文件夹
+ClipboardAction.swift          Action 协议 + 8 个内置 Action + ActionResolver（LookupAction.swift、PluginAction.swift 另有 2 个）
+FilePreviewGenerator.swift     QLThumbnailGenerator 封装 — 异步内容缩略图
+ToastWindowController.swift    管理浮动 NSWindow + NSHostingView + Action
+ToastViewModel.swift           @Observable 模型，图标/类型标签/Action/异步缩略图逻辑
+ToastView.swift                SwiftUI 卡片布局 + glassEffect + 按钮 + 色块 + 菜单
+SourceAppDetector.swift     NSWorkspace.frontmostApplication → 名称 + 图标
+SettingsView.swift              设置（开机启动、搜索引擎、类型、手势 Tab）
+TypeSettingsView.swift         类型优先级列表 + 插件管理
 ```
 
-**Data flow:** `ClipboardMonitor` → `DetectionRegistry.detectAll()` → `ClipboardContent` (+ `[ContentDetection]`) → `ToastWindowController.show()` → `ToastViewModel` resolves actions + triggers async thumbnail → `NSHostingView` → `ToastView` (`.glassEffect()` + thumbnail + button + swatch + contextMenu)
+UserDefaults 键：`searchEngine`, `launchAtLogin`, `isPaused`, `copyGestureEnabled`, `contentKindPriorities`, `disabledContentKinds`, `installedPlugins`。
 
-**Content type system:** Unified `ContentKind` (struct with static constants) replaces both old `TextKind` (enum, 7 cases) and `DetectedContent` (enum, 8 cases). Detection runs through `DetectionRegistry` — a priority-ordered pipeline of `ContentDetectorProtocol` instances. Each detector produces a `ContentDetection` with kind + extracted value + optional color + optional plugin action template.
+**数据流**：`ClipboardMonitor` → `DetectionRegistry.detectAll()` → `ClipboardContent`（+ `[ContentDetection]`）→ `ToastWindowController.show()` → `ToastViewModel` 解析 Action + 触发异步缩略图 → `NSHostingView` → `ToastView`（`.glassEffect()` + 缩略图 + 按钮 + 色块 + contextMenu）
 
-**Plugin system:** Declarative only (JSON + regex, no code execution). Format: `.copiedplugin` folder with `manifest.json` (name, icon, label, priority, category) + `rules.json` (regex patterns + action templates). Plugins loaded from `~/Library/Application Support/Copied/Plugins/`. Performance safeguards: 100KB text cutoff (only built-in language detectors run), 5ms per-detector timeout, 3-strike auto-disable.
+**内容类型系统**：统一 `ContentKind`（struct + 静态常量）。检测通过 `DetectionRegistry` 优先级管道执行，每个检测器实现 `ContentDetectorProtocol`，返回 `ContentDetection?`（kind + value + 可选 color + 可选 pluginActionTemplate）。
 
-## Key design decisions
+**插件系统**：声明式（JSON + 正则，不执行代码）。`.copiedplugin` 文件夹从 `~/Library/Application Support/Copied/Plugins/` 加载。性能熔断：100KB 文本截断、50ms 单检测器超时、3 次超时自动禁用。详见下方插件系统章节。
 
-### Window: SwiftUI `.glassEffect()` (macOS 26+)
+## 关键设计决策
 
-The toast uses SwiftUI's native `.glassEffect(in: .rect(cornerRadius: 32))` modifier (Liquid Glass), applied directly to the card inside `ToastView`. The window uses a plain `NSView` as content view — no `NSGlassEffectView` needed. The pseudo edge highlight is drawn as a SwiftUI `.stroke(.white.opacity(0.25))` overlay because the real edge highlight is suppressed by the WindowServer compositor on non-key floating windows.
+### 窗口：SwiftUI `.glassEffect()`（macOS 26+）
 
-Window config: `.borderless`, `.floating` level, `ignoresMouseEvents = false` (to receive hover/click), `collectionBehavior = [.canJoinAllSpaces, .stationary]`.
+`ToastView` 内应用 `.glassEffect(in: .rect(cornerRadius: 32))`。非 key 浮动窗口的边缘高光会被 WindowServer 抑制 → 用 `.stroke(.white.opacity(0.25))` 补偿。
 
-### Entry animation: SwiftUI spring
+窗口配置：`.borderless`、`.floating` 层级、`ignoresMouseEvents = false`（接收悬停/点击）、`collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]`。
 
-All entry animation lives in `ToastView` via `@State + .onAppear + withAnimation(.interpolatingSpring)`:
+### 入场动画：SwiftUI 弹簧
 
-| Property | Start | End |
-|----------|-------|-----|
+`ToastView` 内通过 `@State + .onAppear + withAnimation(.interpolatingSpring(mass: 1.2, stiffness: 120, damping: 14, initialVelocity: 3))` 触发：
+
+| 属性 | 起始 | 结束 |
+|------|------|------|
 | `scaleEffect` | 0.2 | 1 |
 | `offset(y:)` | -56 | 0 |
 | `blur(radius:)` | 12 | 0 |
 | `opacity` | 0 | 1 |
 
-Spring: `mass: 1.2, stiffness: 120, damping: 14, initialVelocity: 3` (~550ms perceptual). Asymmetric padding (top:20, bottom:12, horizontal:18) outside the animation absorbs spring overshoot. Window positioned via `screen.frame.maxY` for tight-to-top placement.
+非对称 padding（top:20, bottom:12, horizontal:18）吸收弹簧过冲。窗口定位用 `screen.frame.maxY`。
 
-Exit animation: 200ms `easeIn` fade-out + `CIGaussianBlur` 0→4px via `CABasicAnimation` (keyPath `"filters.dismissBlur.inputRadius"`), cleanup via `DispatchQueue.main.asyncAfter` (+0.25s). Content view needs `layerUsesCoreImageFilters = true`. `CIFilter.name` must match the animation keyPath. Cleanup (remove filter + animation) happens in: animated cleanup block, `cancelDismiss()`, and non-animated dismiss — all three paths.
+退场：200ms `easeIn` 淡出 + `CIGaussianBlur` 0→4px（`CABasicAnimation`，keyPath `"filters.dismissBlur.inputRadius"`），`DispatchQueue.main.asyncAfter`（+0.25s）清理。Content view 需 `layerUsesCoreImageFilters = true`。`CIFilter.name` 必须匹配动画 keyPath。清理覆盖三条路径：动画回调、`cancelDismiss()`、非动画 dismiss。
 
-### Mouse interaction: hover-to-pause + click-to-dismiss
+### 鼠标交互：悬停暂停 + 点击关闭
 
-The toast supports mouse interaction via a combination of SwiftUI `.onHover` and AppKit `NSEvent.addLocalMonitorForEvents`:
+SwiftUI `.onHover` + AppKit `NSEvent.addLocalMonitorForEvents(.leftMouseDown)`（borderless 浮动 `NSHostingView` 内 `.onTapGesture` 不可靠）。悬停 → 暂停 dismiss 计时器；窗口内点击 → 关闭。`isDismissing` 标志在退场动画期间阻止交互。`dismissGeneration` 防止过期的动画清理隐藏新弹出的 toast。`onHoverChanged` + `onTap` 闭包由 controller 注入；交互状态在 controller 而非 ViewModel。
 
-- **Hover**: `.onHover` modifier on `ToastView` fires on pointer enter/exit. On enter → pause dismiss timer. On exit → restart full 3s timer.
-- **Click**: `NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown)` intercepts clicks at the AppKit event-dispatch level (SwiftUI's `.onTapGesture` is unreliable inside borderless floating `NSHostingView`). If the click location falls within the window frame → trigger dismiss.
-- **Pre-positioned mouse**: After `orderFront`, `isMouseInsideWindow()` checks `NSEvent.mouseLocation` against the window frame. If the mouse is already inside → `isHovering = true`, timer not started.
-- **Dismiss guard**: `isDismissing` flag prevents hover/click callbacks from interfering during the 200ms exit animation.
-- **Generation guard**: `dismissGeneration` counter prevents a stale animated-dismiss completion from ordering out a newly-shown toast (when a new clipboard event arrives during the exit animation).
+### 剪贴板检测：pasteboard types，不用 readObjects
 
-Closures `onHoverChanged` + `onTap` are injected from `ToastWindowController` into `ToastView`. Interaction state lives in the controller, not the ViewModel.
+`readClipboardContent` 直接用 `pasteboard.types` 判断内容类别。优先级：
 
-### Clipboard detection: pasteboard types, not readObjects
+1. `.fileURL` → 文件（存储 `fileURLs: [URL]`，SourceAppDetector 用于文件夹名）
+2. `.tiff` / `.png` → 图片（生成 64×64 方形缩略图）
+3. `.string` → 文本（含语言检测）
 
-`readClipboardContent` checks `pasteboard.types` directly to determine the content category. Detection priority:
+- **单图片文件**：同步 `NSImage(contentsOf:)` → 方形裁剪缩略图。
+- **单非图片文件**：异步 `QLThumbnailGenerator`（`FilePreviewGenerator`），PDF 首页、视频关键帧等；失败降级为 SF Symbol。缩略图到达后窗口自动 resize。
 
-1. `.fileURL` → file (stores `fileURLs: [URL]`, used by `SourceAppDetector` for folder names)
-2. `.tiff` / `.png` → image (generates 64×64 square thumbnail)
-3. `.string` → text (with language detection)
+### 内容类型检测（DetectionRegistry）
 
-- **Single image files**: synchronous `NSImage(contentsOf:)` thumbnail (fast, legacy path).
-- **Single non-image files**: async `QLThumbnailGenerator` thumbnail via `FilePreviewGenerator`. Loads content preview (PDF first page, video keyframe, etc.) in background; falls back to SF Symbol on failure. Toast window auto-resizes when thumbnail arrives.
+文本解析后，`DetectionRegistry.shared.detectAll(in:)` 按优先级运行所有已注册检测器。Registry 管理：
 
-### Content type detection (DetectionRegistry)
+- **13 个内置检测器**（`Detectors/`）：`ColorDetector`, `URLDetector`, `FilePathDetector`, `DateTimeDetector`, `MathExpressionDetector`, `ChineseCharDetector`, `EnglishPhraseDetector`, `HTMLDetector`, `SwiftDetector`, `PythonDetector`, `JavaScriptDetector`, `CSSDetector`, `CodeDetector`
+- **插件检测器**从 `~/Library/Application Support/Copied/Plugins/*.copiedplugin/` 加载（每个插件 = 一个 `PluginDetector`）
 
-After text is parsed, `DetectionRegistry.shared.detectAll(in:)` runs all registered detectors in priority order. Detectors implement `ContentDetectorProtocol` and return `ContentDetection?`. The registry manages:
-
-- **13 built-in detectors** under `Detectors/`: `ColorDetector`, `URLDetector`, `FilePathDetector`, `DateTimeDetector`, `MathExpressionDetector`, `ChineseCharDetector`, `EnglishPhraseDetector`, `HTMLDetector`, `SwiftDetector`, `PythonDetector`, `JavaScriptDetector`, `CSSDetector`, `CodeDetector`
-- **Plugin detectors** loaded from `~/Library/Application Support/Copied/Plugins/*.copiedplugin/` (each plugin = one `PluginDetector`)
-
-| Priority | Detector | Type | Method |
-|----------|---------|------|--------|
-| 300 | `ColorDetector` | `.colorHex/.colorRGB/.colorHSL` | Regex + manual NSColor parse (hex, rgb, hsl) |
-| 250 | `URLDetector` | `.url` | `NSDataDetector` with `.link` |
+| 优先级 | 检测器 | 类型 | 方法 |
+|--------|--------|------|------|
+| 300 | `ColorDetector` | `.colorHex/.colorRGB/.colorHSL` | 正则 + 手动 NSColor 解析（hex, rgb, hsl）|
+| 250 | `URLDetector` | `.url` | `NSDataDetector(.link)` |
 | 200 | `FilePathDetector` | `.filePath` | `^(~\|/).+` → `expandingTildeInPath` → `FileManager.fileExists` |
-| 190 | `DateTimeDetector` | `.dateTime` | Preprocessing (M.D→M月D日, H点→H:00) + `NSDataDetector(.date)` full-text match; `RelativeDateTimeFormatter` detail |
-| 180 | `MathExpressionDetector` | `.mathExpr` | Digits+operators, balanced parens, structure validation |
-| 100 | `ChineseCharDetector` | `.chineseChar` | Exactly 1 char, U+4E00–U+9FFF |
-| 80 | `EnglishPhraseDetector` | `.englishPhrase` | Single ASCII word, no code delimiters |
-| 70 | `HTMLDetector` | `.html` | `</?[a-zA-Z]+\b` tags |
+| 190 | `DateTimeDetector` | `.dateTime` | 预处理（M.D→M月D日, H点→H:00）+ `NSDataDetector(.date)` 全文匹配；`RelativeDateTimeFormatter` 详情 |
+| 180 | `MathExpressionDetector` | `.mathExpr` | 数字+运算符、括号平衡、结构验证 |
+| 100 | `ChineseCharDetector` | `.chineseChar` | 恰好 1 字符，U+4E00–U+9FFF |
+| 80 | `EnglishPhraseDetector` | `.englishPhrase` | 单个 ASCII 单词，无代码分隔符 |
+| 70 | `HTMLDetector` | `.html` | `</?[a-zA-Z]+\b` 标签 |
 | 60 | `SwiftDetector` | `.swift` | `func\|var\|let\|struct\|class\|import SwiftUI…` |
 | 50 | `PythonDetector` | `.python` | `def\|import\|elif\|yield…` |
 | 40 | `JavaScriptDetector` | `.javascript` | `function\|const \|=>\|export \|console.…` |
-| 30 | `CSSDetector` | `.css` | braces+colons+semicolons+CSS units/props |
-| 20 | `CodeDetector` | `.code` | Generic braces/semicolons/keywords |
-| — | (none) | `.plain` | Default when nothing matches |
+| 30 | `CSSDetector` | `.css` | 大括号+冒号+分号+CSS 单位/属性 |
+| 20 | `CodeDetector` | `.code` | 泛用大括号/分号/关键字 |
+| — | (无) | `.plain` | 无匹配时的默认值 |
 
-**Performance safeguards:**
-- **100KB text cutoff**: Text >100KB → only built-in `.language` detectors run (skip all `.entity` and plugins)
-- **50ms per-detector timeout**: After each detector runs, if elapsed >50ms → throttled for 30s
-- **3-strike auto-disable**: Consecutive throttles ≥3 → detector permanently disabled with system notification
+**性能熔断**：
+- **100KB 文本截断**：>100KB → 仅运行内置 `.language` 检测器（跳过所有 `.entity` 和插件）
+- **50ms 单检测器超时**：每个检测器运行后，若累计耗时 >50ms → 限流 30s
+- **3 次限流自动禁用**：连续限流 ≥3 → 检测器永久禁用并弹出系统通知
 
-Detection results stored in `ClipboardContent.detections: [ContentDetection]`. Each detection carries `kind`, `value`, optional `color`, optional `pluginActionTemplate`.
+检测结果存储在 `ClipboardContent.detections: [ContentDetection]`。每条含 `kind`、`value`、可选 `color`、可选 `pluginActionTemplate`。
 
-### Icon mapping (ToastViewModel.iconSymbolName)
+### 图标映射（ToastViewModel.iconSymbolName）
 
-Icon selection priority: **color swatch → detection icon → content type fallback**.
+图标选择优先级：**色块 → 检测图标 → 内容类型回退**。
 
-When `detectedColor != nil`, returns `""` — the color swatch replaces the icon entirely.
+`detectedColor != nil` 时返回 `""`，色块完全替代图标。
 
-| Condition | Icon |
-|-----------|------|
-| Color detected | (color swatch, no SF Symbol) |
-| Detection with non-empty `.icon` | Uses `ContentKind.icon` (e.g. `safari`, `folder`, `function`, `character`) |
-| `.image` (screenshot, clipboard image) | `photo` |
-| `.file` (generic) | `doc.on.doc` |
-| Plain short text (<50 chars) | `text.alignleft` |
-| Plain long text | `text.quote` |
+| 条件 | 图标 |
+|------|------|
+| 颜色检测到 | （色块，无 SF Symbol）|
+| 检测结果含非空 `.icon` | 使用 `ContentKind.icon`（如 `safari`, `folder`, `function`, `character`）|
+| `.image`（截图、剪贴板图片）| `photo` |
+| `.file`（泛用）| `doc.on.doc` |
+| 短文本（<50 字）| `text.alignleft` |
+| 长文本 | `text.quote` |
 
-`.chineseChar` icon=`character`, `.englishPhrase` icon=`abc`. Prioritization is determined by detection order (first = highest priority).
+`.chineseChar`→`character`，`.englishPhrase`→`abc`。优先级由检测顺序决定（最先匹配 = 最高优先级）。
 
-### Detail line format
+### 详情行格式
 
-Driven by `ToastViewModel.typeLabel` (priority: image format → file type/folder → detection label → empty).
+由 `ToastViewModel.typeLabel` 驱动（优先级：图片格式 → 文件类型/文件夹 → 检测标签 → 空）。
 
-| Content | Detail line |
-|---------|------------|
-| Clipboard image (PNG screenshot) | `PNG 图片 · 1920×1080` |
-| Single image file (JPG) | `JPG 图片 · 800×600` |
-| Single folder (Finder copy) | `文件夹 · 128.5 MB` |
-| Single non-image file (PDF) | `PDF 文件 · 2.5 MB` |
-| URL detected text | `链接 · 120字符` |
-| File path detected text | `路径 · 80字符` |
-| Date/time detected text | `日期 · 3天后` / `日期 · 2小时前` |
-| Math expression text | `公式 · 45字符` |
-| Chinese character text | `汉字` |
-| Code text (Swift) | `Swift · 120字符` |
-| Plugin-detected (JSON) | `JSON · 120字符` |
-| Plain short text (<50 chars) | (empty — not shown) |
-| Plain long text | `N字符` |
-| Multiple files | `N个文件` |
+| 内容 | 详情行 |
+|------|--------|
+| 剪贴板图片（PNG 截图）| `PNG 图片 · 1920×1080` |
+| 单图片文件（JPG）| `JPG 图片 · 800×600` |
+| 单文件夹（访达复制）| `文件夹 · 128.5 MB` |
+| 单非图片文件（PDF）| `PDF 文件 · 2.5 MB` |
+| URL 检测文本 | `链接 · 120字符` |
+| 文件路径检测文本 | `路径 · 80字符` |
+| 日期时间检测文本 | `日期 · 3天后` / `日期 · 2小时前` |
+| 数学表达式文本 | `公式 · 45字符` |
+| 单个汉字文本 | `汉字` |
+| 英文单词文本 | `英文` / `英文 · N字符` |
+| 代码文本（Swift 等）| `Swift · 120字符` |
+| 插件检测到（JSON）| `JSON · 120字符` |
+| 短文本（<50 字）| （空，不显示）|
+| 长文本 | `N字符` |
+| 多个文件 | `N个文件` |
 
-### Action system (`ClipboardAction` protocol)
+### Action 系统（`ClipboardAction` 协议）
 
 ```swift
 protocol ClipboardAction: Identifiable {
     var id: String { get }
-    var title: String { get }            // ≤3 Chinese chars for button
+    var title: String { get }            // 按钮文案，≤3 个汉字
     var systemImage: String { get }      // SF Symbol
-    var menuTitle: String { get }        // context menu label
-    var performsInlineUpdate: Bool { get } // true → keep popup open after perform
+    var menuTitle: String { get }        // 右键菜单标签
+    var performsInlineUpdate: Bool { get } // true → 执行后保持弹窗
     func perform(content:, controller:)
 }
-// Default: performsInlineUpdate = false
+// 默认：performsInlineUpdate = false
 ```
 
-**9 built-in actions + PluginAction** (resolved by `ActionResolver.resolve(for:)`):
+**9 个内置 Action + PluginAction**（由 `ActionResolver.resolve(for:)` 解析）：
 
-| Action | Trigger (ContentKind) | Button text | Behavior |
-|--------|---------|:---:|------|
+| Action | 触发条件（ContentKind）| 按钮 | 行为 |
+|--------|-----------------------|:----:|------|
 | `OpenURLAction` | `.url` | 打开 | `NSWorkspace.shared.open` |
 | `RevealFileAction` | `.filePath` | 打开 | `NSWorkspace.shared.activateFileViewerSelecting` |
 | `OpenCalendarAction` | `.dateTime` | 日历 | `Process`/osascript → Calendar `view calendar at` |
-| `CalculateAction` | `.mathExpr` | 计算 | NSExpression eval → `showResultOverlay` — inline, line 1=expression, line 2==result |
-| `ShowPinyinAction` | `.chineseChar` | 拼音 | `CFStringTransform` → `showResultOverlay` — inline |
-| `LookupAction` | `.englishPhrase` | 翻译 | `DCSCopyTextDefinition` → system dictionary (Oxford CN-EN) → `showInlineResult` — inline, line 1=word+pron, line 2=Chinese translations |
-| `SearchTextAction` | plain text (fallback) | 搜索 | `NSWorkspace.open` search engine URL |
-| `SaveFileAction` | context menu | — | `NSSavePanel` → write to file |
-| `CopyTextAction` | result overlay (after Calculate/Pinyin/Translate) | 复制 | `NSPasteboard.general.setString` |
-| `PluginAction` | Plugin-defined (any) | Template | openURL / searchWithEngine / transform / none |
+| `CalculateAction` | `.mathExpr` | 计算 | NSExpression 求值 → `showResultOverlay`，行1=表达式，行2==结果 |
+| `ShowPinyinAction` | `.chineseChar` | 拼音 | `CFStringTransform` → `showResultOverlay` |
+| `LookupAction` | `.englishPhrase` | 翻译 | `DCSCopyTextDefinition` → 系统词典（牛津中英）→ `showInlineResult`，行1=单词+音标，行2=中文释义 |
+| `SearchTextAction` | 纯文本（回退）| 搜索 | `NSWorkspace.open` 搜索引擎 URL |
+| `SaveFileAction` | 右键菜单 | — | `NSSavePanel` → 写入文件 |
+| `CopyTextAction` | 结果覆盖层（计算/拼音/翻译后）| 复制 | `NSPasteboard.general.setString` |
+| `PluginAction` | 插件定义（任意）| 模板 | openURL / searchWithEngine / transform / none |
 
-**Inline update pattern** (`performsInlineUpdate = true`): After performing, the popup stays open and shows a **result overlay** (`ResultOverlay { displayText, copyText }`). The right button changes to "复制" (`CopyTextAction`). Used by `CalculateAction`, `ShowPinyinAction`, `LookupAction`, and plugin `.transform` actions. All are synchronous — `showInlineResult(displayText:copyText:)` is called directly.
+**内联更新模式**（`performsInlineUpdate = true`）：执行后弹窗保持显示，展示**结果覆盖层**（`ResultOverlay { displayText, copyText }`）。右侧按钮变为"复制"（`CopyTextAction`）。`CalculateAction`、`ShowPinyinAction` 调用 `showResultOverlay`，`LookupAction` 调用 `prepareForAsyncInlineAction()` + `showInlineResult`，插件 `.transform` Action 类似。
 
-**Result overlay layout**: The overlay's `displayText` is split by `\n` and each segment is rendered in its own `Text` with `.lineLimit(1)` — preventing first-line overflow from pushing into the second line. This supports two-line formats (word+pronunciation / translations, expression / =result, character / pinyin).
+**结果覆盖层布局**：`displayText` 按 `\n` 拆分为 `VStack`，每个 `Text` 设 `.lineLimit(1)`，防止首行溢出挤占次行。支持两行格式（单词+音标 / 释义，表达式 / =结果，汉字 / 拼音）。
 
-**Dictionary lookup** (`LookupAction`): Uses `DCSCopyTextDefinition` from CoreServices/DictionaryServices to query macOS's built-in Oxford Chinese-English dictionary. No download, no network, zero configuration. Returns: line 1 = "`{word} 英 {pron}`", line 2 = Chinese translations (≤5-char CJK groups, filtered for core definitions, max 8, comma-separated). The detector (`EnglishPhraseDetector`) triggers on single ASCII words only — phrase-level lookup is not supported by the dictionary API.
+**词典查询**（`LookupAction`）：`DCSCopyTextDefinition`（CoreServices/DictionaryServices）查询 macOS 内置牛津中英词典。无下载、无网络、零配置。返回：行1 = "`{word} 英 {pron}`"，行2 = 中文释义（≤5 字 CJK 片段，过滤核心释义，最多 8 条，逗号分隔）。检测器（`EnglishPhraseDetector`）仅匹配单个 ASCII 单词 — 短语级查询不被词典 API 支持。
 
-**Priority**: first non-color detection → right-side button (max 1). Others → context menu. If no detection but text exists → button defaults to 搜索. Plugin actions are created from `ContentDetection.pluginActionTemplate` when `ContentKind.source == .plugin(...)`. Language-only types (swift, python, etc.) produce no button — they only add a label/icon.
+**优先级**：首个非颜色检测 → 右侧按钮（最多 1 个）。其余 → 右键菜单。无检测但有文本 → 默认 搜索。`ContentKind.source == .plugin(...)` 时从 `ContentDetection.pluginActionTemplate` 创建 PluginAction。纯语言类型（swift, python 等）不产生按钮 — 仅添加标签/图标。
 
-### Plugin system
+### 插件系统
 
-Declarative-only (JSON + regex, no code execution). Format: `.copiedplugin` folder:
-- `manifest.json` — name, identifier, version, category (`"language"`|`"entity"`), icon, label, priority
-- `rules.json` — array of `{id, pattern, extractValue?, action?}`
+声明式（JSON + 正则，不执行代码）。`.copiedplugin` 文件夹格式：
+- `manifest.json` — name, identifier, version, category（`"language"`|`"entity"`）, icon, label, priority
+- `rules.json` — `{id, pattern, extractValue?, action?}` 数组
 
-Action types: `openURL` (with `{value}` template), `searchWithEngine`, `transform` (regex-replace + inline result), `none`.
+Action 类型：`openURL`（含 `{value}` 模板）、`searchWithEngine`、`transform`（正则替换 + 内联结果）、`none`。
 
-Install: open `.copiedplugin` folder via Settings → copied to `~/Library/Application Support/Copied/Plugins/`. Loaded at app startup via `PluginLoader.loadAllPlugins()`.
+安装：通过设置页打开 `.copiedplugin` 文件夹 → 复制到 `~/Library/Application Support/Copied/Plugins/`。应用启动时由 `PluginLoader.loadAllPlugins()` 加载。
 
-### Click handling (NSEvent monitor + SwiftUI Button coexistence)
+### 点击处理（NSEvent 监听器 + SwiftUI Button 共存）
 
-Click handling uses TWO layers working together:
+两层协作：
 
-1. **NSEvent local monitor** (`leftMouseDown`): fires first. If click inside window → calls `handleTap()` which sets `isDismissing=true` then schedules dismiss via `DispatchQueue.main.async` (deferred to next run loop).
-2. **SwiftUI Button**: receives the same click synchronously. For inline-update actions (`performsInlineUpdate = true`) → calls `cancelDismiss()` which sets `isDismissing=false` (the async dismiss block then skips itself). For other actions → performs action; dismiss proceeds when the async block fires.
+1. **NSEvent 本地监听器**（`leftMouseDown`）：先触发。窗口内点击 → `handleTap()` 设置 `isDismissing=true`，通过 `DispatchQueue.main.async` 延迟关闭。
+2. **SwiftUI Button**：同步收到同一点击。内联更新 Action（`performsInlineUpdate = true`）→ 调用 `cancelDismiss()` 设置 `isDismissing=false`（异步关闭 block 自行跳过）。其他 Action → 执行后关闭继续。
 
-Background click: only layer 1 fires → async dismiss fires → toast dismisses. Button click on inline-update action: layer 1 sets dirty flag → button handler clears it → async block sees clean flag and skips.
+后台点击：仅第 1 层触发 → 异步关闭执行 → toast 消失。内联 Action 按钮点击：第 1 层设脏标志 → 按钮 handler 清除 → 异步 block 发现标志干净，跳过。
 
-The async deferral (added 2026-06-25) eliminates a race condition where the monitor's immediate `dismissToast(animated:true)` animation competed with `cancelDismiss()`'s `alphaValue=1.0` restoration.
+异步延迟防止监听器的即时 `dismissToast(animated:true)` 与 `cancelDismiss()` 的 `alphaValue=1.0` 恢复发生竞争。`cancelDismiss()` 重置 `isDismissing=false`、递增 `dismissGeneration`（作废旧动画）、恢复 `alphaValue=1.0`。
 
-`cancelDismiss()` resets `isDismissing=false`, increments `dismissGeneration` (invalidates stale animation), restores `alphaValue=1.0`.
+### ⌘ 键快速触发
 
-### ⌘ key quick-action
+Toast 有主操作按钮（或结果覆盖层）时，按下并松开 ⌘ 触发。**三层防御**，无需 Accessibility 权限：
 
-When the toast has a primary action button (or a result overlay), pressing and releasing ⌘ triggers it. Uses two mechanisms that work **without Accessibility permission**:
+1. **`NSEvent.addLocalMonitorForEvents(.keyDown + 鼠标事件)`** — `localOtherEventMonitor`。捕获 ⌘+key 组合键（全局监听器会过滤这些事件）。⌘ 按住期间任何按键/鼠标事件 → `cmdCancelledByOtherEvent = true`。
 
-1. **`NSEvent.addGlobalMonitorForEvents(.flagsChanged)`** — detects ⌘ press/release.
-2. **`CGEventSource.counterForEventType(.hidSystemState, .keyDown)`** — HID-level key-down counter. Snapshot at ⌘ press; if unchanged at ⌘ release, no other key was pressed → trigger. If changed, a shortcut (⌘+A etc.) was in progress → abort.
+2. **`CGEventSource.counterForEventType(.hidSystemState, .keyDown)`** — HID 级 keyDown 计数器。⌘ 按下时快照、延迟到 `DispatchQueue.main.async` 对比（一个 runloop 延迟给 HID 计数器时间反映组合键事件）。未变 → 触发；变化 → 中止。
 
-Pre-existing ⌘ (from ⌘C copy) is detected via `NSEvent.modifierFlags` in `show()` → `cmdIsPreExisting = true` → button does NOT highlight and release does not trigger.
+3. **`dismissGeneration` 守卫** — ⌘ 释放时捕获，async block 中校验。防止过期 ⌘ 释放触发新 toast 的 Action。
 
-**Result mode**: When `viewModel.resultOverlay != nil` (after Calculate/Pinyin), ⌘ release triggers `CopyTextAction(text: overlay.copyText)` instead of `primaryAction`. The monitor guard checks `viewModel.primaryAction != nil || viewModel.resultOverlay != nil`.
+**转换检测**：`cmdCancelledByOtherEvent` 仅在 ⌘ 从未按下→按下转换时重置（`wasCmdPressed` 守卫），不在 ⌘ 按住期间的每次 `flagsChanged` 重置。防止其他修饰键变化（Shift 等）误清取消标志。
 
-Button visual feedback: `ToastViewModel.isCommandPressed` drives conditional SF Symbol (`"command"`), text (`"松开"`), background opacity (0.12→0.2), scale (1.0→0.92), with `.spring(response:0.2, dampingFraction:0.6)`. In result mode the icon is `"doc.on.doc"` and text is `"复制"`.
+预存 ⌘（⌘C 复制后）通过 `show()` 中 `NSEvent.modifierFlags` 检测 → `cmdIsPreExisting = true` → 按钮不高亮、释放不触发。
 
-**Known dead-ends** (do not re-attempt):
-- `addGlobalMonitorForEvents(.keyDown/.keyUp)` — macOS filters ⌘+key shortcut events
-- `CGEvent.tapCreate` for ⌘ detection — ad-hoc signed app fails from `.build/`; works from `/Applications/` (used by `CopyGestureManager`)
-- Timing-based heuristic — fast ⌘+A overlaps with slow intentional ⌘ tap
+**结果态**：`viewModel.resultOverlay != nil`（计算/拼音后）时，⌘ 释放触发 `CopyTextAction(text: overlay.copyText)` 而非 `primaryAction`。监听器守卫条件为 `primaryAction != nil || resultOverlay != nil`。
 
-### Toast layout (current)
+按钮视觉反馈：`ToastViewModel.isCommandPressed` 驱动条件 SF Symbol（`"command"`）、文案（`"松开"`）、背景透明度（0.12→0.2）、缩放（1.0→0.92），`.spring(response:0.2, dampingFraction:0.6)` 动画。结果态图标为 `"doc.on.doc"`、文案为 `"复制"`。
+
+**死路（勿重试）**：
+- `addGlobalMonitorForEvents(.keyDown/.keyUp)` — macOS 在全局监听器中过滤 ⌘+key 快捷键。本地监听器（`addLocalMonitorForEvents`）能收到。
+- `CGEvent.tapCreate` 用于 ⌘ 检测 — 仅 CopyGestureManager 使用，对 ⌘ quick-action 过度复杂
+- 时序推断 — 快速 ⌘+A 与慢速 ⌘ 点击时间重叠
+
+### Toast 布局
 
 ```
 [色块/图标/缩略图 32/64] [12] [VStack: 预览(或结果覆盖) + 来源] [Spacer] [按钮: 图标+≤3字文案]
 ```
 
-- **Color swatch**: 32×32 rounded rect (corner 8), replaces SF Symbol when `detectedColor != nil`. Has `.shadow` with the color itself.
-- **Thumbnail**: 64×64 for images (unchanged from original).
-- **Text area**: ZStack with opacity crossfade between preview text and result overlay. Preview uses `.lineLimit(2)` + `.lineSpacing(4)`. Result overlay splits `displayText` by `\n` into a `VStack` of `Text` views each with `.lineLimit(1)` — independent truncation prevents any line from overflowing into the next.
-- **Action button**: `HStack(spacing:4)` with SF Symbol 12pt + text 12pt, `.white.opacity(0.12)` background, 8pt corner radius. Icon `.frame(height: 14)` for consistent sizing. Shows action's own SF Symbol (`arrow.up.forward`/`equal`/`magnifyingglass`/`keyboard`/`translate`). On **hover** or **⌘ press**, icon switches to `"command"` + text to "松开" (⌘ only). Hover exit debounced 100ms to prevent edge flickering. **Result mode**: when `resultOverlay != nil`, the button becomes "复制" (`doc.on.doc` icon, triggers `CopyTextAction`).
-- **Context menu**: always shows 搜索 / 另存为…, plus content-specific items below a divider.
+- **色块**：32×32 圆角矩形（corner 8），`detectedColor != nil` 时替代 SF Symbol。
+- **缩略图**：图片 64×64。
+- **文字区**：ZStack 交叉淡入淡出。预览：`.lineLimit(2)`。结果覆盖层：`\n` 拆分 `VStack`，每个 `.lineLimit(1)`。
+- **操作按钮**：`HStack(spacing:4)` SF Symbol 12pt + 文字 12pt，`.white.opacity(0.12)` 背景，corner 8。悬停/⌘ 按下 → 图标 `"command"`、文案 `"松开"`（悬停退出 100ms 防抖，`Task.sleep` 实现）。结果态 → 图标 `"doc.on.doc"`、文案 `"复制"`。
+- **右键菜单**：搜索 / 另存为… + 分隔线后内容专属项。
 
-### Menu bar
+### 菜单栏
 
-`MenuBarExtra(content:label:)` with custom `Copied.svg` template image (loaded via `NSImage`, `isTemplate = true`, size 18×18pt). SVG has white background stripped at build time (`sed '/fill="white"/d'`). Pause/resume via `@AppStorage("isPaused")` → `ClipboardMonitor` reads `UserDefaults` directly (avoids binding propagation complexity). `LSUIElement = YES` in Info.plist hides Dock icon.
+`MenuBarExtra(content:label:)` + 自定义 `Copied.svg` 模板图像（`NSImage` 加载，`isTemplate = true`，18×18pt）。`build.sh` 将 `fill="white"` 替换为 `fill="black"` 用作模板遮罩。暂停/恢复通过 `@AppStorage("isPaused")` → `ClipboardMonitor` 直接读 `UserDefaults`（避免绑定传播复杂度）。`Info.plist` 中 `LSUIElement = YES` 隐藏 Dock 图标。
 
-### App icon
+### App 图标
 
-Liquid Glass `.icon` format (Icon Composer) — 2 layers: background shape + foreground clipboard symbol, with translucency + neutral shadow. Compiled via `actool` → `Assets.car` (macOS 26+) + `Copied.icns` (legacy). `CFBundleIconName = Copied` in Info.plist. Icon changes tracked in build fingerprint.
+Liquid Glass `.icon` 格式（Icon Composer）— 2 层：背景形状 + 前景剪贴板符号，半透明 + 中性阴影。`actool` 编译 → `Assets.car` + `Copied.icns`。`Info.plist` 中 `CFBundleIconName = Copied`。图标变更纳入构建指纹。
 
-### Copy gesture (left-hold + right-click → ⌘C)
+### 左右键快捷复制（CopyGestureManager）
 
-Toggle in Settings → 手势, **off by default**. Uses `CGEventTap` to intercept mouse events.
+设置 → 手势中开启，**默认关闭**。`CGEventTap` 拦截鼠标事件。
 
-- `.leftMouseDown` → `isLeftPressed = true` (pass through)
-- `.leftMouseUp` → `isLeftPressed = false` (pass through)
-- `.rightMouseDown` → if `isLeftPressed`: consume event (return nil) + send ⌘C after 15ms
+- `.leftMouseDown` → `isLeftPressed = true`（透传）
+- `.leftMouseUp` → `isLeftPressed = false`（透传）
+- `.rightMouseDown` → 若 `isLeftPressed`：吞掉事件（return nil）+ 15ms 后发送 ⌘C
 
-**Permission UX** (3 guards):
-1. **Toggle disabled without permission**: getter = `copyGestureEnabled && isGestureTrusted`, toggle shows OFF when `AXIsProcessTrusted() == false`
-2. **Restart alert**: attempting ON without permission → alert "授权后请重启 Copied 使权限生效" → [请求权限] calls `AXIsProcessTrustedWithOptions`
-3. **Auto-reset on permission loss**: `CopiedApp.applicationDidFinishLaunching` — if `copyGestureEnabled && !AXIsProcessTrusted()` → sets to `false` (handles rebuild signature mismatch)
+**权限 UX（三重保障）**：
+1. **无权限时 Toggle 强制 OFF**：getter = `copyGestureEnabled && isGestureTrusted`，`AXIsProcessTrusted() == false` 时显示 OFF
+2. **重启引导 Alert**：尝试无权限开启 → 弹窗"授权后请重启 Copied 使权限生效" → [请求权限] 调用 `AXIsProcessTrustedWithOptions`
+3. **权限丢失自动回正**：`CopiedApp.applicationDidFinishLaunching` — 若 `copyGestureEnabled && !AXIsProcessTrusted()` → 设为 `false`
 
-**Signing**: Apple Development certificate (`TeamIdentifier = 683MU5Q6FB`). TCC uses Team ID (stable) not CDHash (per-build). WWDR G3 intermediate cert required in keychain. Without proper signing, ad-hoc CDHash changes every rebuild → permission lost.
+**签名**：Apple Development 证书（`TeamIdentifier = 683MU5Q6FB`）。TCC 使用 Team ID（稳定）而非 CDHash（每次构建变化）。需钥匙串中有 WWDR G3 中间证书。无正确签名时 ad-hoc CDHash 每次重建变化 → 权限丢失。
 
-**Key files**: `CopyGestureManager.swift` (CGEventTap + ⌘C), `CopiedApp.swift` (lifecycle + auto-reset), `SettingsView.swift` (gesture tab with guards + alert), `build.sh` (codesign + actool).
+**关键文件**：`CopyGestureManager.swift`（CGEventTap + ⌘C）、`CopiedApp.swift`（生命周期 + 自动回正）、`SettingsView.swift`（手势 Tab + 守卫 + Alert）、`build.sh`（codesign + actool）。
 
-### File/folder size calculation
+### 文件/文件夹大小计算
 
-`formatFileSize` in `ClipboardMonitor.swift` uses three-tier strategy:
-1. `totalFileSizeKey` — fast recursive size (works for most packages/directories)
-2. `fileSizeKey` — regular files
-3. `calculateRecursiveSize()` — `FileManager.enumerator` fallback for dirs/packages when totalFileSize returns 0
-
-Single folders now show size (was empty before 2026-06-29).
+`ClipboardMonitor.swift` 中 `formatFileSize` 使用三层次策略：
+1. `totalFileSizeKey` — 快速递归大小（适用于多数包/目录）
+2. `fileSizeKey` — 普通文件
+3. `calculateRecursiveSize()` — `FileManager.enumerator` 回退（totalFileSize 返回 0 时用于目录/包）
 
 ## GitHub 推送规则（硬性）
 
-**涉及任何 git 操作时必须先调用 `git-push` skill。** 核心原则：只改/只传 `Copied-mac/`，根 `README.md` 不归你管。
+**任何 git 操作前必须先调用 `git-push` skill。** 只改/只传 `Copied-mac/`，根 `README.md` 不可修改。
 
-## Known limitations
+## 已知限制
 
-- **Edge highlight**: Liquid Glass edge highlight is suppressed by the WindowServer compositor on non-key floating windows. The SwiftUI `.stroke(.white.opacity(0.25))` overlay compensates visually.
-- **Window position constraint**: macOS constrains window frames to screen bounds. The window extends above `visibleFrame.maxY` using `screen.frame.maxY`, but further upward push is clamped by the WindowServer.
-- **Window animation clipping**: During `showResultOverlay` window expansion, the `NSHostingView` content is already at full target width while the window frame is still animating, causing brief right-edge clipping. Multiple approaches were tried (CALayer mask, `clipsToBounds`, hosting view offset, constraints) — none eliminated the AppKit ↔ SwiftUI timing mismatch. Current workaround: 0.25s fast animation + explicit 2-line result format (result always on line 2, visible) + ZStack crossfade masks the transition.
-- **macOS 26+ only**: `.glassEffect()` requires macOS 26. Lower versions would need `NSVisualEffectView` fallback.
-- **No Xcode project**: Built via `swiftc` in `build.sh`. Xcode 26 required for `actool` (icon compilation) and code signing certificate.
-- **Frameworks**: SwiftUI, AppKit, QuickLookThumbnailing (file thumbnails), ServiceManagement (login item), CoreServices (DictionaryServices for word lookup). `build.sh` signs with Apple Development certificate (TCC-stable identity).
-- **Settings**: Settings page (⌘, or menu → 设置…) with launch-at-login toggle, search engine picker, type management. UserDefaults keys: `searchEngine`.
-- **Dictionary lookup**: Implemented via `DCSCopyTextDefinition` from CoreServices/DictionaryServices. Returns results from macOS built-in Oxford Chinese-English dictionary. No download, no network. Single-word only (dictionary API limitation, not phrase-level). `showInlineResult()` pattern shared with Calculate/Pinyin actions.
-
+- **边缘高光**：非 key 浮动窗口上被 WindowServer 抑制 → `.stroke(.white.opacity(0.25))` 补偿。
+- **窗口位置**：WindowServer 将窗口限制在屏幕边界内；无法超出 `screen.frame.maxY`。
+- **窗口动画裁切**：`showResultOverlay` 展开时有短暂右边缘裁切（AppKit ↔ SwiftUI 时序错配）。缓解：0.25s 动画 + 2 行结果格式 + ZStack 交叉淡入淡出。
+- **仅限 macOS 26+**：`.glassEffect()` 需 macOS 26。
+- **无 Xcode 工程**：`swiftc` + `actool` + `codesign` 通过 `build.sh`。Xcode 26 供 `actool` 使用。
+- **词典查询**：仅支持单个单词（DCSCopyTextDefinition API 限制）。
+- **指纹**：覆盖 `SOURCES` + `RESOURCES` + `BUILD_FILES`（`build.sh`、`Copied.svg`）。这些数组之外的变化（如新增资源文件）需手动 `rm .build/.source_fingerprint`。

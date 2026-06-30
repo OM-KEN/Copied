@@ -47,11 +47,14 @@ ICON_FILES=(Copied.icon/icon.json Copied.icon/Assets/)
 
 RESOURCES=(Info.plist "${ICON_FILES[@]}")
 
+# build.sh 自身和 SVG 源文件也纳入指纹
+BUILD_FILES=(build.sh Copied.svg)
+
 echo "🔨 Building Copied..."
 
 # ── Fingerprint check (skip compilation if nothing changed) ──
 NPROC=$(sysctl -n hw.ncpu)
-NEW_FP=$(shasum -a 256 "${SOURCES[@]}" "${RESOURCES[@]}" 2>/dev/null | shasum -a 256)
+NEW_FP=$(shasum -a 256 "${SOURCES[@]}" "${RESOURCES[@]}" "${BUILD_FILES[@]}" 2>/dev/null | shasum -a 256)
 OLD_FP=$(cat "$FINGERPRINT" 2>/dev/null || echo "")
 
 if [[ "$NEW_FP" == "$OLD_FP" ]] && [[ -f "$MACOS_DIR/$APP_NAME" ]]; then
