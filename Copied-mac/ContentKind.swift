@@ -83,7 +83,7 @@ extension ContentKind {
 
     static let url = ContentKind(
         id: "url", category: .entity, source: .builtIn,
-        label: "链接", icon: "safari"
+        label: "链接", icon: "link"
     )
 
     static let filePath = ContentKind(
@@ -123,7 +123,7 @@ extension ContentKind {
 
     static let englishPhrase = ContentKind(
         id: "englishPhrase", category: .entity, source: .builtIn,
-        label: "英文", icon: "abc"
+        label: "英文", icon: "textformat"
     )
 }
 

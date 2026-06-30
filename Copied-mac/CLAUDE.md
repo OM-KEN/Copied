@@ -6,10 +6,13 @@
 
 ```bash
 ./build.sh                     # 编译 → .build/Copied.app
+./create-dmg.sh                # 编译 → .build/Copied.dmg（含拖拽安装背景）
 open .build/Copied.app      # 启动（菜单栏显示，无 Dock 图标）
 ```
 
 `build.sh` 使用 `swiftc` + `actool`（Liquid Glass 图标）+ `codesign`（Apple Development）。需 macOS 26+ 及 Xcode 26（供 `actool` 使用）。
+
+DMG 背景图放在 `.build/dmg_background.png`（可选，440×240），有则自动打包进 DMG；无则跳过。
 
 ## 架构
 
@@ -52,6 +55,8 @@ UserDefaults 键：`searchEngine`, `launchAtLogin`, `isPaused`, `copyGestureEnab
 `ToastView` 内应用 `.glassEffect(in: .rect(cornerRadius: 32))`。非 key 浮动窗口的边缘高光会被 WindowServer 抑制 → 用 `.stroke(.white.opacity(0.25))` 补偿。
 
 窗口配置：`.borderless`、`.floating` 层级、`ignoresMouseEvents = false`（接收悬停/点击）、`collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]`。
+
+每次 `show()` 重建窗口（不复用），确保 Space 关联始终正确 — 全屏 Space 长时间使用后复用窗口可能导致 `orderFront` 无效、toast 不出现。
 
 ### 入场动画：SwiftUI 弹簧
 
@@ -123,13 +128,14 @@ SwiftUI `.onHover` + AppKit `NSEvent.addLocalMonitorForEvents(.leftMouseDown)`�
 | 条件 | 图标 |
 |------|------|
 | 颜色检测到 | （色块，无 SF Symbol）|
-| 检测结果含非空 `.icon` | 使用 `ContentKind.icon`（如 `safari`, `folder`, `function`, `character`）|
+| 检测结果含非空 `.icon` | 使用 `ContentKind.icon`（如 `link`, `folder`, `function`, `character`）|
 | `.image`（截图、剪贴板图片）| `photo` |
-| `.file`（泛用）| `doc.on.doc` |
-| 短文本（<50 字）| `text.alignleft` |
-| 长文本 | `text.quote` |
+| `.file` 单文件（无预览）| `document` |
+| `.file` 多文件 | `doc.on.doc` |
+| 短文本 | `text.bubble` |
+| 长文本 | `text.page` |
 
-`.chineseChar`→`character`，`.englishPhrase`→`abc`。优先级由检测顺序决定（最先匹配 = 最高优先级）。
+`.chineseChar`→`character`，`.englishPhrase`→`textformat`。优先级由检测顺序决定（最先匹配 = 最高优先级）。
 
 ### 详情行格式
 

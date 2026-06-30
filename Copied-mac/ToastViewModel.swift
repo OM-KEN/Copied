@@ -86,9 +86,12 @@ final class ToastViewModel {
                res.isDirectory == true && res.isPackage != true {
                 return "folder"
             }
-            return "doc.on.doc"
+            if let urls = rawContent?.fileURLs, urls.count > 1 {
+                return "doc.on.doc"
+            }
+            return "document"
         case .text:
-            return detailInfo.isEmpty ? "text.alignleft" : "text.quote"
+            return detailInfo.isEmpty ? "text.bubble" : "text.page"
         }
     }
 

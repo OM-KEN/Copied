@@ -26,8 +26,15 @@ final class ToastWindowController {
         currentContent = content
 
         isDismissing = false
-        dismissToast(animated: false)
-        if window == nil { createWindow() }
+        dismissGeneration += 1
+        contentView?.layer?.filters = nil
+        // Always recreate window for fresh Space association.
+        // Fullscreen Spaces can lose track of reused windows after
+        // extended use, causing the toast to silently not appear.
+        window?.orderOut(nil)
+        window = nil
+        contentView = nil
+        createWindow()
 
         let toastCard = ToastView(
             viewModel: viewModel,

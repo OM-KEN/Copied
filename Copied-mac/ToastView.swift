@@ -42,6 +42,11 @@ struct ToastView: View {
                         .frame(width: 64, height: 64)
                         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                         .transition(.opacity)
+                } else if viewModel.iconSymbolName == "textformat" {
+                    Image(systemName: viewModel.iconSymbolName)
+                        .font(.system(size: 32, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .environment(\.locale, Locale(identifier: "en"))
                 } else {
                     Image(systemName: viewModel.iconSymbolName)
                         .font(.system(size: 32, weight: .medium))

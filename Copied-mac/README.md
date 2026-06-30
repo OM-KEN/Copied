@@ -21,6 +21,14 @@ cd Copied/Copied-mac
 open .build/Copied.app
 ```
 
+构建 DMG 安装包：
+
+```bash
+./create-dmg.sh                # 生成 .build/Copied.dmg
+```
+
+将 `.build/dmg_background.png`（440×240）放入项目根目录可自定义 DMG 背景。
+
 首次启动后，将 App 拖入 `/Applications` 以获得稳定权限。菜单栏出现剪贴板图标即开始工作。
 
 ## 使用
@@ -49,5 +57,6 @@ SettingsView.swift          — 设置页
 Copied.icon                 — Liquid Glass 分层图标
 Copied.svg                  — 菜单栏 template 图标
 build.sh                    — swiftc + actool + codesign 一键构建
+create-dmg.sh               — DMG 安装包生成
 ```
 
