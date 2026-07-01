@@ -59,8 +59,7 @@ struct ToastView: View {
                         Text(viewModel.previewText)
                             .font(.system(size: 14, weight: .medium))
                             .foregroundStyle(.primary)
-                            .lineLimit(2)
-                            .lineSpacing(4)
+                            .lineLimit(1)
                             .opacity(viewModel.resultOverlay == nil ? 1 : 0)
 
                         if let overlay = viewModel.resultOverlay {

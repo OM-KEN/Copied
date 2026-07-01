@@ -248,7 +248,7 @@ Toast 有主操作按钮（或结果覆盖层）时，按下并松开 ⌘ 触发
 
 - **色块**：32×32 圆角矩形（corner 8），`detectedColor != nil` 时替代 SF Symbol。
 - **缩略图**：图片 64×64。
-- **文字区**：ZStack 交叉淡入淡出。预览：`.lineLimit(2)`。结果覆盖层：`\n` 拆分 `VStack`，每个 `.lineLimit(1)`。
+- **文字区**：ZStack 交叉淡入淡出。预览：`.lineLimit(1)`。结果覆盖层：`\n` 拆分 `VStack`，每个 `.lineLimit(1)`。
 - **操作按钮**：`HStack(spacing:4)` SF Symbol 12pt + 文字 12pt，`.white.opacity(0.12)` 背景，corner 8。悬停/⌘ 按下 → 图标 `"command"`、文案 `"松开"`（悬停退出 100ms 防抖，`Task.sleep` 实现）。结果态 → 图标 `"doc.on.doc"`、文案 `"复制"`。
 - **右键菜单**：搜索 / 另存为… + 分隔线后内容专属项。
 

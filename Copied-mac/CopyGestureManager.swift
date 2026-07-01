@@ -139,16 +139,14 @@ final class CopyGestureManager {
 
     // MARK: - ⌘C Simulation
 
-    /// Full keyboard sequence: ⌘ Down → C Down → C Up → ⌘ Up.
+    /// 发送 ⌘C 按键序列。只发送带 .maskCommand 修饰键的 C 键事件，
+    /// 不发送显式的 ⌘ 按下/松开事件。这能防止合成事件触发
+    /// ToastWindowController 的 ⌘ 快速触发检测（该检测依赖
+    /// NSEvent.flagsChanged 全局监听器）。
     private func simulateCommandC() {
         let source = CGEventSource(stateID: .privateState)
 
-        // Command down
-        if let e = CGEvent(keyboardEventSource: source, virtualKey: 0x37, keyDown: true) {
-            e.post(tap: .cgSessionEventTap)
-        }
-
-        // C down
+        // C down（带 .maskCommand 修饰键 — 系统视为 ⌘+C）
         if let e = CGEvent(keyboardEventSource: source, virtualKey: 0x08, keyDown: true) {
             e.flags = .maskCommand
             e.post(tap: .cgSessionEventTap)
@@ -157,11 +155,6 @@ final class CopyGestureManager {
         // C up
         if let e = CGEvent(keyboardEventSource: source, virtualKey: 0x08, keyDown: false) {
             e.flags = .maskCommand
-            e.post(tap: .cgSessionEventTap)
-        }
-
-        // Command up
-        if let e = CGEvent(keyboardEventSource: source, virtualKey: 0x37, keyDown: false) {
             e.post(tap: .cgSessionEventTap)
         }
     }
