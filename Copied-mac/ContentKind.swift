@@ -86,6 +86,16 @@ extension ContentKind {
         label: "链接", icon: "link"
     )
 
+    static let phoneNumber = ContentKind(
+        id: "phoneNumber", category: .entity, source: .builtIn,
+        label: "电话", icon: "phone"
+    )
+
+    static let email = ContentKind(
+        id: "email", category: .entity, source: .builtIn,
+        label: "邮箱", icon: "envelope"
+    )
+
     static let filePath = ContentKind(
         id: "filePath", category: .entity, source: .builtIn,
         label: "路径", icon: "folder"
@@ -136,6 +146,8 @@ extension ContentKind {
     static let allBuiltIn: [ContentKind] = [
         .colorHex, .colorRGB, .colorHSL,   // 颜色类（无标签，色块展示）
         .url,
+        .phoneNumber,
+        .email,
         .filePath,
         .mathExpr,
         .dateTime,

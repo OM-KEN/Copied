@@ -5,7 +5,7 @@
 ## 亮点
 
 - **漂亮** — macOS 26 原生液态玻璃，弹簧动画，SF Symbols 图标
-- **聪明** — 自动识别 URL、色值、公式、日期、汉字、英文、代码语言
+- **聪明** — 自动识别 URL、邮箱、电话、色值、公式、日期、汉字、英文、代码语言
 - **高效** — ⌘ 键直接触发操作（打开链接、计算、翻译、搜索），无需鼠标
 - **安静** — 3 秒自动消失，不抢焦点，不打断工作流
 - **干净** — 零第三方依赖，无网络请求，CPU ≈ 0%
@@ -45,7 +45,7 @@ ClipboardMonitor.swift      — NSPasteboard 轮询 + 内容解析
 CopyGestureManager.swift    — 全局鼠标手势（CGEventTap）+ ⌘C 模拟
 DetectionRegistry.swift     — 全局检测器注册中心 + 优先级管道
 ContentKind.swift           — 统一类型标识
-Detectors/                  — 13 个内置检测器
+Detectors/                  — 15 个内置检测器
 PluginLoader.swift          — .copiedplugin 扩展加载/管理
 ClipboardAction.swift       — Action 协议 + 内置 Action + ActionResolver
 FilePreviewGenerator.swift  — QLThumbnailGenerator 异步文件缩略图

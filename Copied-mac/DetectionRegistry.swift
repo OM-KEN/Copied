@@ -193,6 +193,8 @@ final class DetectionRegistry {
         // 实体检测器
         register(ColorDetector())
         register(URLDetector())
+        register(PhoneNumberDetector())
+        register(EmailDetector())
         register(FilePathDetector())
         register(MathExpressionDetector())
         register(DateTimeDetector())

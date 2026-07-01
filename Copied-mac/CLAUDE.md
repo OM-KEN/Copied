@@ -23,14 +23,14 @@ CopyGestureManager.swift    全局左键按住 + 右键 → ⌘C 手势（CGEven
 DetectionRegistry.swift        全局注册中心：管理所有检测器 + 限流/优先级
 ContentKind.swift              统一类型标识（struct + 静态常量）
 ContentDetection.swift         检测结果结构体（kind + value + color + metadata）
-Detectors/                     13 个内置检测器（Color, URL, FilePath, DateTime, Math 等）
+Detectors/                     15 个内置检测器（Color, URL, Phone, Email, FilePath, DateTime, Math 等）
 DictionaryLookupService.swift  系统词典查询（DCSCopyTextDefinition，零配置）
 LookupAction.swift             词典查询 Action — 内联展示结果，同拼音模式
 PluginManifest.swift           manifest.json / rules.json Codable 模型
 PluginActionTemplate.swift     Action 模板类型（openURL, search, transform, none）
 PluginAction.swift             执行插件定义的 Action 模板
 PluginLoader.swift             扫描、校验、加载、安装 .copiedplugin 文件夹
-ClipboardAction.swift          Action 协议 + 8 个内置 Action + ActionResolver（LookupAction.swift、PluginAction.swift 另有 2 个）
+ClipboardAction.swift          Action 协议 + 10 个内置 Action + ActionResolver（LookupAction.swift、PluginAction.swift 另有 2 个）
 FilePreviewGenerator.swift     QLThumbnailGenerator 封装 — 异步内容缩略图
 ToastWindowController.swift    管理浮动 NSWindow + NSHostingView + Action
 ToastViewModel.swift           @Observable 模型，图标/类型标签/Action/异步缩略图逻辑
@@ -92,13 +92,15 @@ SwiftUI `.onHover` + AppKit `NSEvent.addLocalMonitorForEvents(.leftMouseDown)`�
 
 文本解析后，`DetectionRegistry.shared.detectAll(in:)` 按优先级运行所有已注册检测器。Registry 管理：
 
-- **13 个内置检测器**（`Detectors/`）：`ColorDetector`, `URLDetector`, `FilePathDetector`, `DateTimeDetector`, `MathExpressionDetector`, `ChineseCharDetector`, `EnglishPhraseDetector`, `HTMLDetector`, `SwiftDetector`, `PythonDetector`, `JavaScriptDetector`, `CSSDetector`, `CodeDetector`
+- **15 个内置检测器**（`Detectors/`）：`ColorDetector`, `URLDetector`, `PhoneNumberDetector`, `EmailDetector`, `FilePathDetector`, `DateTimeDetector`, `MathExpressionDetector`, `ChineseCharDetector`, `EnglishPhraseDetector`, `HTMLDetector`, `SwiftDetector`, `PythonDetector`, `JavaScriptDetector`, `CSSDetector`, `CodeDetector`
 - **插件检测器**从 `~/Library/Application Support/Copied/Plugins/*.copiedplugin/` 加载（每个插件 = 一个 `PluginDetector`）
 
 | 优先级 | 检测器 | 类型 | 方法 |
 |--------|--------|------|------|
 | 300 | `ColorDetector` | `.colorHex/.colorRGB/.colorHSL` | 正则 + 手动 NSColor 解析（hex, rgb, hsl）|
+| 260 | `EmailDetector` | `.email` | 正则 `^[...]@[...]\.[...]{2,}$` + 单一 `@` 校验 |
 | 250 | `URLDetector` | `.url` | `NSDataDetector(.link)` |
+| 240 | `PhoneNumberDetector` | `.phoneNumber` | `NSDataDetector(.phoneNumber)` |
 | 200 | `FilePathDetector` | `.filePath` | `^(~\|/).+` → `expandingTildeInPath` → `FileManager.fileExists` |
 | 190 | `DateTimeDetector` | `.dateTime` | 预处理（M.D→M月D日, H点→H:00）+ `NSDataDetector(.date)` 全文匹配；`RelativeDateTimeFormatter` 详情 |
 | 180 | `MathExpressionDetector` | `.mathExpr` | 数字+运算符、括号平衡、结构验证 |
@@ -173,11 +175,13 @@ protocol ClipboardAction: Identifiable {
 // 默认：performsInlineUpdate = false
 ```
 
-**9 个内置 Action + PluginAction**（由 `ActionResolver.resolve(for:)` 解析）：
+**11 个内置 Action + PluginAction**（由 `ActionResolver.resolve(for:)` 解析）：
 
 | Action | 触发条件（ContentKind）| 按钮 | 行为 |
 |--------|-----------------------|:----:|------|
 | `OpenURLAction` | `.url` | 打开 | `NSWorkspace.shared.open` |
+| `ComposeEmailAction` | `.email` | 发邮件 | `Process`/osascript → Mail 新邮件 |
+| `CallPhoneAction` | `.phoneNumber` | 拨打 | `tel://` URL → FaceTime |
 | `RevealFileAction` | `.filePath` | 打开 | `NSWorkspace.shared.activateFileViewerSelecting` |
 | `OpenCalendarAction` | `.dateTime` | 日历 | `Process`/osascript → Calendar `view calendar at` |
 | `CalculateAction` | `.mathExpr` | 计算 | NSExpression 求值 → `showResultOverlay`，行1=表达式，行2==结果 |

@@ -18,6 +18,8 @@ SOURCES=(
     DetectionRegistry.swift
     Detectors/ColorDetector.swift
     Detectors/URLDetector.swift
+    Detectors/PhoneNumberDetector.swift
+    Detectors/EmailDetector.swift
     Detectors/FilePathDetector.swift
     Detectors/MathExpressionDetector.swift
     Detectors/DateTimeDetector.swift

@@ -206,6 +206,56 @@ struct ShowPinyinAction: ClipboardAction {
     }
 }
 
+// MARK: - Call Phone Action
+
+struct CallPhoneAction: ClipboardAction {
+    let phoneNumber: String
+    var id: String { "call-phone" }
+    var title: String { "拨打" }
+    var systemImage: String { "phone.arrow.up.right" }
+    var menuTitle: String { "拨打电话" }
+
+    func perform(content: ClipboardContent, controller: ToastWindowController?) {
+        let cleaned = phoneNumber
+            .replacingOccurrences(of: " ", with: "")
+            .replacingOccurrences(of: "-", with: "")
+            .replacingOccurrences(of: "(", with: "")
+            .replacingOccurrences(of: ")", with: "")
+        guard let url = URL(string: "tel://\(cleaned)") else { return }
+        NSWorkspace.shared.open(url)
+    }
+}
+
+// MARK: - Compose Email Action
+
+struct ComposeEmailAction: ClipboardAction {
+    let email: String
+    var id: String { "compose-email" }
+    var title: String { "发邮件" }
+    var systemImage: String { "pencil" }
+    var menuTitle: String { "发送邮件" }
+
+    func perform(content: ClipboardContent, controller: ToastWindowController?) {
+        let cleaned = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        let escaped = cleaned
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        let script = """
+        tell application "Mail"
+            activate
+            set newMessage to make new outgoing message with properties {visible:true}
+            tell newMessage
+                make new to recipient at end of to recipients with properties {address:"\(escaped)"}
+            end tell
+        end tell
+        """
+        let process = Process()
+        process.launchPath = "/usr/bin/osascript"
+        process.arguments = ["-e", script]
+        process.launch()
+    }
+}
+
 // MARK: - Save File Action (for context menu)
 
 struct SaveFileAction: ClipboardAction {
@@ -329,6 +379,14 @@ enum ActionResolver {
         case ContentKind.url.id:
             guard let urlStr = detection.value, let url = URL(string: urlStr) else { return nil }
             return OpenURLAction(url: url)
+
+        case ContentKind.phoneNumber.id:
+            guard let phone = detection.value else { return nil }
+            return CallPhoneAction(phoneNumber: phone)
+
+        case ContentKind.email.id:
+            guard let email = detection.value else { return nil }
+            return ComposeEmailAction(email: email)
 
         case ContentKind.filePath.id:
             guard let path = detection.value else { return nil }

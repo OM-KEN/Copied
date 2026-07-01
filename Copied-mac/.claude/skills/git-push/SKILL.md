@@ -7,7 +7,7 @@ description: Use when doing ANY git operation on the Copied project — commit, 
 
 ## 关键规则（硬性）
 
-- **只改 Copied-mac，只传 Copied-mac** — 根 `README.md` 不归你管
+- **只改 Copied-mac，只传 Copied-mac** — 根 `README.md` 已设 `skip-worktree`，git 完全无视。
 - **Sparse-checkout** — `Copied-win/` 不可见不可改
 - **DMG 不上传 git** — 已在 `.gitignore`
 - **先 pull --rebase 再 push** — mac/win 不同文件夹，永不冲突
@@ -28,7 +28,8 @@ git add Copied-mac/                              # 只 add Copied-mac/ 下文件
 git status --short
 ```
 
-检查：不能有根 `README.md`、不能有 `.dmg` 文件。
+检查：**没有根 `README.md`**（已 `skip-worktree`，正常不会出现）、不能有 `.dmg` 文件。
+**如果看到根 `README.md` 出现** → skip-worktree 意外失效，先执行 `git update-index --skip-worktree README.md` 再继续。
 
 ### Step 3: 提交
 
@@ -179,8 +180,9 @@ rm Copied.dmg
 | 错误 | 正确做法 |
 |------|---------|
 | 在 `Copied-mac/` 目录下直接 `git add` | 必须 `cd` 到 git 根目录 `/Users/om/Projects/Copied` |
+| 用了 `git add .` 或 `git add -A` | **严禁**！只用 `git add Copied-mac/` |
 | 忘了 `pull --rebase` | 永远先 pull 再 push |
 | 推完代码忘了创建 Release | **Step 5 强制执行**，`feat:` 前缀必须走 Release |
-| 改了根 `README.md` | 不归你管，不要改 |
+| 改了根 `README.md` | 已 `skip-worktree`，改不了 |
 | commit 了 `Copied-win/` 文件 | sparse-checkout 下不可见，不可能发生 |
 | Release Notes 用了 `@` 或反引号 | 纯文本中文描述，不用任何 markdown 格式符号 |
