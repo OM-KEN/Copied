@@ -2,7 +2,7 @@
 
 智能复制反馈工具——复制任意内容，在屏幕顶部弹窗展示复制的内容，并根据所复制的内容，快捷进行下一步操作。
 
-<img width="414" height="172" alt="PixPin_2026-07-02_00-32-17" src="https://github.com/user-attachments/assets/62fccbbf-b136-4943-bc10-512d2a2eeea5" />
+<img width="414" height="172" alt="PixPin_2026-07-02_00-39-59" src="https://github.com/user-attachments/assets/c0a118a4-a140-468c-aa92-3043e8ba83f2" />
 
 ## 功能特征
 
