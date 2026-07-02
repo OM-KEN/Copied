@@ -43,17 +43,6 @@
 | 复制色值（#RGB / 6位hex）   |    —     | 预览颜色           |
 | 复制代码                   |   搜索   | 代码类型、字符数     |
 
-## 安装
-
-### 从源码构建
-
-```bash
-cd Copied-mac
-./build.sh
-open .build/Copied.app
-```
-
-`build.sh` 使用 `swiftc` 编译，生成自包含 `.app` bundle。
 
 ## 架构
 
