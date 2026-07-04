@@ -1,6 +1,7 @@
 import Foundation
 
 /// 英文单词检测器 — 检测单个 ASCII 单词（对齐 ChineseCharDetector 单个汉字的体验）。
+/// 词典预查在 ActionResolver 中进行（避免主线程检测器超时熔断）。
 struct EnglishPhraseDetector: ContentDetectorProtocol {
     let kind = ContentKind.englishPhrase
     let priority = 80

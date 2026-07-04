@@ -9,6 +9,7 @@ struct ToastView: View {
 
     @State private var animateIn = false
     @State private var isActionButtonHovered = false
+    @State private var isActionButtonPressed = false
     @State private var hoverDebounceTask: Task<Void, Never>?
 
     var body: some View {
@@ -113,10 +114,10 @@ struct ToastView: View {
                         onPerformAction(CopyTextAction(text: overlay.copyText))
                     } label: {
                         HStack(spacing: 4) {
-                            Image(systemName: (viewModel.isCommandPressed || isActionButtonHovered) ? "command" : "doc.on.doc")
+                            Image(systemName: isActionButtonHovered ? "command" : "doc.on.doc")
                                 .font(.system(size: 12, weight: .medium))
                                 .frame(height: 14)
-                            Text(viewModel.isCommandPressed ? "松开" : "复制")
+                            Text("复制")
                                 .font(.system(size: 12, weight: .medium))
                         }
                         .padding(.horizontal, 10)
@@ -127,9 +128,10 @@ struct ToastView: View {
                         )
                         .animation(.spring(response: 0.2, dampingFraction: 0.6), value: isHighlighted)
                     }
-                    .buttonStyle(.plain)
-                    .scaleEffect(viewModel.isCommandPressed ? 0.92 : 1.0)
+                    .buttonStyle(PressTrackingButtonStyle(isPressed: $isActionButtonPressed))
+                    .scaleEffect((viewModel.isCommandPressed || isActionButtonPressed) ? 0.92 : 1.0)
                     .animation(.spring(response: 0.2, dampingFraction: 0.6), value: viewModel.isCommandPressed)
+                    .animation(.spring(response: 0.2, dampingFraction: 0.6), value: isActionButtonPressed)
                     .onHover { hovering in
                         if hovering {
                             hoverDebounceTask?.cancel()
@@ -149,10 +151,10 @@ struct ToastView: View {
                         onPerformAction(action)
                     } label: {
                         HStack(spacing: 4) {
-                            Image(systemName: (viewModel.isCommandPressed || isActionButtonHovered) ? "command" : action.systemImage)
+                            Image(systemName: isActionButtonHovered ? "command" : action.systemImage)
                                 .font(.system(size: 12, weight: .medium))
                                 .frame(height: 14)
-                            Text(viewModel.isCommandPressed ? "松开" : action.title)
+                            Text(action.title)
                                 .font(.system(size: 12, weight: .medium))
                         }
                         .padding(.horizontal, 10)
@@ -163,9 +165,10 @@ struct ToastView: View {
                         )
                         .animation(.spring(response: 0.2, dampingFraction: 0.6), value: isHighlighted)
                     }
-                    .buttonStyle(.plain)
-                    .scaleEffect(viewModel.isCommandPressed ? 0.92 : 1.0)
+                    .buttonStyle(PressTrackingButtonStyle(isPressed: $isActionButtonPressed))
+                    .scaleEffect((viewModel.isCommandPressed || isActionButtonPressed) ? 0.92 : 1.0)
                     .animation(.spring(response: 0.2, dampingFraction: 0.6), value: viewModel.isCommandPressed)
+                    .animation(.spring(response: 0.2, dampingFraction: 0.6), value: isActionButtonPressed)
                     .onHover { hovering in
                         if hovering {
                             hoverDebounceTask?.cancel()
@@ -259,5 +262,18 @@ struct ToastView: View {
             return String(raw.prefix(100))
         }
         return viewModel.previewText
+    }
+}
+
+// MARK: - Press-Tracking Button Style
+
+private struct PressTrackingButtonStyle: ButtonStyle {
+    @Binding var isPressed: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .onChange(of: configuration.isPressed) { _, newValue in
+                isPressed = newValue
+            }
     }
 }

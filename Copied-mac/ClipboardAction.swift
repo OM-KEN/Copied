@@ -407,6 +407,8 @@ enum ActionResolver {
 
         case ContentKind.englishPhrase.id:
             guard let text = detection.value else { return nil }
+            // 预查词典：有释义才显示"翻译"按钮，无释义则返回 nil 让 SearchTextAction 兜底
+            guard DictionaryLookupService.lookup(text) != nil else { return nil }
             return LookupAction(text: text)
 
         case ContentKind.colorHex.id,
