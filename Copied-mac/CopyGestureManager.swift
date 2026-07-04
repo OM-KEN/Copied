@@ -3,14 +3,19 @@ import CoreGraphics
 
 /// 全局手势：左键按住 + 右键 → ⌘C。
 ///
-/// 使用 CGEventTap 拦截并吞掉右键事件。
-/// 需要辅助功能权限（与现有 NSEvent flagsChanged 监听不同 — flagsChanged 无需权限）。
+/// CGEventTap 在 .headInsertEventTap 拦截鼠标事件：
+/// - rightMouseDown：吞掉 + 触发 ⌘C。
+/// - rightMouseUp 兜底：若左键仍按住但 rightMouseDown 未触发手势
+///   （事件被 WindowServer 静默吞掉 — 发生于左先松之后），在此补触发。
+///
+/// 需要辅助功能权限。
 final class CopyGestureManager {
     static let shared = CopyGestureManager()
 
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
     private var isLeftPressed = false
+    private var gestureFired = false
 
     var isRunning: Bool { eventTap != nil }
     private(set) var lastDiagnostic = ""
@@ -32,7 +37,6 @@ final class CopyGestureManager {
         lastDiagnostic = "AXIsProcessTrusted=\(trusted)"
 
         if !trusted && !afterAuthPrompt {
-            // First failure — show system authorization dialog, then retry
             lastDiagnostic += "\n弹出授权对话框…"
             let opts = [kAXTrustedCheckOptionPrompt.takeRetainedValue() as String: true] as CFDictionary
             AXIsProcessTrustedWithOptions(opts)
@@ -51,7 +55,8 @@ final class CopyGestureManager {
         let events: CGEventMask =
             (1 << CGEventType.leftMouseDown.rawValue) |
             (1 << CGEventType.leftMouseUp.rawValue) |
-            (1 << CGEventType.rightMouseDown.rawValue)
+            (1 << CGEventType.rightMouseDown.rawValue) |
+            (1 << CGEventType.rightMouseUp.rawValue)
 
         guard let tap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
@@ -93,6 +98,7 @@ final class CopyGestureManager {
         eventTap = nil
         runLoopSource = nil
         isLeftPressed = false
+        gestureFired = false
         unregisterStateResetObservers()
         NSLog("Copied: gesture — stopped")
     }
@@ -106,30 +112,42 @@ final class CopyGestureManager {
         switch type {
         case .leftMouseDown:
             isLeftPressed = true
+            gestureFired = false
             return Unmanaged.passRetained(event)
 
         case .leftMouseUp:
             isLeftPressed = false
+            gestureFired = false
             return Unmanaged.passRetained(event)
 
         case .rightMouseDown:
-            guard isLeftPressed else {
+            guard isLeftPressed, !gestureFired else {
                 return Unmanaged.passRetained(event)
             }
-            NSLog("Copied: gesture — left+right detected, sending ⌘C")
-            // Consume right-click, send ⌘C after micro-delay
+            gestureFired = true
             DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(15)) {
                 self.simulateCommandC()
             }
             return nil
 
+        case .rightMouseUp:
+            if isLeftPressed, !gestureFired {
+                // rightMouseDown 被 WindowServer 在左先松之后静默吞掉。
+                // 左键仍按住 + 本手势未触发 → 补触发。
+                gestureFired = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(15)) {
+                    self.simulateCommandC()
+                }
+            }
+            return Unmanaged.passRetained(event)
+
         case .tapDisabledByTimeout,
              .tapDisabledByUserInput:
             isLeftPressed = false
+            gestureFired = false
             if let tap = eventTap {
                 CGEvent.tapEnable(tap: tap, enable: true)
             }
-            NSLog("Copied: gesture — tap disabled, re-enabled")
             return nil
 
         default:
@@ -139,21 +157,12 @@ final class CopyGestureManager {
 
     // MARK: - ⌘C Simulation
 
-    /// 发送 ⌘C 按键序列。只发送带 .maskCommand 修饰键的 C 键事件，
-    /// 不发送显式的 ⌘ 按下/松开事件。这能防止合成事件触发
-    /// ToastWindowController 的 ⌘ 快速触发检测（该检测依赖
-    /// NSEvent.flagsChanged 全局监听器）。
     private func simulateCommandC() {
-        let source = CGEventSource(stateID: .privateState)
-
-        // C down（带 .maskCommand 修饰键 — 系统视为 ⌘+C）
-        if let e = CGEvent(keyboardEventSource: source, virtualKey: 0x08, keyDown: true) {
+        if let e = CGEvent(keyboardEventSource: nil, virtualKey: 0x08, keyDown: true) {
             e.flags = .maskCommand
             e.post(tap: .cgSessionEventTap)
         }
-
-        // C up
-        if let e = CGEvent(keyboardEventSource: source, virtualKey: 0x08, keyDown: false) {
+        if let e = CGEvent(keyboardEventSource: nil, virtualKey: 0x08, keyDown: false) {
             e.flags = .maskCommand
             e.post(tap: .cgSessionEventTap)
         }
@@ -183,5 +192,6 @@ final class CopyGestureManager {
 
     @objc private func resetState() {
         isLeftPressed = false
+        gestureFired = false
     }
 }
