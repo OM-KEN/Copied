@@ -23,12 +23,13 @@ DictionaryLookupService.swift  DCSCopyTextDefinition 词典查询
 PluginLoader.swift          扫描/校验/加载 .copiedplugin 文件夹
 AppFilterSettings.swift     应用黑名单单例 — 过滤判断 + 持久化
 AppFilterView.swift         设置 → 黑名单 Tab（列表管理 + 运行中应用选择器）
-BlacklistSourceAppAction.swift  右键"屏蔽此应用" Action
+BlacklistSourceAppAction.swift  右键"屏蔽此来源" Action
 ClipboardAction.swift       Action 协议 + 内置 Action + ActionResolver
 ToastWindowController.swift 浮动 NSWindow + NSHostingView + Action
 ToastViewModel.swift        @Observable 模型（含 sourceBundleID）
-ToastView.swift             SwiftUI 卡片 + glassEffect + 按钮 + "屏蔽此应用" contextMenu
-SettingsView.swift           设置（开机启动/搜索引擎/类型/手势/黑名单 Tab）
+ToastView.swift             SwiftUI 卡片 + glassEffect + ZStack 图标防抖 + contextMenu
+TypeSettingsView.swift      设置 → 智能识别 Tab（ContentKind 开关 + 插件管理）
+SettingsView.swift           设置（开机启动/搜索引擎/智能识别/手势/黑名单 Tab）
 FilePreviewGenerator.swift  QLThumbnailGenerator 异步缩略图
 SourceAppDetector.swift     NSWorkspace.frontmostApplication（含 bundleIdentifier）
 build.sh                    swiftc + actool + codesign
@@ -72,6 +73,8 @@ SwiftUI `.onHover` + AppKit `NSEvent.addLocalMonitorForEvents(.leftMouseDown)`�
 **词典查询**（`LookupAction`）：`DCSCopyTextDefinition` 查询 macOS 内置牛津中英词典，零配置。返回格式：行1 = `{word} 英 {pron}`，行2 = 中文释义（≤5 字 CJK，≤8 条）。检测器仅匹配单个 ASCII 单词，词典预查在 `ActionResolver.makeAction()` 中进行：有释义→显示"翻译"按钮，无释义→兜底搜索。**预查不能放检测器**（检测器在主线程有 50ms 超时熔断，词典首次加载会触发）。
 
 **优先级**：首个非颜色检测 → 右侧按钮（最多 1 个）。其余 → 右键菜单。无检测 → 默认搜索。纯语言类型（如 swift）不产生按钮。各 Action 触发条件和行为见 `ClipboardAction.swift` 及各 `*Action.swift`。
+
+**按钮 hover 图标**：用 `ZStack` 叠加两个 SF Symbol + `opacity` 切换，不能用 `Image(systemName: condition ? "A" : "B")`——SF Symbol 宽度不同会导致按钮尺寸变化 → HStack 重排 → 左侧文本截断位置跳动。
 
 ### 点击处理
 

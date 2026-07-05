@@ -36,6 +36,11 @@ struct ContentKind: Hashable, Identifiable {
         if case .plugin = source { return "插件" }
         return nil
     }
+
+    /// SF Symbol 图标是否需强制英文 locale 渲染。
+    /// 部分 SF Symbol（如 "textformat"）在不同 locale 下字形差异大，
+    /// 中文系统下显示"文"而非"Aa"，导致与弹窗 icon 不一致。
+    var forceEnglishLocale: Bool { icon == "textformat" }
 }
 
 // MARK: - 内置类型静态常量
@@ -76,7 +81,7 @@ extension ContentKind {
 
     static let code = ContentKind(
         id: "code", category: .language, source: .builtIn,
-        label: "Code", icon: "curlybraces"
+        label: "代码", icon: "curlybraces"
     )
 
     // ── 实体类 ──────────────────────────────────────────────
@@ -113,17 +118,17 @@ extension ContentKind {
 
     static let colorHex = ContentKind(
         id: "colorHex", category: .entity, source: .builtIn,
-        label: "", icon: ""
+        label: "颜色", icon: "paintpalette"
     )
 
     static let colorRGB = ContentKind(
         id: "colorRGB", category: .entity, source: .builtIn,
-        label: "", icon: ""
+        label: "RGB 颜色", icon: "paintpalette"
     )
 
     static let colorHSL = ContentKind(
         id: "colorHSL", category: .entity, source: .builtIn,
-        label: "", icon: ""
+        label: "HSL 颜色", icon: "paintpalette"
     )
 
     static let chineseChar = ContentKind(

@@ -3,7 +3,7 @@ import AppKit
 
 /// Blacklist management — apps whose clipboard changes won't trigger popups.
 struct AppFilterView: View {
-    @State private var blockedApps: [AppFilterEntry] = AppFilterSettings.shared.blockedApps
+    @State private var blockedApps: [AppFilterEntry] = []
     @State private var showAppPicker = false
 
     var body: some View {
@@ -51,6 +51,9 @@ struct AppFilterView: View {
             }
         }
         .formStyle(.grouped)
+        .onAppear {
+            blockedApps = AppFilterSettings.shared.blockedApps
+        }
         .popover(isPresented: $showAppPicker) {
             RunningAppPicker { entry in
                 addApp(entry)

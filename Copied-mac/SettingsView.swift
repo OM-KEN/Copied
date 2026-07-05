@@ -69,7 +69,7 @@ struct SettingsView: View {
             // ── Types ─────────────────────────────────────
             TypeSettingsView()
                 .tabItem {
-                    Label("类型", systemImage: "rectangle.grid.1x2")
+                    Label("智能识别", systemImage: "rectangle.grid.1x2")
                 }
                 .tag("types")
 

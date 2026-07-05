@@ -30,19 +30,11 @@ struct TypeSettingsView: View {
         allKinds.first { $0.id == pluginID }
     }
 
+    /// 代码类型区块是否展开。
+    @State private var isCodeTypeExpanded = false
+
     var body: some View {
         Form {
-            // ── Language Types ──────────────────────────────
-            if !languageKinds.isEmpty {
-                Section {
-                    ForEach(languageKinds, id: \.id) { kind in
-                        KindRow(kind: kind)
-                    }
-                } header: {
-                    Text("语言类型")
-                }
-            }
-
             // ── Entity Types ────────────────────────────────
             if !entityKinds.isEmpty {
                 Section {
@@ -51,6 +43,20 @@ struct TypeSettingsView: View {
                     }
                 } header: {
                     Text("内容类型")
+                }
+            }
+
+            // ── Code Types (collapsed by default) ───────────
+            if !languageKinds.isEmpty {
+                Section(isExpanded: $isCodeTypeExpanded) {
+                    ForEach(languageKinds, id: \.id) { kind in
+                        KindRow(kind: kind)
+                    }
+                } header: {
+                    Text("代码类型")
+                        .onTapGesture {
+                            withAnimation { isCodeTypeExpanded.toggle() }
+                        }
                 }
             }
 
@@ -134,6 +140,7 @@ private struct KindRow: View {
             Image(systemName: kind.icon.isEmpty ? "questionmark" : kind.icon)
                 .frame(width: 20)
                 .foregroundStyle(enabled ? .secondary : .tertiary)
+                .environment(\.locale, kind.forceEnglishLocale ? Locale(identifier: "en") : Locale.current)
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 4) {

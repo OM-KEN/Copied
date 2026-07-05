@@ -114,9 +114,14 @@ struct ToastView: View {
                         onPerformAction(CopyTextAction(text: overlay.copyText))
                     } label: {
                         HStack(spacing: 4) {
-                            Image(systemName: isActionButtonHovered ? "command" : "doc.on.doc")
-                                .font(.system(size: 12, weight: .medium))
-                                .frame(height: 14)
+                            ZStack {
+                                Image(systemName: "doc.on.doc")
+                                    .opacity(isActionButtonHovered ? 0 : 1)
+                                Image(systemName: "command")
+                                    .opacity(isActionButtonHovered ? 1 : 0)
+                            }
+                            .font(.system(size: 12, weight: .medium))
+                            .frame(height: 14)
                             Text("复制")
                                 .font(.system(size: 12, weight: .medium))
                         }
@@ -151,9 +156,14 @@ struct ToastView: View {
                         onPerformAction(action)
                     } label: {
                         HStack(spacing: 4) {
-                            Image(systemName: isActionButtonHovered ? "command" : action.systemImage)
-                                .font(.system(size: 12, weight: .medium))
-                                .frame(height: 14)
+                            ZStack {
+                                Image(systemName: action.systemImage)
+                                    .opacity(isActionButtonHovered ? 0 : 1)
+                                Image(systemName: "command")
+                                    .opacity(isActionButtonHovered ? 1 : 0)
+                            }
+                            .font(.system(size: 12, weight: .medium))
+                            .frame(height: 14)
                             Text(action.title)
                                 .font(.system(size: 12, weight: .medium))
                         }
