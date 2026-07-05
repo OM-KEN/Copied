@@ -5,6 +5,7 @@ import ServiceManagement
 struct SettingsView: View {
     // ── Launch at Login ────────────────────────────────────
     @AppStorage("launchAtLogin") private var launchAtLogin = false
+    @AppStorage("lightReminderEnabled") private var lightReminderEnabled = false
     @State private var loginItemError: String? = nil
 
     // ── Search Engine ──────────────────────────────────────
@@ -27,6 +28,15 @@ struct SettingsView: View {
         TabView(selection: $selectedTab) {
             // ── General + Search ─────────────────────────
             Form {
+                Section {
+                    Toggle("轻提醒模式", isOn: $lightReminderEnabled)
+                    Text("开启后，复制时仅在鼠标旁短暂出现图标，不弹出完整窗口。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } header: {
+                    Text("复制反馈")
+                }
+
                 Section {
                     Toggle("开机自启", isOn: Binding(
                         get: { launchAtLogin },

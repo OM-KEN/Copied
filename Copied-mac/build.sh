@@ -47,6 +47,7 @@ SOURCES=(
     ToastView.swift
     ToastViewModel.swift
     ToastWindowController.swift
+    LightReminderController.swift
 )
 ICON_FILES=(Copied.icon/icon.json Copied.icon/Assets/)
 

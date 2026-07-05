@@ -9,6 +9,7 @@
 - **高效** — ⌘ 键直接触发操作（打开链接、计算、翻译、搜索），无需鼠标
 - **克制** — 可按应用设置黑名单，不想被打扰的 App 里不弹窗
 - **安静** — 3 秒自动消失，不抢焦点，不打断工作流
+- **轻提醒模式** — 菜单栏一键切换，复制时仅鼠标旁弹出绘制动画图标，零干扰
 - **干净** — 零第三方依赖，无网络请求，CPU ≈ 0%
 
 ## 安装
@@ -52,7 +53,8 @@ AppFilterSettings.swift     — 应用黑名单过滤 + 持久化
 ClipboardAction.swift       — Action 协议 + 内置 Action + ActionResolver
 FilePreviewGenerator.swift  — QLThumbnailGenerator 异步文件缩略图
 SourceAppDetector.swift     — NSWorkspace 前台 App 检测（含 bundleIdentifier）
-ToastWindowController.swift — NSWindow + NSHostingView 管理
+ToastWindowController.swift — NSWindow + NSHostingView 管理（标准模式）
+LightReminderController.swift — 轻提醒模式浮标（NSWindow + drawOff 反向动画）
 ToastView.swift             — SwiftUI 卡片 + 按钮 + 色块 + 右键菜单
 ToastViewModel.swift        — @Observable 模型
 SettingsView.swift          — 设置页（通用/类型/手势/黑名单）

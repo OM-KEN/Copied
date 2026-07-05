@@ -3,6 +3,7 @@ import AppKit
 
 private struct MenuBarContent: View {
     @AppStorage("isPaused") private var isPaused = false
+    @AppStorage("lightReminderEnabled") private var lightReminderEnabled = false
     let onPauseToggle: (Bool) -> Void
 
     var body: some View {
@@ -14,6 +15,8 @@ private struct MenuBarContent: View {
                     onPauseToggle(newValue)
                 }
             ))
+            Divider()
+            Toggle("轻提醒模式", isOn: $lightReminderEnabled)
             Divider()
             SettingsLink {
                 Text("设置…")

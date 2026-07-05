@@ -28,18 +28,27 @@ ClipboardAction.swift       Action 协议 + 内置 Action + ActionResolver
 ToastWindowController.swift 浮动 NSWindow + NSHostingView + Action
 ToastViewModel.swift        @Observable 模型（含 sourceBundleID）
 ToastView.swift             SwiftUI 卡片 + glassEffect + ZStack 图标防抖 + contextMenu
+LightReminderController.swift 轻提醒模式浮标（NSWindow + NSHostingView + drawOff 反向动画）
 TypeSettingsView.swift      设置 → 智能识别 Tab（ContentKind 开关 + 插件管理）
-SettingsView.swift           设置（开机启动/搜索引擎/智能识别/手势/黑名单 Tab）
+SettingsView.swift           设置（开机启动/搜索引擎/智能识别/手势/黑名单/轻提醒 Tab）
 FilePreviewGenerator.swift  QLThumbnailGenerator 异步缩略图
 SourceAppDetector.swift     NSWorkspace.frontmostApplication（含 bundleIdentifier）
 build.sh                    swiftc + actool + codesign
 ```
 
-UserDefaults 键：`searchEngine`, `launchAtLogin`, `isPaused`, `copyGestureEnabled`, `contentKindPriorities`, `disabledContentKinds`, `installedPlugins`, `popupFilterBlockedApps`。
+UserDefaults 键：`searchEngine`, `launchAtLogin`, `isPaused`, `copyGestureEnabled`, `lightReminderEnabled`, `contentKindPriorities`, `disabledContentKinds`, `installedPlugins`, `popupFilterBlockedApps`。
 
-**数据流**：`ClipboardMonitor` → `DetectionRegistry.detectAll()` → `SourceAppDetector.detect()` → `AppFilterSettings.shouldShowPopup()` 过滤门 → `ClipboardContent` → `ToastWindowController.show()` → `ToastViewModel` → `ToastView`（glassEffect + 缩略图 + 按钮 + contextMenu）
+**数据流**：`ClipboardMonitor` → `DetectionRegistry.detectAll()` → `SourceAppDetector.detect()` → `AppFilterSettings.shouldShowPopup()` 过滤门 → `ClipboardContent` → 分支：轻提醒模式 → `LightReminderController.show()`，标准模式 → `ToastWindowController.show()` → `ToastViewModel` → `ToastView`
 
 **插件系统**：声明式（JSON + 正则，不执行代码）。性能熔断：>100KB 文本截断、>50ms 单检测器限流 30s、连续 3 次限流自动禁用。
+
+### 轻提醒模式（LightReminderController）
+
+菜单栏右键 / 设置页 Toggle 切换。开启后所有复制仅显示 24pt `checkmark.app.fill` 浮标（鼠标右上方 4pt），1s 自消，不弹完整 Toast。
+
+**浮标实现**：`NSWindow`（borderless, `.floating`, `ignoresMouseEvents`）+ `NSHostingView<CheckmarkIcon>`。不跟踪鼠标移动，窗口复用。
+
+**绘制入场动画（关键陷阱）**：`checkmark.app.fill` 不支持 `drawOn(isActive:)` 正向触发——Symbol 默认已处于 100% 绘制态，任何 `isActive` 切换都会解释为 100%→0%（反向擦除）。**解法**：用 `drawOff(isActive: !show)`，初始 `!show=true`（drawOff 活跃 → 符号不可见），`onAppear` 后 `show=true`（drawOff 不活跃 → 反向播放 → 效果等同 drawOn 正向绘制）。颜色用 `.symbolRenderingMode(.palette)` + `.foregroundStyle(.white, .blue)` 实现蓝底白勾。
 
 ## 关键设计决策
 

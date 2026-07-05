@@ -94,7 +94,11 @@ final class ClipboardMonitor {
         }
 
         DispatchQueue.main.async { [weak self] in
-            self?.toastController?.show(content: content, source: source)
+            if LightReminderController.shared.isEnabled {
+                LightReminderController.shared.show()
+            } else {
+                self?.toastController?.show(content: content, source: source)
+            }
         }
     }
 
