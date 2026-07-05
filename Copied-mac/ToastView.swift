@@ -235,6 +235,14 @@ struct ToastView: View {
                     }
                 }
             }
+
+            // ── Blacklist source app ──────────────────────────
+            if let action = viewModel.blacklistAction {
+                Divider()
+                Button(action.menuTitle, systemImage: action.systemImage) {
+                    onPerformAction(action)
+                }
+            }
         }
         .onAppear {
             withAnimation(.interpolatingSpring(

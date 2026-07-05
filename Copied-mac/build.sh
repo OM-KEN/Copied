@@ -33,13 +33,16 @@ SOURCES=(
     Detectors/CodeDetector.swift
     TypeSettingsView.swift
     CopiedApp.swift
+    AppFilterSettings.swift
     ClipboardMonitor.swift
     SourceAppDetector.swift
+    BlacklistSourceAppAction.swift
     ClipboardAction.swift
     CopyGestureManager.swift
     FilePreviewGenerator.swift
     DictionaryLookupService.swift
     LookupAction.swift
+    AppFilterView.swift
     SettingsView.swift
     ToastView.swift
     ToastViewModel.swift

@@ -79,8 +79,15 @@ struct SettingsView: View {
                     Label("手势", systemImage: "hand.tap")
                 }
                 .tag("gesture")
+
+            // ── Blacklist ───────────────────────────────
+            AppFilterView()
+                .tabItem {
+                    Label("黑名单", systemImage: "hand.raised.slash")
+                }
+                .tag("blacklist")
         }
-        .frame(width: 380, height: 400)
+        .frame(width: 380, height: 440)
         .onAppear {
             NSApp.activate(ignoringOtherApps: true)
         }

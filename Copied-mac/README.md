@@ -7,6 +7,7 @@
 - **漂亮** — macOS 26 原生液态玻璃，弹簧动画，SF Symbols 图标
 - **聪明** — 自动识别 URL、邮箱、电话、色值、公式、日期、汉字、英文、代码语言
 - **高效** — ⌘ 键直接触发操作（打开链接、计算、翻译、搜索），无需鼠标
+- **克制** — 可按应用设置黑名单，不想被打扰的 App 里不弹窗
 - **安静** — 3 秒自动消失，不抢焦点，不打断工作流
 - **干净** — 零第三方依赖，无网络请求，CPU ≈ 0%
 
@@ -35,25 +36,26 @@ open .build/Copied.app
 
 复制任意内容 → 卡片弹出。悬停保持，点击关闭，⌘ 键触发操作。
 
-右键菜单提供搜索和另存为。设置中可开启左右键手势（按住左键+右键=⌘C）、管理检测类型、安装插件。
+右键菜单提供搜索、另存为、类型专属操作，以及一键将当前 App 加入黑名单。设置中可开启左右键手势（按住左键+右键=⌘C）、管理检测类型、管理黑名单、安装插件。
 
 ## 架构
 
 ```
 CopiedApp.swift             — 入口：MenuBarExtra + AppDelegate + Settings
-ClipboardMonitor.swift      — NSPasteboard 轮询 + 内容解析
+ClipboardMonitor.swift      — NSPasteboard 轮询 + 内容解析 + 黑名单过滤
 CopyGestureManager.swift    — 全局鼠标手势（CGEventTap）+ ⌘C 模拟
 DetectionRegistry.swift     — 全局检测器注册中心 + 优先级管道
 ContentKind.swift           — 统一类型标识
 Detectors/                  — 15 个内置检测器
 PluginLoader.swift          — .copiedplugin 扩展加载/管理
+AppFilterSettings.swift     — 应用黑名单过滤 + 持久化
 ClipboardAction.swift       — Action 协议 + 内置 Action + ActionResolver
 FilePreviewGenerator.swift  — QLThumbnailGenerator 异步文件缩略图
-SourceAppDetector.swift     — NSWorkspace 前台 App 检测
+SourceAppDetector.swift     — NSWorkspace 前台 App 检测（含 bundleIdentifier）
 ToastWindowController.swift — NSWindow + NSHostingView 管理
 ToastView.swift             — SwiftUI 卡片 + 按钮 + 色块 + 右键菜单
 ToastViewModel.swift        — @Observable 模型
-SettingsView.swift          — 设置页
+SettingsView.swift          — 设置页（通用/类型/手势/黑名单）
 Copied.icon                 — Liquid Glass 分层图标
 Copied.svg                  — 菜单栏 template 图标
 build.sh                    — swiftc + actool + codesign 一键构建

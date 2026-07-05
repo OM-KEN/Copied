@@ -14,26 +14,29 @@ open .build/Copied.app
 
 ```
 CopiedApp.swift             MenuBarExtra + AppDelegate + Settings
-ClipboardMonitor.swift      每 0.15s 轮询 NSPasteboard.changeCount
+ClipboardMonitor.swift      每 0.15s 轮询 NSPasteboard.changeCount（含黑名单过滤门）
 CopyGestureManager.swift    CGEventTap 左+右 → ⌘C 手势（双路径 + R_UP 兜底）
 DetectionRegistry.swift     全局检测器注册中心 + 优先级管道 + 限流
 ContentKind.swift           统一类型标识（struct + 静态常量）
 Detectors/                  15 个内置检测器（详见目录）
 DictionaryLookupService.swift  DCSCopyTextDefinition 词典查询
 PluginLoader.swift          扫描/校验/加载 .copiedplugin 文件夹
+AppFilterSettings.swift     应用黑名单单例 — 过滤判断 + 持久化
+AppFilterView.swift         设置 → 黑名单 Tab（列表管理 + 运行中应用选择器）
+BlacklistSourceAppAction.swift  右键"屏蔽此应用" Action
 ClipboardAction.swift       Action 协议 + 内置 Action + ActionResolver
 ToastWindowController.swift 浮动 NSWindow + NSHostingView + Action
-ToastViewModel.swift        @Observable 模型
-ToastView.swift             SwiftUI 卡片 + glassEffect + 按钮 + contextMenu
-SettingsView.swift           设置（开机启动/搜索引擎/类型/手势 Tab）
+ToastViewModel.swift        @Observable 模型（含 sourceBundleID）
+ToastView.swift             SwiftUI 卡片 + glassEffect + 按钮 + "屏蔽此应用" contextMenu
+SettingsView.swift           设置（开机启动/搜索引擎/类型/手势/黑名单 Tab）
 FilePreviewGenerator.swift  QLThumbnailGenerator 异步缩略图
-SourceAppDetector.swift     NSWorkspace.frontmostApplication
+SourceAppDetector.swift     NSWorkspace.frontmostApplication（含 bundleIdentifier）
 build.sh                    swiftc + actool + codesign
 ```
 
-UserDefaults 键：`searchEngine`, `launchAtLogin`, `isPaused`, `copyGestureEnabled`, `contentKindPriorities`, `disabledContentKinds`, `installedPlugins`。
+UserDefaults 键：`searchEngine`, `launchAtLogin`, `isPaused`, `copyGestureEnabled`, `contentKindPriorities`, `disabledContentKinds`, `installedPlugins`, `popupFilterBlockedApps`。
 
-**数据流**：`ClipboardMonitor` → `DetectionRegistry.detectAll()` → `ClipboardContent` → `ToastWindowController.show()` → `ToastViewModel` → `ToastView`（glassEffect + 缩略图 + 按钮 + contextMenu）
+**数据流**：`ClipboardMonitor` → `DetectionRegistry.detectAll()` → `SourceAppDetector.detect()` → `AppFilterSettings.shouldShowPopup()` 过滤门 → `ClipboardContent` → `ToastWindowController.show()` → `ToastViewModel` → `ToastView`（glassEffect + 缩略图 + 按钮 + contextMenu）
 
 **插件系统**：声明式（JSON + 正则，不执行代码）。性能熔断：>100KB 文本截断、>50ms 单检测器限流 30s、连续 3 次限流自动禁用。
 

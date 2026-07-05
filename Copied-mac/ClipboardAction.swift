@@ -68,16 +68,18 @@ struct CalculateAction: ClipboardAction {
 
         // ── Pre-checks for integer expressions ──────────────────
         if isIntegerExpr {
-            // NSExpression returns 0 silently for integer division by zero.
+            // Integer division by zero → NSExpression returns inf.
+            // Catch early for a clearer error message.
             if cleaned.range(of: #"/\s*0(?![.\d])"#, options: .regularExpression) != nil {
                 let displayText = "\(expression)\n无法计算"
                 controller?.showResultOverlay(displayText: displayText, copyText: "")
                 return
             }
 
-            // Detect potential Int64 overflow: extract operands and check digit counts.
-            // Int64.max ≈ 9.22×10¹⁸ (19 digits). For multiplication, if the sum of
-            // the two largest operands' digit counts ≥ 19, the result might overflow.
+            // Precision guard: operands with ≥19 digits would lose precision
+            // when converted to Double for evaluation (53-bit mantissa ≈ 15–16
+            // significant decimal digits). Reject early rather than silently
+            // returning an imprecise result.
             let numbers = cleaned
                 .components(separatedBy: CharacterSet(charactersIn: "+-*/^").union(.whitespaces))
                 .filter { !$0.isEmpty }
@@ -98,24 +100,31 @@ struct CalculateAction: ClipboardAction {
         }
 
         // ── Evaluate with NSExpression ──────────────────────────
-        let expr = NSExpression(format: cleaned)
+        // NSExpression inherits C integer arithmetic semantics:
+        // integer literals trigger integer division (e.g. 3/2 → 1).
+        // Convert integer-only expressions to double form so ALL
+        // operations use real-number arithmetic — not just division.
+        // The \b word-boundary regex preserves scientific notation (2e5).
+        let evalStr: String
+        if isIntegerExpr {
+            evalStr = cleaned.replacingOccurrences(
+                of: #"\b(\d+)\b"#,
+                with: "$1.0",
+                options: .regularExpression
+            )
+        } else {
+            evalStr = cleaned
+        }
+        let expr = NSExpression(format: evalStr)
         guard let rawResult = expr.expressionValue(with: nil, context: nil) else { return }
 
-        // NSExpression may return NSNumber (Int64/Double) or Double directly.
+        // Extract numeric result. Integer expressions are converted to
+        // double form above, so NSExpression always returns Double.
         let number: Double
-        let exactInteger: Int64?
         if let d = rawResult as? Double {
             number = d
-            exactInteger = nil
         } else if let ns = rawResult as? NSNumber {
             number = ns.doubleValue
-            let objCType = String(cString: ns.objCType)
-            if objCType == "q" || objCType == "Q" || objCType == "l" || objCType == "L"
-                || objCType == "i" || objCType == "I" || objCType == "s" || objCType == "S" {
-                exactInteger = ns.int64Value
-            } else {
-                exactInteger = nil
-            }
         } else {
             let displayText = "\(expression)\n=\(rawResult)"
             controller?.showResultOverlay(displayText: displayText, copyText: "\(rawResult)")
@@ -129,28 +138,26 @@ struct CalculateAction: ClipboardAction {
             return
         }
 
-        // Double precision loss for large integers (2^53 boundary)
+        // Guard against precision loss for results beyond Double's
+        // exact integer range (2^53 ≈ 9×10¹⁵). Numbers this large also
+        // produce unwieldy display strings (20+ chars) that overflow the toast.
         let safeIntegerLimit: Double = 9_007_199_254_740_992.0
-        if isIntegerExpr && abs(number) > safeIntegerLimit && exactInteger == nil {
+        if isIntegerExpr && abs(number) > safeIntegerLimit {
             let displayText = "\(expression)\n数字过大"
             controller?.showResultOverlay(displayText: displayText, copyText: "")
             return
         }
 
-        // Exact Int64 result (safe after pre-checks above)
-        if let exact = exactInteger, isIntegerExpr {
-            let displayText = "\(expression)\n=\(exact)"
-            controller?.showResultOverlay(displayText: displayText, copyText: "\(exact)")
-            return
-        }
-
-        // Round to 12 decimal places to eliminate floating-point noise
-        let rounded = (number * 1e12).rounded() / 1e12
+        // NumberFormatter handles rounding and stripping trailing zeros.
+        // Pre-rounding with (n * 1e12).rounded() / 1e12 is avoided here
+        // because for large integers (e.g. 890123456790), multiplying by
+        // 1e12 pushes the value beyond Double's exact integer range (2^53),
+        // introducing rounding noise.
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
         formatter.maximumFractionDigits = 12
         formatter.minimumFractionDigits = 0
-        let displayResult = formatter.string(from: NSNumber(value: rounded)) ?? "\(rounded)"
+        let displayResult = formatter.string(from: NSNumber(value: number)) ?? "\(number)"
 
         let displayText = "\(expression)\n=\(displayResult)"
         controller?.showResultOverlay(displayText: displayText, copyText: displayResult)

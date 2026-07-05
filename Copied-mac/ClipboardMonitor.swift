@@ -87,6 +87,12 @@ final class ClipboardMonitor {
         let source = SourceAppDetector.detect(for: content)
         NSLog("Copied: dispatching show (type=\(content.type), preview=\(content.preview.prefix(50)))")
 
+        // Popup filter gate — check against blacklist/whitelist
+        if !AppFilterSettings.shared.shouldShowPopup(for: source.bundleIdentifier) {
+            NSLog("Copied: popup filtered (bundleID=\(source.bundleIdentifier ?? "nil"))")
+            return
+        }
+
         DispatchQueue.main.async { [weak self] in
             self?.toastController?.show(content: content, source: source)
         }

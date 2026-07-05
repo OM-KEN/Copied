@@ -3,12 +3,13 @@ import AppKit
 struct SourceAppInfo {
     let name: String
     let icon: NSImage?
+    let bundleIdentifier: String?
 }
 
 enum SourceAppDetector {
     static func detect(for content: ClipboardContent?) -> SourceAppInfo {
         guard let frontApp = NSWorkspace.shared.frontmostApplication else {
-            return SourceAppInfo(name: "未知应用", icon: nil)
+            return SourceAppInfo(name: "未知应用", icon: nil, bundleIdentifier: nil)
         }
 
         let isFinder = frontApp.bundleIdentifier == "com.apple.finder"
@@ -22,12 +23,13 @@ enum SourceAppDetector {
             } else {
                 "\(unique.count)个文件夹"
             }
-            return SourceAppInfo(name: name, icon: frontApp.icon)
+            return SourceAppInfo(name: name, icon: frontApp.icon, bundleIdentifier: frontApp.bundleIdentifier)
         }
 
         return SourceAppInfo(
             name: frontApp.localizedName ?? "未知应用",
-            icon: frontApp.icon
+            icon: frontApp.icon,
+            bundleIdentifier: frontApp.bundleIdentifier
         )
     }
 }

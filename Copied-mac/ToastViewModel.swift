@@ -14,6 +14,7 @@ final class ToastViewModel {
     var contentType: ClipboardContent.ContentType = .text
     var sourceAppName: String = ""
     var sourceAppIcon: NSImage?
+    var sourceBundleID: String? = nil
     var detailInfo: String = ""
     var thumbnailImage: NSImage?
 
@@ -40,6 +41,16 @@ final class ToastViewModel {
             if !isVisualOnly { return d }
         }
         return nil
+    }
+
+    /// Right-click action to block the source app from future popups.
+    /// Only available when we know the source app, it's not Copied,
+    /// and it's not already blocked.
+    var blacklistAction: BlacklistSourceAppAction? {
+        guard let bid = sourceBundleID,
+              bid != Bundle.main.bundleIdentifier,
+              !AppFilterSettings.shared.isBlocked(bundleID: bid) else { return nil }
+        return BlacklistSourceAppAction(bundleID: bid, appName: sourceAppName)
     }
 
     /// Human-readable type label for the detail line.
@@ -104,6 +115,7 @@ final class ToastViewModel {
         contentType = content.type
         sourceAppName = source.name
         sourceAppIcon = source.icon
+        sourceBundleID = source.bundleIdentifier
         thumbnailImage = content.thumbnail
         rawContent = content
         resultOverlay = nil  // clear previous result
