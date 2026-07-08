@@ -13,6 +13,8 @@ final class ToastWindowController {
     private var localMouseMonitor: Any?
     private var localCmdMonitor: Any?
     private var localOtherEventMonitor: Any?  // 监听 ⌘ 按下期间的其他按键/鼠标事件
+    private var localEscapeMonitor: Any?     // 展开态 Escape 收起
+    private var localCopyMonitor: Any?      // 展开态 ⌘C 复制全文
     private var cmdKeyDownCount: UInt32 = 0
     private var cmdIsPreExisting = false  // ⌘ was already held when toast appeared
     private var cmdCancelledByOtherEvent = false  // ⌘ 按下期间有其他按键/鼠标事件
@@ -41,7 +43,14 @@ final class ToastWindowController {
             onHoverChanged: { [weak self] hovering in self?.handleHoverChanged(hovering) },
             onTap: { [weak self] in self?.handleTap() },
             onPerformAction: { [weak self] action in self?.handlePerformAction(action) },
-            onNeedsLayout: { [weak self] in DispatchQueue.main.async { self?.updateWindowSize() } }
+            onNeedsLayout: { [weak self] in DispatchQueue.main.async { self?.updateWindowSize() } },
+            onAction: { [weak self] action in
+                switch action {
+                case .expand: self?.handleExpand()
+                case .collapse: self?.handleCollapse()
+                case .editInTextEdit: self?.handleEditInTextEdit()
+                }
+            }
         )
 
         let newHosting = NSHostingView(rootView: AnyView(toastCard))
@@ -144,6 +153,27 @@ final class ToastWindowController {
         if NSEvent.modifierFlags.contains(.command) {
             cmdIsPreExisting = true
         }
+
+        if localEscapeMonitor == nil {
+            localEscapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard let self, self.viewModel.isExpanded, event.keyCode == 53 else { return event }
+                self.handleCollapse()
+                return nil
+            }
+        }
+        if localCopyMonitor == nil {
+            localCopyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard let self,
+                      self.viewModel.isExpanded,
+                      event.modifierFlags.contains(.command),
+                      event.charactersIgnoringModifiers == "c" else { return event }
+                if let textView = self.findTextView(in: self.window?.contentView) {
+                    textView.copy(nil)
+                    return nil
+                }
+                return event
+            }
+        }
     }
 
     // MARK: - Action execution
@@ -202,13 +232,36 @@ final class ToastWindowController {
         }
     }
 
+    private func handleExpand() {
+        guard !viewModel.isExpanded,
+              let raw = viewModel.rawContent?.rawText, !raw.isEmpty else { return }
+        cancelDismiss()
+        pauseDismissTimer()
+        viewModel.isExpanded = true
+        updateWindowSize(animated: true)
+    }
+
+    private func handleCollapse() {
+        viewModel.isExpanded = false
+        updateWindowSize(animated: true)
+        if !isMouseInsideWindow() { startDismissTimer() }
+    }
+
+    private func handleEditInTextEdit() {
+        guard let raw = currentContent?.rawText else { return }
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("Copied-\(UUID().uuidString).txt")
+        try? raw.write(to: url, atomically: true, encoding: .utf8)
+        NSWorkspace.shared.open(url)
+    }
+
     private func handleHoverChanged(_ hovering: Bool) {
         guard !isDismissing else { return }
         if hovering { pauseDismissTimer() } else { startDismissTimer() }
     }
 
     private func handleTap() {
-        guard !isDismissing else { return }
+        guard !isDismissing, !viewModel.isExpanded else { return }
         isDismissing = true
         viewModel.cancelAsyncThumbnail()
         // Defer dismiss to next run loop — gives button handler a chance
@@ -260,6 +313,16 @@ final class ToastWindowController {
         dismissTimer = nil
     }
 
+    /// Recursively search the view hierarchy for an NSTextView so we can copy its selection.
+    private func findTextView(in view: NSView?) -> NSTextView? {
+        guard let view else { return nil }
+        if let tv = view as? NSTextView { return tv }
+        for sub in view.subviews {
+            if let found = findTextView(in: sub) { return found }
+        }
+        return nil
+    }
+
     private func isMouseInsideWindow() -> Bool {
         guard let windowFrame = window?.frame else { return false }
         return windowFrame.contains(NSEvent.mouseLocation)
@@ -289,17 +352,22 @@ final class ToastWindowController {
         contentView = cv
     }
 
-    func updateWindowSize() {
+    func updateWindowSize(animated: Bool = false) {
         guard !isDismissing, let hosting = hostingView, let screen = NSScreen.main else { return }
         hosting.layoutSubtreeIfNeeded()
         let panelSize = hosting.fittingSize
         let x = screen.visibleFrame.midX - panelSize.width / 2
         let y = screen.frame.maxY - panelSize.height + 20
-        window?.setFrame(
-            NSRect(x: x, y: y, width: panelSize.width, height: panelSize.height),
-            display: true,
-            animate: false
-        )
+        let rect = NSRect(x: x, y: y, width: panelSize.width, height: panelSize.height)
+        if animated {
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.25
+                ctx.allowsImplicitAnimation = true
+                window?.animator().setFrame(rect, display: true)
+            }
+        } else {
+            window?.setFrame(rect, display: true, animate: false)
+        }
     }
 
     func dismissToast(animated: Bool) {
@@ -352,6 +420,8 @@ final class ToastWindowController {
         if let m = localMouseMonitor { NSEvent.removeMonitor(m); localMouseMonitor = nil }
         if let m = localCmdMonitor  { NSEvent.removeMonitor(m); localCmdMonitor = nil }
         if let m = localOtherEventMonitor { NSEvent.removeMonitor(m); localOtherEventMonitor = nil }
+        if let m = localEscapeMonitor  { NSEvent.removeMonitor(m); localEscapeMonitor = nil }
+        if let m = localCopyMonitor    { NSEvent.removeMonitor(m); localCopyMonitor = nil }
         cmdIsPreExisting = false
         cmdCancelledByOtherEvent = false
         viewModel.isCommandPressed = false

@@ -35,7 +35,7 @@ open .build/Copied.app
 
 ## 使用
 
-复制任意内容 → 卡片弹出。悬停保持，点击关闭，⌘ 键触发操作。
+复制任意内容 → 卡片弹出。悬停保持，点击预览行展开全文，点击其他区域关闭，⌘ 键触发操作。
 
 右键菜单提供搜索、另存为、类型专属操作，以及一键将当前 App 加入黑名单。设置中可开启左右键手势（按住左键+右键=⌘C）、管理检测类型、管理黑名单、安装插件。
 
@@ -55,8 +55,8 @@ FilePreviewGenerator.swift  — QLThumbnailGenerator 异步文件缩略图
 SourceAppDetector.swift     — NSWorkspace 前台 App 检测（含 bundleIdentifier）
 ToastWindowController.swift — NSWindow + NSHostingView 管理（标准模式）
 LightReminderController.swift — 轻提醒模式浮标（NSWindow + drawOff 反向动画）
-ToastView.swift             — SwiftUI 卡片 + 按钮 + 色块 + 右键菜单
-ToastViewModel.swift        — @Observable 模型
+ToastView.swift             — SwiftUI 卡片 + 展开查看全文 + 色块 + 右键菜单
+ToastViewModel.swift        — @Observable 模型（含展开状态管理）
 SettingsView.swift          — 设置页（通用/类型/手势/黑名单）
 Copied.icon                 — Liquid Glass 分层图标
 Copied.svg                  — 菜单栏 template 图标

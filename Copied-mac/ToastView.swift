@@ -1,11 +1,15 @@
 import SwiftUI
 
+/// Actions the toast can trigger beyond the existing callbacks.
+enum ToastAction { case expand, collapse, editInTextEdit }
+
 struct ToastView: View {
     let viewModel: ToastViewModel
     let onHoverChanged: (Bool) -> Void
     let onTap: () -> Void
     let onPerformAction: ((any ClipboardAction)?) -> Void
     let onNeedsLayout: (() -> Void)?
+    let onAction: (ToastAction) -> Void
 
     @State private var animateIn = false
     @State private var isActionButtonHovered = false
@@ -19,7 +23,36 @@ struct ToastView: View {
                 .contentShape(Rectangle())
                 .onTapGesture { onTap() }
 
-            HStack(spacing: 12) {
+            if viewModel.isExpanded {
+                ZStack(alignment: .bottom) {
+                    ScrollView(.vertical) {
+                        Text(viewModel.rawContent?.rawText ?? "")
+                            .font(.system(size: 14))
+                            .foregroundStyle(.primary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .textSelection(.enabled)
+                            .padding(.horizontal, 16)
+                            .padding(.top, 12)
+                            .padding(.bottom, 44)
+                    }
+
+                    HStack {
+                        Button("在文本编辑中打开") {
+                            onAction(.editInTextEdit)
+                        }
+                        Spacer()
+                        Button("收起") {
+                            onAction(.collapse)
+                        }
+                        .keyboardShortcut(.escape, modifiers: [])
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(.regularMaterial)
+                }
+                .frame(minHeight: 100, maxHeight: 300)
+            } else {
+                HStack(spacing: 12) {
                 // ── Left: Icon or Color Swatch ──────────────────
                 if let color = viewModel.detectedColor {
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -83,6 +116,7 @@ struct ToastView: View {
                         .interpolatingSpring(mass: 1.2, stiffness: 120, damping: 14, initialVelocity: 3),
                         value: viewModel.resultOverlay != nil
                     )
+                    .onTapGesture { onAction(.expand) }
 
                     VStack(alignment: .leading, spacing: 4) {
                         HStack(spacing: 4) {
@@ -199,8 +233,10 @@ struct ToastView: View {
                 }
             }
             .padding(16)
+            }
         }
         .frame(maxWidth: 360)
+        .clipShape(RoundedRectangle(cornerRadius: 32))
         .glassEffect(in: .rect(cornerRadius: 32))
         .overlay {
             RoundedRectangle(cornerRadius: 32, style: .continuous)

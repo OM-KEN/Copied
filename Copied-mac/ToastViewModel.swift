@@ -25,6 +25,7 @@ final class ToastViewModel {
     var detectedColor: NSColor? = nil
     var resultOverlay: ResultOverlay? = nil
     var rawContent: ClipboardContent? = nil
+    var isExpanded = false
 
     // ── Async thumbnail (Quick Look) ──────────────────────
     var asyncThumbnail: NSImage? = nil
@@ -120,6 +121,7 @@ final class ToastViewModel {
         rawContent = content
         resultOverlay = nil  // clear previous result
         isCommandPressed = false
+        isExpanded = false
 
         // Resolve actions
         let resolved = ActionResolver.resolve(for: content)

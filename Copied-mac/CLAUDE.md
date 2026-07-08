@@ -30,7 +30,7 @@ BlacklistSourceAppAction.swift  右键"屏蔽此来源" Action
 ClipboardAction.swift       Action 协议 + 内置 Action + ActionResolver
 ToastWindowController.swift 浮动 NSWindow + NSHostingView + Action
 ToastViewModel.swift        @Observable 模型（含 sourceBundleID）
-ToastView.swift             SwiftUI 卡片 + glassEffect + ZStack 图标防抖 + contextMenu
+ToastView.swift             SwiftUI 卡片 + glassEffect + 展开查看全文（if/else 双态）+ contextMenu
 LightReminderController.swift 轻提醒模式浮标（NSWindow + NSHostingView + drawOff 反向动画）
 TypeSettingsView.swift      设置 → 智能识别 Tab（ContentKind 开关 + 插件管理）
 SettingsView.swift           设置（开机启动/搜索引擎/智能识别/手势/黑名单/轻提醒 Tab）
@@ -87,6 +87,18 @@ SwiftUI `.onHover` + AppKit `NSEvent.addLocalMonitorForEvents(.leftMouseDown)`�
 **优先级**：首个非颜色检测 → 右侧按钮（最多 1 个）。其余 → 右键菜单。无检测 → 默认搜索。纯语言类型（如 swift）不产生按钮。各 Action 触发条件和行为见 `ClipboardAction.swift` 及各 `*Action.swift`。
 
 **按钮 hover 图标**：用 `ZStack` 叠加两个 SF Symbol + `opacity` 切换，不能用 `Image(systemName: condition ? "A" : "B")`——SF Symbol 宽度不同会导致按钮尺寸变化 → HStack 重排 → 左侧文本截断位置跳动。
+
+### 展开查看全文（ToastView expand/collapse）
+
+点击预览文本行 → `isExpanded = true` → `if/else` 切换布局：折叠态显示原有 HStack（图标+截断预览+按钮），展开态显示 ScrollView 全宽文本 + 底部按钮栏（`ZStack(alignment: .bottom)` + `.regularMaterial` 毛玻璃）。`minHeight: 100, maxHeight: 300`。展开/收起通过 `updateWindowSize(animated: true)` 驱动 0.25s 窗口 frame 动画。
+
+**⌘C 复制选中文本**：borderless 窗口非 key，系统 ⌘C 无法路由到 `.textSelection(.enabled)` 的 NSTextView。解法：`NSEvent.addLocalMonitorForEvents(.keyDown)` 拦截 ⌘C → `findTextView(in:)` 递归查找 view hierarchy 中的 NSTextView → 调用 `textView.copy(nil)`，只复制选中部分。
+
+**Escape 收起**：独立 keyDown 监听器，keyCode 53 时触发 `handleCollapse()`。
+
+**TextEdit 编辑**：`handleEditInTextEdit()` 写临时文件到 `NSTemporaryDirectory()`（UUID 文件名）→ `NSWorkspace.shared.open(url)`。
+
+**展开态 NSEvent 竞争**：`handleTap()` 由 NSEvent 监听器触发，早于 SwiftUI `.onTapGesture`。解法：`handleExpand()` 不检查 `!isDismissing`，直接 `cancelDismiss()` 撤销 `handleTap()` 的关闭逻辑。展开态 `handleTap()` 全部 `return`（按钮/空白均不关闭，仅「收起」按钮和 Escape 能折叠）。
 
 ### 点击处理
 
