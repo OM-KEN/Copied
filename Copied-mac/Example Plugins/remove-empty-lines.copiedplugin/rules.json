@@ -1,0 +1,17 @@
+{
+  "version": "1",
+  "rules": [
+    {
+      "id": "remove-empty-lines",
+      "pattern": "^(?=[\\s\\S]*?\\n)[\\s\\S]+",
+      "action": {
+        "type": "transform",
+        "title": "去除空行",
+        "icon": "text.append",
+        "menuOnly": true,
+        "pattern": "\\n(\\s*\\n)+",
+        "replacement": "\n"
+      }
+    }
+  ]
+}

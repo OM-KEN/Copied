@@ -29,6 +29,9 @@ struct PluginActionTemplate: Codable {
     /// `transform` 类型的替换字符串。
     let transformReplacement: String?
 
+    /// 强制放入右键菜单，不作为主按钮。默认 false。
+    let menuOnly: Bool?
+
     enum ActionType: String, Codable {
         case openURL
         case searchWithEngine
@@ -39,7 +42,7 @@ struct PluginActionTemplate: Codable {
     // MARK: CodingKeys
 
     enum CodingKeys: String, CodingKey {
-        case type, title, icon, template
+        case type, title, icon, template, menuOnly
         case transformPattern = "pattern"
         case transformReplacement = "replacement"
     }

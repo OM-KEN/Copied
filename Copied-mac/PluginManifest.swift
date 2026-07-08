@@ -49,6 +49,7 @@ struct PluginRule: Codable {
     let pattern: String             // ICU 正则表达式
     let extractValue: String?       // 捕获组名或编号，提取到 ContentDetection.value
     let priority: Int?              // 规则级优先级偏移（叠加 manifest 优先级）
+    let multiline: Bool?            // 是否启用多行匹配（^/$ 匹配行首/尾），默认 false
     let action: PluginActionTemplate? // 匹配后的动作
 }
 
@@ -61,7 +62,8 @@ struct CompiledRule {
 
     init?(rule: PluginRule) throws {
         self.id = rule.id
-        self.regex = try NSRegularExpression(pattern: rule.pattern, options: [.anchorsMatchLines])
+        let options: NSRegularExpression.Options = (rule.multiline == true) ? [.anchorsMatchLines] : []
+        self.regex = try NSRegularExpression(pattern: rule.pattern, options: options)
         self.extractGroup = rule.extractValue
         self.actionTemplate = rule.action
     }

@@ -101,81 +101,6 @@ final class PluginLoader {
         NSLog("Copied: loaded \(plugins.count) plugin(s)")
     }
 
-    /// 首次启动时自动安装示例插件（或插件目录为空时补装）。
-    func installExamplePluginsIfNeeded() {
-        let flagKey = "examplePluginsInstalledV2"  // v2: reset for broken v1 flag
-        let alreadyInstalled = UserDefaults.standard.bool(forKey: flagKey)
-
-        let existingPlugins = scanPlugins()
-        NSLog("Copied: installExamplePluginsIfNeeded — flag=\(alreadyInstalled), existing=\(existingPlugins.count)")
-
-        if alreadyInstalled && !existingPlugins.isEmpty { return }
-
-        UserDefaults.standard.set(true, forKey: flagKey)
-
-        let dir = Self.pluginsDirectory
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-
-        // JSON Formatter plugin
-        writeExamplePlugin(
-            identifier: "com.copied.json-formatter",
-            manifestJSON: #"""
-            {
-              "name": "JSON 检测器",
-              "identifier": "com.copied.json-formatter",
-              "version": "1.0.0",
-              "category": "language",
-              "author": "Copied",
-              "description": "检测 JSON 内容并提供格式化操作",
-              "icon": "curlybraces",
-              "label": "JSON",
-              "priority": 150
-            }
-            """#,
-            rulesJSON: #"""
-            {
-              "version": "1",
-              "rules": [
-                {
-                  "id": "json-detect",
-                  "pattern": "^\\s*[\\{\\[]",
-                  "extractValue": "0",
-                  "action": {
-                    "type": "openURL",
-                    "title": "格式化",
-                    "icon": "text.alignleft",
-                    "template": "https://jsonformatter.org/?json={value}"
-                  }
-                }
-              ]
-            }
-            """#
-        )
-
-        NSLog("Copied: installed example plugins")
-    }
-
-    private func writeExamplePlugin(identifier: String, manifestJSON: String, rulesJSON: String) {
-        let pluginDir = Self.pluginsDirectory.appendingPathComponent("\(identifier).copiedplugin")
-        do {
-            try FileManager.default.createDirectory(at: pluginDir, withIntermediateDirectories: true)
-
-            let manifestURL = pluginDir.appendingPathComponent("manifest.json")
-            let rulesURL = pluginDir.appendingPathComponent("rules.json")
-
-            try manifestJSON.write(to: manifestURL, atomically: true, encoding: .utf8)
-            try rulesJSON.write(to: rulesURL, atomically: true, encoding: .utf8)
-
-            if let kind = loadPlugin(at: pluginDir) {
-                NSLog("Copied: example plugin '\(kind.id)' installed")
-            } else {
-                NSLog("Copied: example plugin '\(identifier)' failed to load")
-            }
-        } catch {
-            NSLog("Copied: example plugin '\(identifier)' write error: \(error.localizedDescription)")
-        }
-    }
-
     // MARK: - Installation
 
     /// 安装插件：将 `.copiedplugin` 文件夹复制到插件目录。
@@ -196,7 +121,7 @@ final class PluginLoader {
         guard let kind = loadPlugin(at: destURL) else {
             // Clean up on failure
             try? FileManager.default.removeItem(at: destURL)
-            throw PluginError.invalidPlugin
+            throw PluginError.invalidPlugin(reason: "manifest.json 或 rules.json 格式不正确")
         }
 
         // Persist enabled state
@@ -301,12 +226,12 @@ struct PluginDetector: ContentDetectorProtocol {
 // MARK: - Errors
 
 enum PluginError: LocalizedError {
-    case invalidPlugin
+    case invalidPlugin(reason: String)
 
     var errorDescription: String? {
         switch self {
-        case .invalidPlugin:
-            return "插件无效：manifest.json 或 rules.json 格式不正确"
+        case .invalidPlugin(let reason):
+            return "插件无效：\(reason)"
         }
     }
 }

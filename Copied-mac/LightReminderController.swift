@@ -4,8 +4,7 @@ import SwiftUI
 // MARK: - SwiftUI Checkmark Symbol
 
 /// 24pt 蓝底白勾 `checkmark.app.fill`，原生绘制入场。
-/// `drawOff` 活跃时符号处于"已擦除"状态（不可见），
-/// 切到不活跃时系统反向播放 → 效果等同 drawOn 正向绘制。
+/// `drawOff` 活跃时符号不可见，切到不活跃时反向播放 → 等同 drawOn 正向绘制。
 private struct CheckmarkIcon: View {
     @State private var show = false
 
@@ -27,14 +26,13 @@ private struct CheckmarkIcon: View {
 
 /// 轻提醒模式浮标控制器。
 ///
-/// 18pt `checkmark.app.fill`（蓝底白勾），`.drawOn` 绘制入场，鼠标右上角，1s 自消。
+/// 24pt `checkmark.app.fill`（蓝底白勾），`.drawOff` 反向动画绘制入场，
+/// 鼠标右上角 4pt，1s 自消。每次 `show()` 重建窗口（不复用），状态机极简。
 final class LightReminderController {
     static let shared = LightReminderController()
 
     private var window: NSWindow?
-    private var hostingView: NSHostingView<CheckmarkIcon>?
     private var dismissTimer: Timer?
-    private var isShowing = false
 
     private let size: CGFloat = 24
     private let offset: CGFloat = 4
@@ -49,13 +47,11 @@ final class LightReminderController {
     func show() {
         dismissTimer?.invalidate()
 
-        let cursor = NSEvent.mouseLocation
+        // 立即清理旧窗口（不等动画完成）
+        window?.orderOut(nil)
+        window = nil
 
-        if window != nil, isShowing {
-            updatePosition(cursor: cursor)
-        } else {
-            createWindow(at: cursor)
-        }
+        createWindow(at: NSEvent.mouseLocation)
 
         dismissTimer = Timer.scheduledTimer(
             withTimeInterval: displayDuration, repeats: false
@@ -67,11 +63,6 @@ final class LightReminderController {
     // MARK: - Window Creation
 
     private func createWindow(at cursor: NSPoint) {
-        // 立即清理旧窗口，防止 dismiss 动画回调覆盖新窗口引用
-        window?.orderOut(nil)
-        window = nil
-        hostingView = nil
-
         guard let screen = screenContaining(cursor) else { return }
         let frame = indicatorFrame(for: cursor, screen: screen)
 
@@ -92,9 +83,9 @@ final class LightReminderController {
         w.contentView = hv
 
         self.window = w
-        self.hostingView = hv
 
-        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        if reduceMotion {
             w.alphaValue = 1
         } else {
             w.alphaValue = 0
@@ -106,16 +97,9 @@ final class LightReminderController {
         }
 
         w.orderFront(nil)
-        isShowing = true
     }
 
     // MARK: - Position
-
-    private func updatePosition(cursor: NSPoint) {
-        guard let window, let screen = screenContaining(cursor) ?? window.screen else { return }
-        let frame = indicatorFrame(for: cursor, screen: screen)
-        window.setFrame(frame, display: true, animate: false)
-    }
 
     private func indicatorFrame(for cursor: NSPoint, screen: NSScreen) -> NSRect {
         let vf = screen.visibleFrame
@@ -136,13 +120,11 @@ final class LightReminderController {
         dismissTimer?.invalidate()
         dismissTimer = nil
 
-        guard let window, isShowing else { return }
-        isShowing = false
+        guard let window else { return }
+        self.window = nil  // 先清引用，防止 completion 与新窗口冲突
 
         guard animated else {
             window.orderOut(nil)
-            self.window = nil
-            self.hostingView = nil
             return
         }
 
@@ -150,13 +132,8 @@ final class LightReminderController {
             ctx.duration = 0.2
             ctx.timingFunction = CAMediaTimingFunction(name: .easeIn)
             window.animator().alphaValue = 0
-        } completionHandler: { [weak self] in
+        } completionHandler: {
             window.orderOut(nil)
-            // 仅当共享引用仍是本窗口时才清 nil（防止覆盖新窗口引用）
-            if self?.window === window {
-                self?.window = nil
-                self?.hostingView = nil
-            }
         }
     }
 }

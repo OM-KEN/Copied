@@ -65,14 +65,17 @@ struct ToastView: View {
 
                         if let overlay = viewModel.resultOverlay {
                             let lines = overlay.displayText.components(separatedBy: "\n")
-                            VStack(alignment: .leading, spacing: 4) {
-                                ForEach(lines.indices, id: \.self) { i in
-                                    Text(lines[i])
-                                        .font(.system(size: 14, weight: .medium))
-                                        .foregroundStyle(.primary)
-                                        .lineLimit(1)
+                            ScrollView(.vertical) {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    ForEach(lines.indices, id: \.self) { i in
+                                        Text(lines[i])
+                                            .font(.system(size: 14, weight: .medium))
+                                            .foregroundStyle(.primary)
+                                            .lineLimit(1)
+                                    }
                                 }
                             }
+                            .frame(maxHeight: 200)
                             .opacity(viewModel.resultOverlay != nil ? 1 : 0)
                         }
                     }

@@ -74,10 +74,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Register all built-in content detectors
         DetectionRegistry.shared.registerBuiltInDetectors()
 
-        // Load installed plugins + install examples on first launch
+        // Load installed plugins
         let loader = PluginLoader()
         loader.loadAllPlugins()
-        loader.installExamplePluginsIfNeeded()
 
         toastController = ToastWindowController()
         monitor = ClipboardMonitor(toastController: toastController!)

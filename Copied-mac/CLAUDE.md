@@ -21,6 +21,9 @@ ContentKind.swift           统一类型标识（struct + 静态常量）
 Detectors/                  15 个内置检测器（详见目录）
 DictionaryLookupService.swift  DCSCopyTextDefinition 词典查询
 PluginLoader.swift          扫描/校验/加载 .copiedplugin 文件夹
+PluginManifest.swift        插件清单 + Rule 模型 + CompiledRule
+PluginAction.swift          插件动作执行（openURL/search/transform）
+PluginActionTemplate.swift  插件动作模板（menuOnly/multiline 配置）
 AppFilterSettings.swift     应用黑名单单例 — 过滤判断 + 持久化
 AppFilterView.swift         设置 → 黑名单 Tab（列表管理 + 运行中应用选择器）
 BlacklistSourceAppAction.swift  右键"屏蔽此来源" Action
@@ -40,13 +43,13 @@ UserDefaults 键：`searchEngine`, `launchAtLogin`, `isPaused`, `copyGestureEnab
 
 **数据流**：`ClipboardMonitor` → `DetectionRegistry.detectAll()` → `SourceAppDetector.detect()` → `AppFilterSettings.shouldShowPopup()` 过滤门 → `ClipboardContent` → 分支：轻提醒模式 → `LightReminderController.show()`，标准模式 → `ToastWindowController.show()` → `ToastViewModel` → `ToastView`
 
-**插件系统**：声明式（JSON + 正则，不执行代码）。性能熔断：>100KB 文本截断、>50ms 单检测器限流 30s、连续 3 次限流自动禁用。
+**插件系统**：声明式（JSON + 正则，不执行代码）。插件目录 `~/Library/Application Support/Copied/Plugins/`，通过设置 → 智能识别手动安装。规则支持 `multiline`（默认 false）、`menuOnly`（强制进右键菜单）字段。无默认插件，不自动安装。性能熔断：>100KB 文本仅运行内置语言检测器（跳过插件与实体检测器）、>50ms 单检测器限流 30s、连续 3 次限流自动禁用。
 
 ### 轻提醒模式（LightReminderController）
 
 菜单栏右键 / 设置页 Toggle 切换。开启后所有复制仅显示 24pt `checkmark.app.fill` 浮标（鼠标右上方 4pt），1s 自消，不弹完整 Toast。
 
-**浮标实现**：`NSWindow`（borderless, `.floating`, `ignoresMouseEvents`）+ `NSHostingView<CheckmarkIcon>`。不跟踪鼠标移动，窗口复用。
+**浮标实现**：`NSWindow`（borderless, `.floating`, `ignoresMouseEvents`）+ `NSHostingView<CheckmarkIcon>`。每次 `show()` 重建窗口（不复用），不跟踪鼠标移动。
 
 **绘制入场动画（关键陷阱）**：`checkmark.app.fill` 不支持 `drawOn(isActive:)` 正向触发——Symbol 默认已处于 100% 绘制态，任何 `isActive` 切换都会解释为 100%→0%（反向擦除）。**解法**：用 `drawOff(isActive: !show)`，初始 `!show=true`（drawOff 活跃 → 符号不可见），`onAppear` 后 `show=true`（drawOff 不活跃 → 反向播放 → 效果等同 drawOn 正向绘制）。颜色用 `.symbolRenderingMode(.palette)` + `.foregroundStyle(.white, .blue)` 实现蓝底白勾。
 
@@ -71,13 +74,13 @@ SwiftUI `.onHover` + AppKit `NSEvent.addLocalMonitorForEvents(.leftMouseDown)`�
 按优先级管道执行所有已注册检测器。检测器实现 `ContentDetectorProtocol`，返回 `ContentDetection?`。
 
 性能熔断（硬边界）：
-- **100KB 文本截断**：>100KB → 仅运行内置检测器（跳过插件）
+- **100KB 文本截断**：>100KB → 仅运行内置语言检测器（跳过插件与实体检测器）
 - **50ms 单检测器超时**：累计 >50ms → 限流 30s
 - **3 次限流自动禁用**：连续 ≥3 次 → 永久禁用 + 系统通知
 
 ### Action 系统
 
-**内联更新模式**（`performsInlineUpdate = true`）：执行后弹窗保持显示，展示**结果覆盖层**（`ResultOverlay { displayText, copyText }`）。右侧按钮变为"复制"（`CopyTextAction`）。覆盖层 `\n` 拆分 VStack，每行 `.lineLimit(1)`。
+**内联更新模式**（`performsInlineUpdate = true`）：执行后弹窗保持显示，展示**结果覆盖层**（`ResultOverlay { displayText, copyText }`）。右侧按钮变为"复制"（`CopyTextAction`）。覆盖层 `\n` 拆分 VStack，每行 `.lineLimit(1)`，`ScrollView` + `.frame(maxHeight: 200)` 防止超长内容撑爆屏幕。
 
 **词典查询**（`LookupAction`）：`DCSCopyTextDefinition` 查询 macOS 内置牛津中英词典，零配置。返回格式：行1 = `{word} 英 {pron}`，行2 = 中文释义（≤5 字 CJK，≤8 条）。检测器仅匹配单个 ASCII 单词，词典预查在 `ActionResolver.makeAction()` 中进行：有释义→显示"翻译"按钮，无释义→兜底搜索。**预查不能放检测器**（检测器在主线程有 50ms 超时熔断，词典首次加载会触发）。
 

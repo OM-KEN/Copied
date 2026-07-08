@@ -1,0 +1,11 @@
+{
+  "name": "去除空行",
+  "identifier": "com.copied.remove-empty-lines",
+  "version": "1.0.0",
+  "category": "entity",
+  "author": "Copied",
+  "description": "去除文本中的空行",
+  "icon": "",
+  "label": "",
+  "priority": 1
+}

@@ -1,0 +1,11 @@
+{
+  "name": "MD 转纯文本",
+  "identifier": "com.copied.md-to-plaintext",
+  "version": "1.0.0",
+  "category": "language",
+  "author": "Copied",
+  "description": "检测 Markdown 格式并去除格式标记转为纯文本",
+  "icon": "text.alignleft",
+  "label": "MD",
+  "priority": 80
+}

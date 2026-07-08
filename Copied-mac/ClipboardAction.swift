@@ -362,9 +362,13 @@ enum ActionResolver {
         var menu: [any ClipboardAction] = []
 
         for detection in content.detections {
-            let action = makeAction(for: detection)
-            if let action {
-                if primary == nil { primary = action } else { menu.append(action) }
+            guard let action = makeAction(for: detection) else { continue }
+            if detection.pluginActionTemplate?.menuOnly == true {
+                menu.append(action)
+            } else if primary == nil {
+                primary = action
+            } else {
+                menu.append(action)
             }
         }
 
@@ -427,8 +431,8 @@ enum ActionResolver {
             break
         }
 
-        // Plugin-defined action
-        if let template = detection.pluginActionTemplate {
+        // Plugin-defined action（none 类型仅用于类型标签，不产生按钮）
+        if let template = detection.pluginActionTemplate, template.type != .none {
             return PluginAction(detection: detection, template: template)
         }
 
