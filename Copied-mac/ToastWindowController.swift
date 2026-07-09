@@ -20,10 +20,10 @@ final class ToastWindowController {
     private var cmdCancelledByOtherEvent = false  // ⌘ 按下期间有其他按键/鼠标事件
     private let displayDuration: TimeInterval = 3.0
 
+    private var isExpandingOrCollapsing = false
     private var currentContent: ClipboardContent?
 
     func show(content: ClipboardContent, source: SourceAppInfo) {
-        NSLog("Copied: show() entry — preview=\(content.preview.prefix(40)), isDismissing=\(isDismissing), windowExists=\(window != nil)")
         viewModel.configure(with: content, source: source)
         currentContent = content
 
@@ -74,7 +74,6 @@ final class ToastWindowController {
         window?.setFrame(NSRect(x: x, y: y, width: panelSize.width, height: panelSize.height), display: true, animate: false)
         window?.alphaValue = 1.0
         window?.orderFront(nil)
-        NSLog("Copied: after orderFront — isVisible=\(window?.isVisible ?? false), alpha=\(window?.alphaValue ?? -1), frame=\(window?.frame ?? .zero), hostingInSuperview=\(newHosting.superview != nil)")
 
         if isMouseInsideWindow() {} else { startDismissTimer() }
 
@@ -233,18 +232,92 @@ final class ToastWindowController {
     }
 
     private func handleExpand() {
-        guard !viewModel.isExpanded,
+        guard !viewModel.isExpanded, !isExpandingOrCollapsing,
               let raw = viewModel.rawContent?.rawText, !raw.isEmpty else { return }
+        isExpandingOrCollapsing = true
         cancelDismiss()
         pauseDismissTimer()
-        viewModel.isExpanded = true
-        updateWindowSize(animated: true)
+
+        // Phase 1: blur + fade out (same as dismissToast)
+        applyWindowBlur()
+        animateWindowAlpha(to: 0, easeIn: true) { [weak self] in
+            guard let self else { return }
+            // Switch content while invisible
+            self.viewModel.isExpanded = true
+            self.updateWindowSize(animated: false)
+
+            // Phase 2: deblur + fade in (reverse of dismissToast)
+            self.animateWindowAlpha(to: 1, easeIn: false) { [weak self] in
+                self?.removeWindowBlur()
+                self?.isExpandingOrCollapsing = false
+            }
+        }
     }
 
     private func handleCollapse() {
-        viewModel.isExpanded = false
-        updateWindowSize(animated: true)
-        if !isMouseInsideWindow() { startDismissTimer() }
+        guard viewModel.isExpanded, !isExpandingOrCollapsing else { return }
+        isExpandingOrCollapsing = true
+
+        // Phase 1: blur + fade out
+        applyWindowBlur()
+        animateWindowAlpha(to: 0, easeIn: true) { [weak self] in
+            guard let self else { return }
+            // Switch content while invisible
+            self.viewModel.isExpanded = false
+            self.updateWindowSize(animated: false)
+
+            // Phase 2: deblur + fade in
+            self.animateWindowAlpha(to: 1, easeIn: false) { [weak self] in
+                self?.removeWindowBlur()
+                self?.isExpandingOrCollapsing = false
+                if self?.isMouseInsideWindow() == false { self?.startDismissTimer() }
+            }
+        }
+    }
+
+    // MARK: - Window blur helpers
+
+    private func applyWindowBlur() {
+        guard let layer = contentView?.layer,
+              let filter = CIFilter(name: "CIGaussianBlur") else { return }
+        filter.setDefaults()
+        filter.setValue(0.0, forKey: kCIInputRadiusKey)
+        filter.name = "expandBlur"
+        layer.filters = (layer.filters ?? []) + [filter]
+    }
+
+    private func removeWindowBlur() {
+        contentView?.layer?.filters = nil
+    }
+
+    private func animateWindowAlpha(to alpha: CGFloat, easeIn: Bool, completion: @escaping () -> Void) {
+        let gen = dismissGeneration
+        let blurKeyPath = "filters.expandBlur.inputRadius"
+        let fromRadius: CGFloat = alpha == 0 ? 0 : 4
+        let toRadius: CGFloat = alpha == 0 ? 4 : 0
+
+        if let layer = contentView?.layer {
+            let anim = CABasicAnimation(keyPath: blurKeyPath)
+            anim.fromValue = fromRadius
+            anim.toValue = toRadius
+            anim.duration = 0.2
+            anim.timingFunction = CAMediaTimingFunction(name: easeIn ? .easeIn : .easeOut)
+            anim.fillMode = .forwards
+            anim.isRemovedOnCompletion = false
+            layer.add(anim, forKey: "expandBlurAnim")
+        }
+
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.2
+            ctx.timingFunction = CAMediaTimingFunction(name: easeIn ? .easeIn : .easeOut)
+            window?.animator().alphaValue = alpha
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+            guard let self, self.dismissGeneration == gen else { return }
+            self.contentView?.layer?.removeAnimation(forKey: "expandBlurAnim")
+            completion()
+        }
     }
 
     private func handleEditInTextEdit() {
@@ -253,6 +326,12 @@ final class ToastWindowController {
             .appendingPathComponent("Copied-\(UUID().uuidString).txt")
         try? raw.write(to: url, atomically: true, encoding: .utf8)
         NSWorkspace.shared.open(url)
+        // Dismiss toast after opening in editor
+        if !isDismissing {
+            isDismissing = true
+            viewModel.cancelAsyncThumbnail()
+            dismissToast(animated: true)
+        }
     }
 
     private func handleHoverChanged(_ hovering: Bool) {
@@ -261,7 +340,26 @@ final class ToastWindowController {
     }
 
     private func handleTap() {
-        guard !isDismissing, !viewModel.isExpanded else { return }
+        guard !isDismissing, !isExpandingOrCollapsing else { return }
+        if viewModel.isExpanded {
+            // Tap on button-bar blank area (between the two buttons) → dismiss.
+            // Taps on the actual buttons are handled by SwiftUI (collapse / edit).
+            if let w = window {
+                let distFromBottom = NSEvent.mouseLocation.y - w.frame.minY
+                let xInWindow = NSEvent.mouseLocation.x - w.frame.minX
+                let isInSpacerArea = xInWindow > w.frame.width * 0.42
+                                  && xInWindow < w.frame.width * 0.78
+                if distFromBottom < 60 && isInSpacerArea {
+                    DispatchQueue.main.async { [weak self] in
+                        guard let self, !self.isDismissing else { return }
+                        self.isDismissing = true
+                        self.viewModel.cancelAsyncThumbnail()
+                        self.dismissToast(animated: true)
+                    }
+                }
+            }
+            return
+        }
         isDismissing = true
         viewModel.cancelAsyncThumbnail()
         // Defer dismiss to next run loop — gives button handler a chance
@@ -356,12 +454,19 @@ final class ToastWindowController {
         guard !isDismissing, let hosting = hostingView, let screen = NSScreen.main else { return }
         hosting.layoutSubtreeIfNeeded()
         let panelSize = hosting.fittingSize
+        var h = panelSize.height
+        if viewModel.isExpanded {
+            // Safety cap: expanded view should never exceed content + outer padding
+            let maxH: CGFloat = 340
+            if h > maxH { h = maxH }
+        }
         let x = screen.visibleFrame.midX - panelSize.width / 2
-        let y = screen.frame.maxY - panelSize.height + 20
-        let rect = NSRect(x: x, y: y, width: panelSize.width, height: panelSize.height)
+        let y = screen.frame.maxY - h + 20
+        let rect = NSRect(x: x, y: y, width: panelSize.width, height: h)
         if animated {
             NSAnimationContext.runAnimationGroup { ctx in
-                ctx.duration = 0.25
+                ctx.duration = 0.3
+                ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.16, 0.0, 0.22, 1.0)
                 ctx.allowsImplicitAnimation = true
                 window?.animator().setFrame(rect, display: true)
             }

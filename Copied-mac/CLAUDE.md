@@ -90,15 +90,19 @@ SwiftUI `.onHover` + AppKit `NSEvent.addLocalMonitorForEvents(.leftMouseDown)`�
 
 ### 展开查看全文（ToastView expand/collapse）
 
-点击预览文本行 → `isExpanded = true` → `if/else` 切换布局：折叠态显示原有 HStack（图标+截断预览+按钮），展开态显示 ScrollView 全宽文本 + 底部按钮栏（`ZStack(alignment: .bottom)` + `.regularMaterial` 毛玻璃）。`minHeight: 100, maxHeight: 300`。展开/收起通过 `updateWindowSize(animated: true)` 驱动 0.25s 窗口 frame 动画。
+点击预览文本行 → `isExpanded = true` → 切换到 `ExpandedTextView` 布局：ZStack overlay（`.frame(width: 360)` 固定宽度），ScrollView（`.frame(maxHeight: 300)`）包含 Text（`.fixedSize(vertical: true)` 自然高度 + `.lineSpacing(4)` 行距 + `.padding(.bottom, 44)` 避让按钮栏），底部 HStack 按钮栏（`.background(.regularMaterial)` 毛玻璃）。短文本 ScrollView 收缩到内容高度无滚动，长文本 capped at 300pt 自动滚动。`updateWindowSize` 中含 340pt 安全上限。展开/收起通过 `updateWindowSize(animated: false)` 即时 resize + 全窗口 `CIGaussianBlur` + `alpha` 两段式过渡（blur out → 切换内容 → blur in，0.2s × 2）。
+
+**折叠态悬浮效果**：`@State isPreviewHovered` → 预览文字 `.opacity(0.7)` + 0.15s easeInOut 动画。
+
+**按钮栏空白区关闭**：展开态 `handleTap()` 检测点击距窗口底部 < 60pt 且 x 在 42%~78% 宽度（Spacer 区域）→ `DispatchQueue.main.async` 延迟 dismiss（给 SwiftUI 按钮 mouseUp 留时间），走 `dismissToast` 退场动画。
 
 **⌘C 复制选中文本**：borderless 窗口非 key，系统 ⌘C 无法路由到 `.textSelection(.enabled)` 的 NSTextView。解法：`NSEvent.addLocalMonitorForEvents(.keyDown)` 拦截 ⌘C → `findTextView(in:)` 递归查找 view hierarchy 中的 NSTextView → 调用 `textView.copy(nil)`，只复制选中部分。
 
 **Escape 收起**：独立 keyDown 监听器，keyCode 53 时触发 `handleCollapse()`。
 
-**TextEdit 编辑**：`handleEditInTextEdit()` 写临时文件到 `NSTemporaryDirectory()`（UUID 文件名）→ `NSWorkspace.shared.open(url)`。
+**TextEdit 编辑**：`handleEditInTextEdit()` 写临时文件到 `NSTemporaryDirectory()`（UUID 文件名）→ `NSWorkspace.shared.open(url)` → 自动 dismiss toast。
 
-**展开态 NSEvent 竞争**：`handleTap()` 由 NSEvent 监听器触发，早于 SwiftUI `.onTapGesture`。解法：`handleExpand()` 不检查 `!isDismissing`，直接 `cancelDismiss()` 撤销 `handleTap()` 的关闭逻辑。展开态 `handleTap()` 全部 `return`（按钮/空白均不关闭，仅「收起」按钮和 Escape 能折叠）。
+**展开/收起过渡**：全窗口模糊淡入淡出——`handleExpand()`/`handleCollapse()` 先 blur(0→4) + alpha(1→0)，切换 `isExpanded` + `updateWindowSize`，再 blur(4→0) + alpha(0→1)。和 `dismissToast` 同一套 CIGaussianBlur + alpha 机制。`isExpandingOrCollapsing` 标志防重入。
 
 ### 点击处理
 

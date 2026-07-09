@@ -15,6 +15,7 @@ struct ToastView: View {
     @State private var isActionButtonHovered = false
     @State private var isActionButtonPressed = false
     @State private var hoverDebounceTask: Task<Void, Never>?
+    @State private var isPreviewHovered = false
 
     var body: some View {
         ZStack {
@@ -24,33 +25,11 @@ struct ToastView: View {
                 .onTapGesture { onTap() }
 
             if viewModel.isExpanded {
-                ZStack(alignment: .bottom) {
-                    ScrollView(.vertical) {
-                        Text(viewModel.rawContent?.rawText ?? "")
-                            .font(.system(size: 14))
-                            .foregroundStyle(.primary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .textSelection(.enabled)
-                            .padding(.horizontal, 16)
-                            .padding(.top, 12)
-                            .padding(.bottom, 44)
-                    }
-
-                    HStack {
-                        Button("在文本编辑中打开") {
-                            onAction(.editInTextEdit)
-                        }
-                        Spacer()
-                        Button("收起") {
-                            onAction(.collapse)
-                        }
-                        .keyboardShortcut(.escape, modifiers: [])
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .background(.regularMaterial)
-                }
-                .frame(minHeight: 100, maxHeight: 300)
+                ExpandedTextView(
+                    rawText: viewModel.rawContent?.rawText ?? "",
+                    onEditInTextEdit: { onAction(.editInTextEdit) },
+                    onCollapse: { onAction(.collapse) }
+                )
             } else {
                 HStack(spacing: 12) {
                 // ── Left: Icon or Color Swatch ──────────────────
@@ -94,7 +73,9 @@ struct ToastView: View {
                             .font(.system(size: 14, weight: .medium))
                             .foregroundStyle(.primary)
                             .lineLimit(1)
-                            .opacity(viewModel.resultOverlay == nil ? 1 : 0)
+                            .opacity(viewModel.resultOverlay == nil ? (isPreviewHovered ? 0.7 : 1.0) : 0)
+                            .onHover { isPreviewHovered = $0 }
+                            .animation(.easeInOut(duration: 0.15), value: isPreviewHovered)
 
                         if let overlay = viewModel.resultOverlay {
                             let lines = overlay.displayText.components(separatedBy: "\n")
@@ -235,9 +216,9 @@ struct ToastView: View {
             .padding(16)
             }
         }
-        .frame(maxWidth: 360)
         .clipShape(RoundedRectangle(cornerRadius: 32))
         .glassEffect(in: .rect(cornerRadius: 32))
+        .frame(maxWidth: 360)
         .overlay {
             RoundedRectangle(cornerRadius: 32, style: .continuous)
                 .stroke(.white.opacity(0.25), lineWidth: 0.8)
@@ -319,6 +300,48 @@ struct ToastView: View {
             return String(raw.prefix(100))
         }
         return viewModel.previewText
+    }
+}
+
+// MARK: - Expanded Text View
+
+/// Expanded text area. Uses a unified layout: VStack with a height-capped ScrollView
+/// on top and the button bar below. Short text fills its natural height (no scroll);
+/// long text is capped and scrolls within the ScrollView.
+private struct ExpandedTextView: View {
+    let rawText: String
+    let onEditInTextEdit: () -> Void
+    let onCollapse: () -> Void
+
+    private let maxTotalHeight: CGFloat = 300
+
+    var body: some View {
+        ZStack(alignment: .bottom) {
+            ScrollView(.vertical) {
+                Text(rawText)
+                    .font(.system(size: 14))
+                    .foregroundStyle(.primary)
+                    .lineSpacing(4)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 12)
+                    .padding(.bottom, 44)
+            }
+            .frame(maxHeight: maxTotalHeight)
+
+            HStack {
+                Button("在文本编辑中打开") { onEditInTextEdit() }
+                Spacer()
+                Button("收起") { onCollapse() }
+                    .keyboardShortcut(.escape, modifiers: [])
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(.regularMaterial)
+        }
+        .frame(width: 360)
     }
 }
 
