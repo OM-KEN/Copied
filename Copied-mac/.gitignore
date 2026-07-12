@@ -1,7 +1,8 @@
 .build/
-.claude/*
-!.claude/skills/
+.claude/
+docs/
+Tests/
 .DS_Store
 *.dmg
 *.zip
-AppleWWDRCAG3.cer
+AppleWWDCAG3.cer
