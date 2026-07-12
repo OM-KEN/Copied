@@ -83,7 +83,13 @@ struct ToastView: View {
                             .font(.system(size: 14, weight: .medium))
                             .foregroundStyle(.primary)
                             .lineLimit(1)
-                            .opacity(viewModel.resultOverlay == nil ? (isPreviewHovered ? 0.7 : 1.0) : 0)
+                            .opacity(viewModel.resultOverlay == nil ? 1.0 : 0)
+                            .background {
+                                if isPreviewHovered && viewModel.resultOverlay == nil {
+                                    RoundedRectangle(cornerRadius: 4)
+                                        .fill(Color.primary.opacity(0.1))
+                                }
+                            }
                             .onHover { isPreviewHovered = $0 }
                             .animation(.easeInOut(duration: 0.15), value: isPreviewHovered)
 
@@ -100,7 +106,13 @@ struct ToastView: View {
                                 }
                             }
                             .frame(maxHeight: 200)
-                            .opacity(viewModel.resultOverlay != nil ? (isResultHovered ? 0.7 : 1.0) : 0)
+                            .opacity(viewModel.resultOverlay != nil ? 1.0 : 0)
+                            .background {
+                                if isResultHovered && viewModel.resultOverlay != nil {
+                                    RoundedRectangle(cornerRadius: 4)
+                                        .fill(Color.primary.opacity(0.1))
+                                }
+                            }
                             .onHover { isResultHovered = $0 }
                             .animation(.easeInOut(duration: 0.15), value: isResultHovered)
                             .onTapGesture { onAction(.expand) }
@@ -137,8 +149,6 @@ struct ToastView: View {
                 }
 
                 // ── Right: Action Button ──────────────────────────
-                let isHighlighted = viewModel.isTriggerModifierPressed || isActionButtonHovered
-
                 if let overlay = viewModel.resultOverlay {
                     // Result mode: "复制" button
                     Button {
@@ -158,11 +168,7 @@ struct ToastView: View {
                         }
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .fill(.white.opacity(isHighlighted ? 0.2 : 0.12))
-                        )
-                        .animation(.spring(response: 0.2, dampingFraction: 0.6), value: isHighlighted)
+                        .background(actionButtonBackground)
                     }
                     .buttonStyle(PressTrackingButtonStyle(isPressed: $isActionButtonPressed))
                     .scaleEffect((viewModel.isTriggerModifierPressed || isActionButtonPressed) ? 0.92 : 1.0)
@@ -200,11 +206,7 @@ struct ToastView: View {
                         }
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .fill(.white.opacity(isHighlighted ? 0.2 : 0.12))
-                        )
-                        .animation(.spring(response: 0.2, dampingFraction: 0.6), value: isHighlighted)
+                        .background(actionButtonBackground)
                     }
                     .buttonStyle(PressTrackingButtonStyle(isPressed: $isActionButtonPressed))
                     .scaleEffect((viewModel.isTriggerModifierPressed || isActionButtonPressed) ? 0.92 : 1.0)
@@ -234,7 +236,7 @@ struct ToastView: View {
         .frame(maxWidth: 360)
         .overlay {
             RoundedRectangle(cornerRadius: Self.cardCornerRadius, style: .continuous)
-                .stroke(.white.opacity(0.25), lineWidth: 0.8)
+                .stroke(.primary.opacity(0.15), lineWidth: 0.8)
         }
         .entranceAnimation(animateIn: $animateIn, fallbackMaterialReady: $fallbackMaterialReady)
         .onHover { hovering in
@@ -250,6 +252,18 @@ struct ToastView: View {
     }
 
     // ── Helpers ────────────────────────────────────────────
+
+    /// 按钮背景：macOS 26+ 液态玻璃，旧系统 .quaternary fill。
+    @ViewBuilder
+    private var actionButtonBackground: some View {
+        let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
+        if #available(macOS 26, *) {
+            shape.fill(.clear)
+                .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 8))
+        } else {
+            shape.fill(.quaternary)
+        }
+    }
 
     /// Text to use for search context menu item.
     private var searchContextText: String {

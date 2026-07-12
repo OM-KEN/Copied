@@ -60,7 +60,7 @@ UserDefaults 键：`searchEngine`, `launchAtLogin`, `isPaused`, `copyGestureEnab
 
 **macOS 26+**：`.glassEffect(in: .rect(cornerRadius: cardCornerRadius))` — 液态玻璃。**pre-macOS 26**：ZStack 内 `RoundedRectangle.fill(.ultraThinMaterial)` + 0.08s 延迟淡入，避免 WindowServer 材质合成首帧灰色闪烁。统一常量 `cardCornerRadius: CGFloat = 32`。
 
-非 key 浮动窗口的边缘高光被 WindowServer 抑制 → `.stroke(.white.opacity(0.25))` 补偿。每次 `show()` 重建窗口（不复用）— 全屏 Space 长时间使用后复用窗口可能导致 `orderFront` 无效、toast 不出现。窗口配置见 `ToastWindowController.createWindow()`，动画参数见 `ToastView.swift`。
+非 key 浮动窗口的边缘高光被 WindowServer 抑制 → `.stroke(.primary.opacity(0.15))` 补偿（`.primary` 自适应亮/暗模式）。每次 `show()` 重建窗口（不复用）— 全屏 Space 长时间使用后复用窗口可能导致 `orderFront` 无效、toast 不出现。窗口配置见 `ToastWindowController.createWindow()`，动画参数见 `ToastView.swift`。
 
 退场动画陷阱：`layerUsesCoreImageFilters = true` 必须设（AppKit 默认不启用）、`CIFilter.name` 必须匹配动画 keyPath、清理覆盖三条路径（动画回调 / `cancelDismiss()` / 非动画 dismiss）。
 
@@ -89,6 +89,8 @@ SwiftUI `.onHover` + AppKit `NSEvent.addLocalMonitorForEvents(.leftMouseDown)`�
 
 **优先级**：首个非颜色检测 → 右侧按钮（最多 1 个）。其余 → 右键菜单。无检测 → 默认搜索。纯语言类型（如 swift）不产生按钮。各 Action 触发条件和行为见 `ClipboardAction.swift` 及各 `*Action.swift`。
 
+**按钮背景**：`actionButtonBackground` 双路径——macOS 26+ `.glassEffect(.regular.interactive())` 原生液态玻璃，pre-26 `.fill(.quaternary)` 语义色。不再用 `.white.opacity()` 硬编码（浅色模式不可见）。
+
 **按钮 hover 图标**：用 `ZStack` 叠加两个 SF Symbol + `opacity` 切换，不能用 `Image(systemName: condition ? "A" : "B")`——SF Symbol 宽度不同会导致按钮尺寸变化 → HStack 重排 → 左侧文本截断位置跳动。
 
 ### 开机自启
@@ -101,7 +103,7 @@ rebuild 后签名变化会使 macOS 清掉 `SMAppService` 登录项注册记录�
 
 所有内容类型（文本/图片/文件/内联结果覆盖层）均可展开。`ToastViewModel.expandedText` 优先级：结果覆盖层 > 原文 > 文件名+路径。图片/文件不显示类型和格式标签。
 
-**折叠态悬浮效果**：预览行和结果覆盖层均有悬浮变暗（`.opacity(0.7)` + 0.15s easeInOut）。
+**折叠态悬浮效果**：预览行和结果覆盖层均有悬浮变暗（`Color.primary.opacity(0.1)` 背景叠加 + 0.15s easeInOut），替代旧的 `.opacity(0.7)` 方案（浅色玻璃上不可见）。
 
 **按钮栏空白区关闭**：展开态 `handleTap()` 检测点击距窗口底部 < 60pt 且 x 在 42%~78% 宽度（Spacer 区域）→ `DispatchQueue.main.async` 延迟 dismiss（给 SwiftUI 按钮 mouseUp 留时间），走 `dismissToast` 退场动画。
 
@@ -184,7 +186,7 @@ private func dlog(_ s: String) {
 
 ## 已知限制
 
-- **边缘高光**：非 key 浮动窗口被 WindowServer 抑制 → `.stroke(.white.opacity(0.25))` 补偿
+- **边缘高光**：非 key 浮动窗口被 WindowServer 抑制 → `.stroke(.primary.opacity(0.15))` 补偿
 - **窗口位置**：WindowServer 限制在屏幕边界内，无法超出 `screen.frame.maxY`
 - **窗口动画裁切**：`showResultOverlay` 展开时右边缘短暂裁切（AppKit ↔ SwiftUI 时序错配）。缓解：0.25s 动画 + 2 行结果 + ZStack 交叉淡入淡出
 - **macOS 版本兼容**：部署目标 14.0。`.glassEffect()` 和 `.symbolEffect(.drawOff)` 仅 macOS 26+；旧系统自动降级为 `.ultraThinMaterial` / `.opacity` 淡入
