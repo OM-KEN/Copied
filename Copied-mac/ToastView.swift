@@ -16,6 +16,7 @@ struct ToastView: View {
     @State private var isActionButtonPressed = false
     @State private var hoverDebounceTask: Task<Void, Never>?
     @State private var isPreviewHovered = false
+    @State private var isResultHovered = false
 
     var body: some View {
         ZStack {
@@ -26,7 +27,7 @@ struct ToastView: View {
 
             if viewModel.isExpanded {
                 ExpandedTextView(
-                    rawText: viewModel.rawContent?.rawText ?? "",
+                    rawText: viewModel.expandedText,
                     onEditInTextEdit: { onAction(.editInTextEdit) },
                     onCollapse: { onAction(.collapse) }
                 )
@@ -90,7 +91,10 @@ struct ToastView: View {
                                 }
                             }
                             .frame(maxHeight: 200)
-                            .opacity(viewModel.resultOverlay != nil ? 1 : 0)
+                            .opacity(viewModel.resultOverlay != nil ? (isResultHovered ? 0.7 : 1.0) : 0)
+                            .onHover { isResultHovered = $0 }
+                            .animation(.easeInOut(duration: 0.15), value: isResultHovered)
+                            .onTapGesture { onAction(.expand) }
                         }
                     }
                     .animation(
@@ -327,7 +331,7 @@ private struct ExpandedTextView: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 16)
                     .padding(.top, 12)
-                    .padding(.bottom, 44)
+                    .padding(.bottom, 52)
             }
             .frame(maxHeight: maxTotalHeight)
 

@@ -88,11 +88,17 @@ SwiftUI `.onHover` + AppKit `NSEvent.addLocalMonitorForEvents(.leftMouseDown)`�
 
 **按钮 hover 图标**：用 `ZStack` 叠加两个 SF Symbol + `opacity` 切换，不能用 `Image(systemName: condition ? "A" : "B")`——SF Symbol 宽度不同会导致按钮尺寸变化 → HStack 重排 → 左侧文本截断位置跳动。
 
+### 开机自启
+
+rebuild 后签名变化会使 macOS 清掉 `SMAppService` 登录项注册记录。启动时若 `launchAtLogin=true` 但 status ≠ `.enabled`，自动重新注册；注册失败则回写 UserDefaults 为 `false`。
+
 ### 展开查看全文（ToastView expand/collapse）
 
-点击预览文本行 → `isExpanded = true` → 切换到 `ExpandedTextView` 布局：ZStack overlay（`.frame(width: 360)` 固定宽度），ScrollView（`.frame(maxHeight: 300)`）包含 Text（`.fixedSize(vertical: true)` 自然高度 + `.lineSpacing(4)` 行距 + `.padding(.bottom, 44)` 避让按钮栏），底部 HStack 按钮栏（`.background(.regularMaterial)` 毛玻璃）。短文本 ScrollView 收缩到内容高度无滚动，长文本 capped at 300pt 自动滚动。`updateWindowSize` 中含 340pt 安全上限。展开/收起通过 `updateWindowSize(animated: false)` 即时 resize + 全窗口 `CIGaussianBlur` + `alpha` 两段式过渡（blur out → 切换内容 → blur in，0.2s × 2）。
+点击预览文本行 → `isExpanded = true` → 切换到 `ExpandedTextView` 布局：ZStack overlay（`.frame(width: 360)` 固定宽度），ScrollView（`.frame(maxHeight: 300)`）包含 Text（`.fixedSize(vertical: true)` 自然高度 + `.lineSpacing(4)` 行距 + `.padding(.bottom, 52)` 避让按钮栏），底部 HStack 按钮栏（`.background(.regularMaterial)` 毛玻璃）。短文本 ScrollView 收缩到内容高度无滚动，长文本 capped at 300pt 自动滚动。`updateWindowSize` 中含 340pt 安全上限。展开/收起通过 `updateWindowSize(animated: false)` 即时 resize + 全窗口 `CIGaussianBlur` + `alpha` 两段式过渡（blur out → 切换内容 → blur in，0.2s × 2）。
 
-**折叠态悬浮效果**：`@State isPreviewHovered` → 预览文字 `.opacity(0.7)` + 0.15s easeInOut 动画。
+所有内容类型（文本/图片/文件/内联结果覆盖层）均可展开。`ToastViewModel.expandedText` 优先级：结果覆盖层 > 原文 > 文件名+路径。图片/文件不显示类型和格式标签。
+
+**折叠态悬浮效果**：预览行和结果覆盖层均有悬浮变暗（`.opacity(0.7)` + 0.15s easeInOut）。
 
 **按钮栏空白区关闭**：展开态 `handleTap()` 检测点击距窗口底部 < 60pt 且 x 在 42%~78% 宽度（Spacer 区域）→ `DispatchQueue.main.async` 延迟 dismiss（给 SwiftUI 按钮 mouseUp 留时间），走 `dismissToast` 退场动画。
 

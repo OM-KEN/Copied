@@ -197,7 +197,9 @@ struct SettingsView: View {
             }
             return true
         } catch {
-            NSLog("Copied: SMAppService error: \(error.localizedDescription)")
+            let msg = error.localizedDescription
+            NSLog("Copied: SMAppService error: \(msg)")
+            loginItemError = "无法设置开机自启：\(msg)"
             return false
         }
     }

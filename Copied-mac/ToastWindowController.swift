@@ -232,8 +232,7 @@ final class ToastWindowController {
     }
 
     private func handleExpand() {
-        guard !viewModel.isExpanded, !isExpandingOrCollapsing,
-              let raw = viewModel.rawContent?.rawText, !raw.isEmpty else { return }
+        guard !viewModel.isExpanded, !isExpandingOrCollapsing else { return }
         isExpandingOrCollapsing = true
         cancelDismiss()
         pauseDismissTimer()
@@ -321,10 +320,11 @@ final class ToastWindowController {
     }
 
     private func handleEditInTextEdit() {
-        guard let raw = currentContent?.rawText else { return }
+        let text = viewModel.expandedText
+        guard !text.isEmpty else { return }
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("Copied-\(UUID().uuidString).txt")
-        try? raw.write(to: url, atomically: true, encoding: .utf8)
+        try? text.write(to: url, atomically: true, encoding: .utf8)
         NSWorkspace.shared.open(url)
         // Dismiss toast after opening in editor
         if !isDismissing {

@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import ServiceManagement
 
 private struct MenuBarContent: View {
     @AppStorage("isPaused") private var isPaused = false
@@ -83,6 +84,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         monitor?.start()
         NSLog("Copied: monitor started")
 
+        // Sync login item with system state
+        // Rebuild 后签名变化可能使 macOS 清掉注册记录，此时 UserDefaults 仍为 true
+        syncLoginItem()
+
         // Copy gesture — enabled via Settings
         // 如果上次开关 ON 但权限丢失（更新后签名不匹配），自动置 OFF
         if copyGestureEnabled {
@@ -91,6 +96,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             } else {
                 NSLog("Copied: gesture toggle was ON but AX not trusted — resetting to OFF")
                 copyGestureEnabled = false
+            }
+        }
+    }
+
+    /// 确保 UserDefaults 中的 launchAtLogin 与 SMAppService 实际状态一致
+    private func syncLoginItem() {
+        let launchAtLogin = UserDefaults.standard.bool(forKey: "launchAtLogin")
+        let status = SMAppService.mainApp.status
+        NSLog("Copied: syncLoginItem launchAtLogin=\(launchAtLogin) SMAppService.status=\(status.rawValue)")
+
+        if launchAtLogin && status != .enabled {
+            NSLog("Copied: state mismatch — attempting re-register")
+            do {
+                try SMAppService.mainApp.register()
+                NSLog("Copied: SMAppService re-register succeeded")
+            } catch {
+                NSLog("Copied: SMAppService re-register failed: \(error.localizedDescription)")
+                // 注册失败，重置 UserDefaults 使其与实际状态一致
+                UserDefaults.standard.set(false, forKey: "launchAtLogin")
             }
         }
     }

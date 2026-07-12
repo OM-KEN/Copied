@@ -44,6 +44,25 @@ final class ToastViewModel {
         return nil
     }
 
+    /// Text to display in the expanded view.
+    /// Priority: result overlay > raw clipboard text > preview + file paths.
+    var expandedText: String {
+        if let overlay = resultOverlay, !overlay.displayText.isEmpty {
+            return overlay.displayText
+        }
+        if let raw = rawContent?.rawText, !raw.isEmpty {
+            return raw
+        }
+        // Image/file: only filenames and paths, no metadata labels
+        var lines: [String] = [previewText]
+        if let urls = rawContent?.fileURLs {
+            for url in urls {
+                lines.append(url.path)
+            }
+        }
+        return lines.joined(separator: "\n")
+    }
+
     /// Right-click action to block the source app from future popups.
     /// Only available when we know the source app, it's not Copied,
     /// and it's not already blocked.
