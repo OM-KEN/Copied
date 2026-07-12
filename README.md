@@ -18,6 +18,7 @@
 - **文件、图片、颜色等预览**：复制文件、图片，显示预览小图；复制 #FF6B6B 或CSS颜色，左侧预览颜色
 - 原生液态玻璃 UI和动效
 - 纯 Swift + AppKit + SwiftUI，纯本地，零第三方依赖。
+- 使用 Apple SF Symbols 作为图标系统
 - CPU 占用极低
 
 ## 系统要求
@@ -63,3 +64,7 @@ FilePreviewGenerator.swift  QLThumbnailGenerator 异步缩略图
 SourceAppDetector.swift     NSWorkspace.frontmostApplication（含 bundleIdentifier）
 build.sh                    swiftc + actool + codesign
 ```
+
+## 许可证
+
+本项目基于 [MIT License](LICENSE) 开源。
