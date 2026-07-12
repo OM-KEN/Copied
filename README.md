@@ -35,6 +35,10 @@
 
 普通文本、文件、URL、文件路径、邮箱、电话、算式、日期、汉字、英文、代码
 
+## 构建
+
+纯 Swift 编译，macOS 26+ 无需 Xcode 工程。git clone 后进入 Copied-mac 目录，执行 `./build.sh` 即可构建（macOS 26 之前可能需安装 Xcode Command Line Tools）。
+
 ## 架构
 
 ```
