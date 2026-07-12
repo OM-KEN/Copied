@@ -5,9 +5,9 @@
 <img width="414" height="172" alt="PixPin_2026-07-02_00-39-59" src="https://github.com/user-attachments/assets/c0a118a4-a140-468c-aa92-3043e8ba83f2" />
 
 ## 为什么做Copied？
-有时候明明复制了，却总会怀疑到底成功了没，下意识再多按几次。在 Windows 上，我用 Quicker写过插件，让我的每次复制都会有 Toast 提醒，还有一个特别好用的功能：按住左键点右键就能复制。于是，我也在 Mac 上实现了复制提醒和左右键复制。作为 UI 设计师，我也尽量做到既原生又美观，先满足自己——**能让自己每天都能用得舒服的app才是好app**。
+有时候明明复制了，却总会怀疑到底成功了没，然后下意识再多按几次。在 Windows 上，我用 Quicker写过插件，让我的每次复制都会有 Toast 提醒，还有一个特别好用的功能：按住左键点右键就能复制。于是，我也在 Mac 上实现了复制提醒和左右键复制。作为 UI 设计师，我也尽量做到既原生又美观，先满足自己——**能让自己每天都能用得舒服的app才是好app**。
 
-现在AI写代码更容易了，于是我也更进一步，增加了复制后的“**下一步操作**”。比如复制一个词，不用打开网页再粘贴搜索，只要再按一下快捷键（默认是Command）就能**直接搜**。遇到不会读的单词、生僻字，或者忘记单词意思，也是一样。作为设计师，我复制了某个色值，也不用打开设计软件粘贴再看了，现在复制后弹窗**直接显示颜色**。文件大小、图片尺寸等信息，也不用反复切视图或者右键“显示简介”，复制一下就能看到。
+现在AI写代码更容易了，于是我也更进一步，增加了复制后的“**下一步操作**”。比如复制一句话，不用打开网页再粘贴搜索，只要再按一下快捷键（默认是Command）就能**直接搜**。遇到不会读的单词、生僻字，或者忘记单词意思，也是一样。作为设计师，我复制了某个色值，也不用打开设计软件粘贴再看了，现在复制后弹窗**直接显示颜色**。文件大小、图片尺寸等信息，也不用反复切视图或者右键“显示简介”，复制一下就能看到。
 
 做这个 App 的唯一目标就是快。所以我尽量使用**原生功能**，让它保持**轻量、简洁**。左右键复制默认关闭，但我非常推荐打开，因为鼠标已经选中文本后，再去按 Command+C 已经慢了。选中内容，按住左键点一下右键，**马上复制、马上预览、马上进行下一步操作，唯快不破**。
 
@@ -37,22 +37,29 @@
 ## 架构
 
 ```
-CopiedApp.swift             — 入口：MenuBarExtra + AppDelegate + Settings 场景
-ClipboardMonitor.swift      — NSPasteboard 轮询 + 内容解析 + 代码检测
-CopyGestureManager.swift    — 全局鼠标手势（CGEventTap）+ ⌘C 模拟
-DetectionRegistry.swift     — 全局检测器注册中心 + 优先级管道
-ContentKind.swift           — 统一类型标识（16 内置 + 插件动态）
-Detectors/                  — 13 个内置检测器（Color/URL/File/DateTime/Math/语言等）
-PluginLoader.swift          — .copiedplugin 扩展加载/管理
-ClipboardAction.swift       — 操作协议 + 9 个操作 + 优先级解析
-FilePreviewGenerator.swift  — QLThumbnailGenerator 异步文件缩略图
-SourceAppDetector.swift     — NSWorkspace 前台 App 检测
-ToastWindowController.swift — NSWindow + NSHostingView 管理 + 模糊退场
-ToastView.swift             — SwiftUI 卡片布局 + 按钮 + 色块 + 右键菜单
-ToastViewModel.swift        — @Observable 数据模型 + 异步缩略图 + 操作状态
-SettingsView.swift          — 设置页（通用/类型/手势三个 Tab）
-Copied.icon                 — Liquid Glass 分层图标（Icon Composer）
-Copied.svg                  — 菜单栏 template 图标
-Info.plist                  — LSUIElement + CFBundleIconName
-build.sh                    — swiftc + actool + codesign 一键构建
+CopiedApp.swift             MenuBarExtra + AppDelegate + Settings
+ClipboardMonitor.swift      每 0.15s 轮询 NSPasteboard.changeCount（含黑名单过滤门）
+CopyGestureManager.swift    CGEventTap 左+右 → ⌘C 手势（双路径 + R_UP 兜底）
+DetectionRegistry.swift     全局检测器注册中心 + 优先级管道 + 限流
+ContentKind.swift           统一类型标识（struct + 静态常量）
+Detectors/                  15 个内置检测器（详见目录）
+DictionaryLookupService.swift  DCSCopyTextDefinition 词典查询
+PluginLoader.swift          扫描/校验/加载 .copiedplugin 文件夹
+PluginManifest.swift        插件清单 + Rule 模型 + CompiledRule
+PluginAction.swift          插件动作执行（openURL/search/transform）
+PluginActionTemplate.swift  插件动作模板（menuOnly/multiline 配置）
+AppFilterSettings.swift     应用黑名单单例 — 过滤判断 + 持久化
+AppFilterView.swift         设置 → 黑名单 Tab（列表管理 + 运行中应用选择器）
+BlacklistSourceAppAction.swift  右键"屏蔽此来源" Action
+ClipboardAction.swift       Action 协议 + 内置 Action + ActionResolver
+KeyboardShortcutSettings.swift  ShortcutModifier 枚举（快速触发修饰键配置）
+ToastWindowController.swift 浮动 NSWindow + NSHostingView + Action + 可配置修饰键快速触发
+ToastViewModel.swift        @Observable 模型（含 sourceBundleID）
+ToastView.swift             SwiftUI 卡片 + glassEffect + 展开查看全文（if/else 双态）+ contextMenu
+LightReminderController.swift 轻提醒模式浮标（NSWindow + NSHostingView + drawOff 反向动画）
+TypeSettingsView.swift      设置 → 智能识别 Tab（ContentKind 开关 + 插件管理）
+SettingsView.swift           设置（开机启动/搜索引擎/快速触发修饰键/智能识别/手势/黑名单/轻提醒 Tab）
+FilePreviewGenerator.swift  QLThumbnailGenerator 异步缩略图
+SourceAppDetector.swift     NSWorkspace.frontmostApplication（含 bundleIdentifier）
+build.sh                    swiftc + actool + codesign
 ```
