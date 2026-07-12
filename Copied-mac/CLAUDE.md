@@ -8,7 +8,7 @@
 open .build/Copied.app
 ```
 
-需 macOS 26+ 及 Xcode 26（供 `actool`）。无 Xcode 工程，纯 `swiftc` 编译。
+需 macOS 14+。macOS 26+ 自动享受液态玻璃（`.glassEffect`），旧系统降级为毛玻璃材质。需 Xcode 26（供 `actool` 编译 Liquid Glass 图标）。
 
 ## 架构
 
@@ -31,8 +31,8 @@ ClipboardAction.swift       Action 协议 + 内置 Action + ActionResolver
 KeyboardShortcutSettings.swift  ShortcutModifier 枚举（快速触发修饰键配置）
 ToastWindowController.swift 浮动 NSWindow + NSHostingView + Action + 可配置修饰键快速触发
 ToastViewModel.swift        @Observable 模型（含 sourceBundleID）
-ToastView.swift             SwiftUI 卡片 + glassEffect + 展开查看全文（if/else 双态）+ contextMenu
-LightReminderController.swift 轻提醒模式浮标（NSWindow + NSHostingView + drawOff 反向动画）
+ToastView.swift             SwiftUI 卡片 + glassEffect（macOS 26+）/ ultraThinMaterial（降级）+ 展开查看全文（if/else 双态）+ contextMenu
+LightReminderController.swift 轻提醒模式浮标（NSWindow + NSHostingView + macOS 26+ drawOff / opacity 降级）
 TypeSettingsView.swift      设置 → 智能识别 Tab（ContentKind 开关 + 插件管理）
 SettingsView.swift           设置（开机启动/搜索引擎/快速触发修饰键/智能识别/手势/黑名单/轻提醒 Tab）
 FilePreviewGenerator.swift  QLThumbnailGenerator 异步缩略图
@@ -52,11 +52,13 @@ UserDefaults 键：`searchEngine`, `launchAtLogin`, `isPaused`, `copyGestureEnab
 
 **浮标实现**：`NSWindow`（borderless, `.floating`, `ignoresMouseEvents`）+ `NSHostingView<CheckmarkIcon>`。每次 `show()` 重建窗口（不复用），不跟踪鼠标移动。
 
-**绘制入场动画（关键陷阱）**：`checkmark.app.fill` 不支持 `drawOn(isActive:)` 正向触发——Symbol 默认已处于 100% 绘制态，任何 `isActive` 切换都会解释为 100%→0%（反向擦除）。**解法**：用 `drawOff(isActive: !show)`，初始 `!show=true`（drawOff 活跃 → 符号不可见），`onAppear` 后 `show=true`（drawOff 不活跃 → 反向播放 → 效果等同 drawOn 正向绘制）。颜色用 `.symbolRenderingMode(.palette)` + `.foregroundStyle(.white, .blue)` 实现蓝底白勾。
+**绘制入场动画（关键陷阱）**：`checkmark.app.fill` 不支持 `drawOn(isActive:)` 正向触发——Symbol 默认已处于 100% 绘制态，任何 `isActive` 切换都会解释为 100%→0%（反向擦除）。**解法**：用 `drawOff(isActive: !show)`，初始 `!show=true`（drawOff 活跃 → 符号不可见），`onAppear` 后 `show=true`（drawOff 不活跃 → 反向播放 → 效果等同 drawOn 正向绘制）。颜色用 `.symbolRenderingMode(.palette)` + `.foregroundStyle(.white, .blue)` 实现蓝底白勾。**pre-macOS 26 降级**：`drawOff` 仅 macOS 26+ 可用，旧系统用 `.opacity` 淡入替代。
 
 ## 关键设计决策
 
-### 窗口（glassEffect）
+### 窗口（glassEffect / 降级）
+
+**macOS 26+**：`.glassEffect(in: .rect(cornerRadius: cardCornerRadius))` — 液态玻璃。**pre-macOS 26**：ZStack 内 `RoundedRectangle.fill(.ultraThinMaterial)` + 0.08s 延迟淡入，避免 WindowServer 材质合成首帧灰色闪烁。统一常量 `cardCornerRadius: CGFloat = 32`。
 
 非 key 浮动窗口的边缘高光被 WindowServer 抑制 → `.stroke(.white.opacity(0.25))` 补偿。每次 `show()` 重建窗口（不复用）— 全屏 Space 长时间使用后复用窗口可能导致 `orderFront` 无效、toast 不出现。窗口配置见 `ToastWindowController.createWindow()`，动画参数见 `ToastView.swift`。
 
@@ -185,8 +187,8 @@ private func dlog(_ s: String) {
 - **边缘高光**：非 key 浮动窗口被 WindowServer 抑制 → `.stroke(.white.opacity(0.25))` 补偿
 - **窗口位置**：WindowServer 限制在屏幕边界内，无法超出 `screen.frame.maxY`
 - **窗口动画裁切**：`showResultOverlay` 展开时右边缘短暂裁切（AppKit ↔ SwiftUI 时序错配）。缓解：0.25s 动画 + 2 行结果 + ZStack 交叉淡入淡出
-- **仅限 macOS 26+**：`.glassEffect()` 需 macOS 26
-- **无 Xcode 工程**：`swiftc` + `actool` + `codesign`，Xcode 26 供 `actool`
+- **macOS 版本兼容**：部署目标 14.0。`.glassEffect()` 和 `.symbolEffect(.drawOff)` 仅 macOS 26+；旧系统自动降级为 `.ultraThinMaterial` / `.opacity` 淡入
+- **无 Xcode 工程**：`swiftc` + `actool` + `codesign`，Xcode 26 供 `actool` 编译 Liquid Glass 图标
 - **词典查询**：仅支持单个单词（DCSCopyTextDefinition API 限制）
 - **右键手势先松左键**：WindowServer HID 层 popup → 源 App 弹右键菜单（session tap 无法拦截）。CopyGestureManager 通过 rightMouseUp 兜底保证后续手势可靠触发
 - **指纹**：覆盖 `SOURCES` + `RESOURCES` + `BUILD_FILES`。新增资源文件需 `rm .build/.source_fingerprint`

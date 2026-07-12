@@ -4,21 +4,29 @@ import SwiftUI
 // MARK: - SwiftUI Checkmark Symbol
 
 /// 24pt 蓝底白勾 `checkmark.app.fill`，原生绘制入场。
-/// `drawOff` 活跃时符号不可见，切到不活跃时反向播放 → 等同 drawOn 正向绘制。
+/// macOS 26+ 用 `drawOff` 反向动画；旧系统降级为 opacity 淡入。
 private struct CheckmarkIcon: View {
     @State private var show = false
 
     var body: some View {
-        Image(systemName: "checkmark.app.fill")
+        let icon = Image(systemName: "checkmark.app.fill")
             .font(.system(size: 24))
             .symbolRenderingMode(.palette)
             .foregroundStyle(.white, .blue)
-            .symbolEffect(.drawOff, isActive: !show)
-            .onAppear {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                    show = true
-                }
+
+        Group {
+            if #available(macOS 26, *) {
+                icon.symbolEffect(.drawOff, isActive: !show)
+            } else {
+                icon.opacity(show ? 1 : 0)
+                    .animation(.easeOut(duration: 0.2), value: show)
             }
+        }
+        .onAppear {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                show = true
+            }
+        }
     }
 }
 

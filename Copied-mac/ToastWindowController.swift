@@ -28,6 +28,7 @@ final class ToastWindowController {
         currentContent = content
 
         isDismissing = false
+        isExpandingOrCollapsing = false
         dismissGeneration += 1
         contentView?.layer?.filters = nil
         // Always recreate window for fresh Space association.

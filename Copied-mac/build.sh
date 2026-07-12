@@ -76,7 +76,7 @@ mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
 swiftc \
     -num-threads "$NPROC" \
     -o "$MACOS_DIR/$APP_NAME" \
-    -target arm64-apple-macosx26.0 \
+    -target arm64-apple-macosx14.0 \
     -framework SwiftUI \
     -framework AppKit \
     -framework QuickLookThumbnailing \
@@ -98,7 +98,7 @@ xcrun actool Copied.icon --compile "$RESOURCES_DIR" \
   --enable-on-demand-resources NO \
   --development-region en \
   --target-device mac \
-  --minimum-deployment-target 26.0 \
+  --minimum-deployment-target 14.0 \
   --platform macosx \
   --output-partial-info-plist /tmp/copied-icon-plist.plist
 

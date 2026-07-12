@@ -17,9 +17,18 @@ struct ToastView: View {
     @State private var hoverDebounceTask: Task<Void, Never>?
     @State private var isPreviewHovered = false
     @State private var isResultHovered = false
+    @State private var fallbackMaterialReady = false
+
+    private static let cardCornerRadius: CGFloat = 32
 
     var body: some View {
         ZStack {
+            // 降级材质背景（pre-macOS 26，延迟显示避免首帧灰色闪烁）
+            if fallbackMaterialReady {
+                RoundedRectangle(cornerRadius: Self.cardCornerRadius, style: .continuous)
+                    .fill(.ultraThinMaterial)
+            }
+
             // Transparent background captures taps outside the button
             Color.clear
                 .contentShape(Rectangle())
@@ -220,74 +229,18 @@ struct ToastView: View {
             .padding(16)
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: 32))
-        .glassEffect(in: .rect(cornerRadius: 32))
+        .clipShape(RoundedRectangle(cornerRadius: Self.cardCornerRadius))
+        .glassEffectIfAvailable(cornerRadius: Self.cardCornerRadius)
         .frame(maxWidth: 360)
         .overlay {
-            RoundedRectangle(cornerRadius: 32, style: .continuous)
+            RoundedRectangle(cornerRadius: Self.cardCornerRadius, style: .continuous)
                 .stroke(.white.opacity(0.25), lineWidth: 0.8)
         }
-        // ── Entry spring ─────────────────────────────────────
-        .scaleEffect(animateIn ? 1 : 0.2)
-        .offset(y: animateIn ? 0 : -56)
-        .blur(radius: animateIn ? 0 : 12)
-        .opacity(animateIn ? 1 : 0)
-        .padding(.top, 20)
-        .padding(.bottom, 12)
-        .padding(.horizontal, 18)
+        .entranceAnimation(animateIn: $animateIn, fallbackMaterialReady: $fallbackMaterialReady)
         .onHover { hovering in
             onHoverChanged(hovering)
         }
-        .contextMenu {
-            // Search — always available for text
-            if viewModel.rawContent?.type == .text {
-                Button("搜索", systemImage: "magnifyingglass") {
-                    onPerformAction(SearchTextAction(text: searchContextText))
-                }
-            } else {
-                Button("搜索", systemImage: "magnifyingglass") { }
-                    .disabled(true)
-            }
-            Divider()
-
-            // Save — always available for text
-            if let rawText = viewModel.rawContent?.rawText, !rawText.isEmpty {
-                Button("另存为…", systemImage: "arrow.down.doc") {
-                    onPerformAction(SaveFileAction(text: rawText, defaultName: "clipboard.txt"))
-                }
-            } else {
-                Button("另存为…", systemImage: "arrow.down.doc") { }
-                    .disabled(true)
-            }
-
-            // ── Content-specific menu actions ──────────────────
-            if !viewModel.menuActions.isEmpty {
-                Divider()
-                ForEach(viewModel.menuActions, id: \.id) { action in
-                    Button(action.menuTitle, systemImage: action.systemImage) {
-                        onPerformAction(action)
-                    }
-                }
-            }
-
-            // ── Blacklist source app ──────────────────────────
-            if let action = viewModel.blacklistAction {
-                Divider()
-                Button(action.menuTitle, systemImage: action.systemImage) {
-                    onPerformAction(action)
-                }
-            }
-        }
-        .onAppear {
-            withAnimation(.interpolatingSpring(
-                mass: 1.2,
-                stiffness: 120,
-                damping: 14,
-                initialVelocity: 3
-            )) {
-                animateIn = true
-            }
-        }
+        .contextMenu { ToastContextMenuContent(viewModel: viewModel, onPerformAction: onPerformAction, searchText: searchContextText) }
         .onChange(of: viewModel.asyncThumbnail) {
             onNeedsLayout?()
         }
@@ -304,6 +257,66 @@ struct ToastView: View {
             return String(raw.prefix(100))
         }
         return viewModel.previewText
+    }
+}
+
+// MARK: - Menu Action Button
+
+private struct MenuActionButton: View {
+    let action: any ClipboardAction
+    let onPerformAction: ((any ClipboardAction)?) -> Void
+
+    var body: some View {
+        Button(action.menuTitle, systemImage: action.systemImage) {
+            onPerformAction(action)
+        }
+    }
+}
+
+// MARK: - Context Menu Content
+
+private struct ToastContextMenuContent: View {
+    let viewModel: ToastViewModel
+    let onPerformAction: ((any ClipboardAction)?) -> Void
+    let searchText: String
+
+    var body: some View {
+        // Search — always available for text
+        if viewModel.rawContent?.type == .text {
+            Button("搜索", systemImage: "magnifyingglass") {
+                onPerformAction(SearchTextAction(text: searchText))
+            }
+        } else {
+            Button("搜索", systemImage: "magnifyingglass") { }
+                .disabled(true)
+        }
+        Divider()
+
+        // Save — always available for text
+        if let rawText = viewModel.rawContent?.rawText, !rawText.isEmpty {
+            Button("另存为…", systemImage: "arrow.down.doc") {
+                onPerformAction(SaveFileAction(text: rawText, defaultName: "clipboard.txt"))
+            }
+        } else {
+            Button("另存为…", systemImage: "arrow.down.doc") { }
+                .disabled(true)
+        }
+
+        // Content-specific menu actions
+        if !viewModel.menuActions.isEmpty {
+            Divider()
+            ForEach(viewModel.menuActions, id: \.id) { action in
+                MenuActionButton(action: action, onPerformAction: onPerformAction)
+            }
+        }
+
+        // Blacklist source app
+        if let action = viewModel.blacklistAction {
+            Divider()
+            Button(action.menuTitle, systemImage: action.systemImage) {
+                onPerformAction(action)
+            }
+        }
     }
 }
 
@@ -359,5 +372,50 @@ private struct PressTrackingButtonStyle: ButtonStyle {
             .onChange(of: configuration.isPressed) { _, newValue in
                 isPressed = newValue
             }
+    }
+}
+
+// MARK: - View Modifiers
+
+extension View {
+    /// Toast 入场弹性动画 + 旧系统材质延迟激活。
+    @ViewBuilder
+    fileprivate func entranceAnimation(
+        animateIn: Binding<Bool>,
+        fallbackMaterialReady: Binding<Bool>
+    ) -> some View {
+        self
+            .scaleEffect(animateIn.wrappedValue ? 1 : 0.2)
+            .offset(y: animateIn.wrappedValue ? 0 : -56)
+            .blur(radius: animateIn.wrappedValue ? 0 : 12)
+            .opacity(animateIn.wrappedValue ? 1 : 0)
+            .padding(.top, 20)
+            .padding(.bottom, 12)
+            .padding(.horizontal, 18)
+            .onAppear {
+                withAnimation(.interpolatingSpring(
+                    mass: 1.2, stiffness: 120, damping: 14, initialVelocity: 3
+                )) {
+                    animateIn.wrappedValue = true
+                }
+                if #available(macOS 26, *) { return }  // glassEffect 已处理，无需材质降级
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        fallbackMaterialReady.wrappedValue = true
+                    }
+                }
+            }
+    }
+}
+
+extension View {
+    /// macOS 26+ 液态玻璃；旧系统无操作（降级材质在 ZStack 内部）。
+    @ViewBuilder
+    fileprivate func glassEffectIfAvailable(cornerRadius: CGFloat) -> some View {
+        if #available(macOS 26, *) {
+            self.glassEffect(in: .rect(cornerRadius: cornerRadius))
+        } else {
+            self
+        }
     }
 }
