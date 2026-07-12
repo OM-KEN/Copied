@@ -20,8 +20,9 @@ final class ToastViewModel {
 
     // ── Action & detection state ──────────────────────────
     var primaryAction: (any ClipboardAction)? = nil
-    var isCommandPressed = false
+    var isTriggerModifierPressed = false
     var menuActions: [any ClipboardAction] = []
+    var triggerModifierIcon: String = "command"
     var detectedColor: NSColor? = nil
     var resultOverlay: ResultOverlay? = nil
     var rawContent: ClipboardContent? = nil
@@ -139,7 +140,8 @@ final class ToastViewModel {
         thumbnailImage = content.thumbnail
         rawContent = content
         resultOverlay = nil  // clear previous result
-        isCommandPressed = false
+        isTriggerModifierPressed = false
+        triggerModifierIcon = ShortcutModifier.current.sfSymbolName
         isExpanded = false
 
         // Resolve actions

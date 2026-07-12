@@ -128,7 +128,7 @@ struct ToastView: View {
                 }
 
                 // ── Right: Action Button ──────────────────────────
-                let isHighlighted = viewModel.isCommandPressed || isActionButtonHovered
+                let isHighlighted = viewModel.isTriggerModifierPressed || isActionButtonHovered
 
                 if let overlay = viewModel.resultOverlay {
                     // Result mode: "复制" button
@@ -139,7 +139,7 @@ struct ToastView: View {
                             ZStack {
                                 Image(systemName: "doc.on.doc")
                                     .opacity(isActionButtonHovered ? 0 : 1)
-                                Image(systemName: "command")
+                                Image(systemName: viewModel.triggerModifierIcon)
                                     .opacity(isActionButtonHovered ? 1 : 0)
                             }
                             .font(.system(size: 12, weight: .medium))
@@ -156,8 +156,8 @@ struct ToastView: View {
                         .animation(.spring(response: 0.2, dampingFraction: 0.6), value: isHighlighted)
                     }
                     .buttonStyle(PressTrackingButtonStyle(isPressed: $isActionButtonPressed))
-                    .scaleEffect((viewModel.isCommandPressed || isActionButtonPressed) ? 0.92 : 1.0)
-                    .animation(.spring(response: 0.2, dampingFraction: 0.6), value: viewModel.isCommandPressed)
+                    .scaleEffect((viewModel.isTriggerModifierPressed || isActionButtonPressed) ? 0.92 : 1.0)
+                    .animation(.spring(response: 0.2, dampingFraction: 0.6), value: viewModel.isTriggerModifierPressed)
                     .animation(.spring(response: 0.2, dampingFraction: 0.6), value: isActionButtonPressed)
                     .onHover { hovering in
                         if hovering {
@@ -181,7 +181,7 @@ struct ToastView: View {
                             ZStack {
                                 Image(systemName: action.systemImage)
                                     .opacity(isActionButtonHovered ? 0 : 1)
-                                Image(systemName: "command")
+                                Image(systemName: viewModel.triggerModifierIcon)
                                     .opacity(isActionButtonHovered ? 1 : 0)
                             }
                             .font(.system(size: 12, weight: .medium))
@@ -198,8 +198,8 @@ struct ToastView: View {
                         .animation(.spring(response: 0.2, dampingFraction: 0.6), value: isHighlighted)
                     }
                     .buttonStyle(PressTrackingButtonStyle(isPressed: $isActionButtonPressed))
-                    .scaleEffect((viewModel.isCommandPressed || isActionButtonPressed) ? 0.92 : 1.0)
-                    .animation(.spring(response: 0.2, dampingFraction: 0.6), value: viewModel.isCommandPressed)
+                    .scaleEffect((viewModel.isTriggerModifierPressed || isActionButtonPressed) ? 0.92 : 1.0)
+                    .animation(.spring(response: 0.2, dampingFraction: 0.6), value: viewModel.isTriggerModifierPressed)
                     .animation(.spring(response: 0.2, dampingFraction: 0.6), value: isActionButtonPressed)
                     .onHover { hovering in
                         if hovering {

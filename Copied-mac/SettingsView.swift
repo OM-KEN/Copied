@@ -8,6 +8,16 @@ struct SettingsView: View {
     @AppStorage("lightReminderEnabled") private var lightReminderEnabled = false
     @State private var loginItemError: String? = nil
 
+    // ── Quick Trigger Modifier ────────────────────────────
+    @AppStorage("quickTriggerModifier") private var quickTriggerModifier = "command"
+
+    private let modifierNames: [(id: String, label: String)] = [
+        ("command", "Command (⌘)"),
+        ("option",  "Option (⌥)"),
+        ("control", "Control (⌃)"),
+        ("shift",   "Shift (⇧)"),
+    ]
+
     // ── Search Engine ──────────────────────────────────────
     @AppStorage("searchEngine") private var searchEngine = "google"
 
@@ -68,6 +78,20 @@ struct SettingsView: View {
                     .pickerStyle(.menu)
                 } header: {
                     Text("搜索")
+                }
+
+                Section {
+                    Picker("修饰键", selection: $quickTriggerModifier) {
+                        ForEach(modifierNames, id: \.id) { mod in
+                            Text(mod.label).tag(mod.id)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    Text("弹窗显示期间，轻点修饰键快速触发右侧的按钮。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } header: {
+                    Text("快速触发")
                 }
             }
             .formStyle(.grouped)

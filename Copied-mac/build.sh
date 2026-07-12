@@ -11,6 +11,7 @@ FINGERPRINT="$BUILD_DIR/.source_fingerprint"
 SOURCES=(
     ContentKind.swift
     ContentDetection.swift
+    KeyboardShortcutSettings.swift
     PluginActionTemplate.swift
     PluginManifest.swift
     PluginAction.swift

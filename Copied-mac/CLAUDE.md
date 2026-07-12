@@ -28,18 +28,19 @@ AppFilterSettings.swift     应用黑名单单例 — 过滤判断 + 持久化
 AppFilterView.swift         设置 → 黑名单 Tab（列表管理 + 运行中应用选择器）
 BlacklistSourceAppAction.swift  右键"屏蔽此来源" Action
 ClipboardAction.swift       Action 协议 + 内置 Action + ActionResolver
-ToastWindowController.swift 浮动 NSWindow + NSHostingView + Action
+KeyboardShortcutSettings.swift  ShortcutModifier 枚举（快速触发修饰键配置）
+ToastWindowController.swift 浮动 NSWindow + NSHostingView + Action + 可配置修饰键快速触发
 ToastViewModel.swift        @Observable 模型（含 sourceBundleID）
 ToastView.swift             SwiftUI 卡片 + glassEffect + 展开查看全文（if/else 双态）+ contextMenu
 LightReminderController.swift 轻提醒模式浮标（NSWindow + NSHostingView + drawOff 反向动画）
 TypeSettingsView.swift      设置 → 智能识别 Tab（ContentKind 开关 + 插件管理）
-SettingsView.swift           设置（开机启动/搜索引擎/智能识别/手势/黑名单/轻提醒 Tab）
+SettingsView.swift           设置（开机启动/搜索引擎/快速触发修饰键/智能识别/手势/黑名单/轻提醒 Tab）
 FilePreviewGenerator.swift  QLThumbnailGenerator 异步缩略图
 SourceAppDetector.swift     NSWorkspace.frontmostApplication（含 bundleIdentifier）
 build.sh                    swiftc + actool + codesign
 ```
 
-UserDefaults 键：`searchEngine`, `launchAtLogin`, `isPaused`, `copyGestureEnabled`, `lightReminderEnabled`, `contentKindPriorities`, `disabledContentKinds`, `installedPlugins`, `popupFilterBlockedApps`。
+UserDefaults 键：`searchEngine`, `launchAtLogin`, `isPaused`, `copyGestureEnabled`, `lightReminderEnabled`, `quickTriggerModifier`, `contentKindPriorities`, `disabledContentKinds`, `installedPlugins`, `popupFilterBlockedApps`。
 
 **数据流**：`ClipboardMonitor` → `DetectionRegistry.detectAll()` → `SourceAppDetector.detect()` → `AppFilterSettings.shouldShowPopup()` 过滤门 → `ClipboardContent` → 分支：轻提醒模式 → `LightReminderController.show()`，标准模式 → `ToastWindowController.show()` → `ToastViewModel` → `ToastView`
 
@@ -114,19 +115,23 @@ rebuild 后签名变化会使 macOS 清掉 `SMAppService` 登录项注册记录�
 
 NSEvent 本地监听器 + SwiftUI Button 两层协作。异步延迟防 `dismissToast(animated:true)` 与 `cancelDismiss()` 竞争。`cancelDismiss()` 重置 `isDismissing=false`、递增 `dismissGeneration`、恢复 `alphaValue=1.0`。
 
-### ⌘ 键快速触发
+### 快速触发（修饰键）
 
-Toast 有主操作按钮（或结果覆盖层）时，按下并松开 ⌘ 触发。**三层防御**，无需 Accessibility 权限：
+Toast 有主操作按钮（或结果覆盖层）时，按下并松开修饰键触发。修饰键可配置（设置 → 通用 → 快速触发），默认 ⌘，支持 ⌥/⌃/⇧。`ShortcutModifier` 枚举提供 `nseventFlags`、`sfSymbolName`、`displayName`，从 UserDefaults `quickTriggerModifier` 读取。按钮 hover 时动态显示对应 SF Symbol 图标（`viewModel.triggerModifierIcon`）。
 
-1. **`NSEvent.addLocalMonitorForEvents`** — 捕获 ⌘+key 组合键。⌘ 按住期间任何按键/鼠标事件 → `cmdCancelledByOtherEvent = true`。
+**三层防御**，无需 Accessibility 权限（仅用 `addGlobalMonitorForEvents(.flagsChanged)`）：
+
+1. **`NSEvent.addLocalMonitorForEvents`** — 捕获修饰键+key 组合键。修饰键按住期间任何按键/鼠标事件 → `modifierCancelledByOtherEvent = true`。
 2. **`CGEventSource.counterForEventType(.hidSystemState, .keyDown)`** — HID 级计数器，runloop 延迟对比。未变 → 触发；变化 → 中止。
-3. **`dismissGeneration` 守卫** — 防止过期 ⌘ 释放触发新 toast 的 Action。
+3. **`dismissGeneration` 守卫** — 防止过期修饰键释放触发新 toast 的 Action。
 
-**转换检测**：`cmdCancelledByOtherEvent` 仅在 ⌘ 从未按下→按下转换时重置，不在每次 `flagsChanged` 重置。
+**转换检测**：`modifierCancelledByOtherEvent` 仅在修饰键从未按下→按下转换时重置，不在每次 `flagsChanged` 重置。
+
+**变量命名**（2026-07-12 泛化重命名）：`isCommandPressed` → `isTriggerModifierPressed`、`localCmdMonitor` → `localTriggerModifierMonitor`、`cmdKeyDownCount` → `modifierKeyDownCount`、`cmdIsPreExisting` → `modifierIsPreExisting`、`cmdCancelledByOtherEvent` → `modifierCancelledByOtherEvent`。
 
 **死路（勿重试）**：
-- `addGlobalMonitorForEvents` — macOS 过滤 ⌘ 组合键
-- `CGEvent.tapCreate` 用于 ⌘ 检测 — 过度复杂
+- `addGlobalMonitorForEvents(.keyDown)` — macOS 过滤修饰键组合键，需要 Accessibility 权限
+- `CGEvent.tapCreate` 用于快速触发 — 过度复杂
 - 时序推断 — 不可靠
 
 ### 菜单栏

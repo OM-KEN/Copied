@@ -11,13 +11,13 @@ final class ToastWindowController {
     private var isDismissing = false
     private var dismissGeneration = 0
     private var localMouseMonitor: Any?
-    private var localCmdMonitor: Any?
-    private var localOtherEventMonitor: Any?  // 监听 ⌘ 按下期间的其他按键/鼠标事件
+    private var localTriggerModifierMonitor: Any?
+    private var localOtherEventMonitor: Any?  // 监听修饰键按下期间的其他按键/鼠标事件
     private var localEscapeMonitor: Any?     // 展开态 Escape 收起
     private var localCopyMonitor: Any?      // 展开态 ⌘C 复制全文
-    private var cmdKeyDownCount: UInt32 = 0
-    private var cmdIsPreExisting = false  // ⌘ was already held when toast appeared
-    private var cmdCancelledByOtherEvent = false  // ⌘ 按下期间有其他按键/鼠标事件
+    private var modifierKeyDownCount: UInt32 = 0
+    private var modifierIsPreExisting = false  // 修饰键在 toast 出现时已按下
+    private var modifierCancelledByOtherEvent = false  // 修饰键按下期间有其他按键/鼠标事件
     private let displayDuration: TimeInterval = 3.0
 
     private var isExpandingOrCollapsing = false
@@ -85,44 +85,47 @@ final class ToastWindowController {
             }
         }
 
-        if localCmdMonitor == nil, viewModel.primaryAction != nil || viewModel.resultOverlay != nil {
-            localCmdMonitor = NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
+        let triggerModifier = ShortcutModifier.current
+        let triggerFlags = triggerModifier.nseventFlags
+
+        if localTriggerModifierMonitor == nil, viewModel.primaryAction != nil || viewModel.resultOverlay != nil {
+            localTriggerModifierMonitor = NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
                 guard let self,
                       let window = self.window,
                       window.isVisible,
                       !self.isDismissing else { return }
-                let isCmd = event.modifierFlags.contains(.command)
-                let wasCmdPressed = self.viewModel.isCommandPressed
-                if isCmd {
-                    self.cmdIsPreExisting = false
-                    // 仅在 ⌘ 从未按下到按下的「转换」时重置取消标志，而非每次
+                let isModifierPressed = event.modifierFlags.contains(triggerFlags)
+                let wasPressed = self.viewModel.isTriggerModifierPressed
+                if isModifierPressed {
+                    self.modifierIsPreExisting = false
+                    // 仅在修饰键从未按下到按下的「转换」时重置取消标志，而非每次
                     // flagsChanged 都重置。避免其他修饰键变化（Shift 等）在
-                    // ⌘ 按住期间错误地清除已设置的取消标志。
-                    if !wasCmdPressed {
-                        self.cmdCancelledByOtherEvent = false
+                    // 修饰键按住期间错误地清除已设置的取消标志。
+                    if !wasPressed {
+                        self.modifierCancelledByOtherEvent = false
                     }
-                    self.cmdKeyDownCount = CGEventSource.counterForEventType(.hidSystemState, eventType: .keyDown)
-                    self.viewModel.isCommandPressed = true
+                    self.modifierKeyDownCount = CGEventSource.counterForEventType(.hidSystemState, eventType: .keyDown)
+                    self.viewModel.isTriggerModifierPressed = true
                 } else {
-                    self.viewModel.isCommandPressed = false
-                    if self.cmdIsPreExisting {
-                        self.cmdIsPreExisting = false
+                    self.viewModel.isTriggerModifierPressed = false
+                    if self.modifierIsPreExisting {
+                        self.modifierIsPreExisting = false
                         return
                     }
                     // 双保险：本地事件取消标志 + HID 计数器（延迟到下一个 runloop
-                    // 让 HID 计数器有足够时间反映 ⌘+key 组合键的 keyDown 事件）。
-                    let capturedCmdKeyDownCount = self.cmdKeyDownCount
-                    let capturedCancelled = self.cmdCancelledByOtherEvent
+                    // 让 HID 计数器有足够时间反映组合键的 keyDown 事件）。
+                    let capturedKeyDownCount = self.modifierKeyDownCount
+                    let capturedCancelled = self.modifierCancelledByOtherEvent
                     let capturedDismissGen = self.dismissGeneration
-                    self.cmdCancelledByOtherEvent = false
+                    self.modifierCancelledByOtherEvent = false
                     DispatchQueue.main.async { [weak self] in
                         guard let self,
                               !self.isDismissing,
                               self.dismissGeneration == capturedDismissGen,
                               !capturedCancelled else { return }
                         let newCount = CGEventSource.counterForEventType(.hidSystemState, eventType: .keyDown)
-                        guard newCount == capturedCmdKeyDownCount else { return }
-                        // In result mode, ⌘ triggers copy; otherwise primary action.
+                        guard newCount == capturedKeyDownCount else { return }
+                        // In result mode, modifier triggers copy; otherwise primary action.
                         let action: (any ClipboardAction)? = self.viewModel.resultOverlay.map {
                             CopyTextAction(text: $0.copyText)
                         } ?? self.viewModel.primaryAction
@@ -134,23 +137,23 @@ final class ToastWindowController {
             }
         }
 
-        // ⌘ 按下期间有其他按键或鼠标事件 → 取消触发。
-        // 本地监听器能看到 ⌘+key 组合（全局监听器会被 macOS 过滤），
+        // 修饰键按下期间有其他按键或鼠标事件 → 取消触发。
+        // 本地监听器能看到组合键（全局监听器会被 macOS 过滤），
         // 作为 HID 计数器之外的「双保险」安全网。
         if localOtherEventMonitor == nil {
             localOtherEventMonitor = NSEvent.addLocalMonitorForEvents(
                 matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown]
             ) { [weak self] event in
                 guard let self else { return event }
-                if self.viewModel.isCommandPressed {
-                    self.cmdCancelledByOtherEvent = true
+                if self.viewModel.isTriggerModifierPressed {
+                    self.modifierCancelledByOtherEvent = true
                 }
                 return event
             }
         }
 
-        if NSEvent.modifierFlags.contains(.command) {
-            cmdIsPreExisting = true
+        if NSEvent.modifierFlags.contains(triggerFlags) {
+            modifierIsPreExisting = true
         }
 
         if localEscapeMonitor == nil {
@@ -523,12 +526,12 @@ final class ToastWindowController {
 
     private func removeAllMonitors() {
         if let m = localMouseMonitor { NSEvent.removeMonitor(m); localMouseMonitor = nil }
-        if let m = localCmdMonitor  { NSEvent.removeMonitor(m); localCmdMonitor = nil }
+        if let m = localTriggerModifierMonitor  { NSEvent.removeMonitor(m); localTriggerModifierMonitor = nil }
         if let m = localOtherEventMonitor { NSEvent.removeMonitor(m); localOtherEventMonitor = nil }
         if let m = localEscapeMonitor  { NSEvent.removeMonitor(m); localEscapeMonitor = nil }
         if let m = localCopyMonitor    { NSEvent.removeMonitor(m); localCopyMonitor = nil }
-        cmdIsPreExisting = false
-        cmdCancelledByOtherEvent = false
-        viewModel.isCommandPressed = false
+        modifierIsPreExisting = false
+        modifierCancelledByOtherEvent = false
+        viewModel.isTriggerModifierPressed = false
     }
 }

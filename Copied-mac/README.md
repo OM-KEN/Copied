@@ -51,13 +51,14 @@ Detectors/                  — 15 个内置检测器
 PluginLoader.swift          — .copiedplugin 扩展加载/管理
 AppFilterSettings.swift     — 应用黑名单过滤 + 持久化
 ClipboardAction.swift       — Action 协议 + 内置 Action + ActionResolver
+KeyboardShortcutSettings.swift — ShortcutModifier 枚举（快速触发修饰键）
 FilePreviewGenerator.swift  — QLThumbnailGenerator 异步文件缩略图
 SourceAppDetector.swift     — NSWorkspace 前台 App 检测（含 bundleIdentifier）
 ToastWindowController.swift — NSWindow + NSHostingView 管理（标准模式）
 LightReminderController.swift — 轻提醒模式浮标（NSWindow + drawOff 反向动画）
 ToastView.swift             — SwiftUI 卡片 + 展开查看全文 + 色块 + 右键菜单
 ToastViewModel.swift        — @Observable 模型（含展开状态管理）
-SettingsView.swift          — 设置页（通用/类型/手势/黑名单）
+SettingsView.swift          — 设置页（通用/类型/手势/黑名单，含快速触发修饰键配置）
 Copied.icon                 — Liquid Glass 分层图标
 Copied.svg                  — 菜单栏 template 图标
 build.sh                    — swiftc + actool + codesign 一键构建
