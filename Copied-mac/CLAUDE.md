@@ -4,9 +4,11 @@
 
 ```bash
 ./build.sh                     # swiftc + actool + codesign → .build/Copied.app
-./create-dmg.sh                # → .build/Copied.dmg（可选 dmg_background.png 440×240）
+./create-dmg.sh                # → .build/Copied.dmg（需 pip3 install 'dmgbuild>=1.6.5'）
 open .build/Copied.app
 ```
+
+DMG 背景图：放 `.build/dmg_background.png`（440×240），由 `dmg_settings.py` 配置窗口布局。macOS 26.2+ 存在 Finder 回归 bug，DMG 背景图可能不显示（Apple 已知 bug）。
 
 需 macOS 14+。macOS 26+ 自动享受液态玻璃（`.glassEffect`），旧系统降级为毛玻璃材质。需 Xcode 26（供 `actool` 编译 Liquid Glass 图标）。
 

@@ -26,7 +26,8 @@ open .build/Copied.app
 构建 DMG 安装包：
 
 ```bash
-./create-dmg.sh                # 生成 .build/Copied.dmg
+pip3 install 'dmgbuild>=1.6.5'   # 首次需安装
+./create-dmg.sh                  # 生成 .build/Copied.dmg
 ```
 
 将 `.build/dmg_background.png`（440×240）放入项目根目录可自定义 DMG 背景。
