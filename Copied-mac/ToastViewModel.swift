@@ -161,12 +161,10 @@ final class ToastViewModel {
                let tsStr = dt.value,
                let ts = TimeInterval(tsStr) {
                 let date = Date(timeIntervalSinceReferenceDate: ts)
-                let formatter = RelativeDateTimeFormatter()
-                formatter.locale = .autoupdatingCurrent
-                formatter.unitsStyle = .full
-                formatter.dateTimeStyle = .named
-                let relative = formatter.localizedString(for: date, relativeTo: Date())
-                return relative
+                return RelativeDateDescription.string(
+                    for: date,
+                    subtype: dt.metadata["subtype"]
+                )
             }
             return nil
         }()

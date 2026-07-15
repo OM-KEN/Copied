@@ -110,11 +110,11 @@ struct DateTimeDetector: ContentDetectorProtocol {
                   match.range == range,
                   let date = match.date else { continue }
 
-            // ── 子类型判断 ──
-            let cal = Calendar.current
-            let comps = cal.dateComponents([.year, .month, .day, .hour, .minute, .second], from: date)
-            let hasDate = comps.year != nil && comps.month != nil && comps.day != nil
-            let hasTime = comps.hour != nil || comps.minute != nil
+            // NSDataDetector always returns a complete Date, even for time-only
+            // input, so DateComponents cannot reveal which fields the user typed.
+            // Classify the original text instead.
+            let subtype = dateSubtype(for: trimmed)
+            let hasDate = subtype != "time"
 
             // ── Calendar validation: reject impossible dates ──
             // NSDataDetector silently overflows invalid dates:
@@ -122,15 +122,6 @@ struct DateTimeDetector: ContentDetectorProtocol {
             // Trust the calendar, not NSDataDetector's normalization.
             if hasDate, let (origM, origD) = extractMonthDay(from: trimmed) {
                 guard isValidCalendarDate(month: origM, day: origD) else { continue }
-            }
-
-            let subtype: String
-            if hasDate {
-                subtype = "date"
-            } else if hasTime {
-                subtype = "time"
-            } else {
-                subtype = "unknown"
             }
 
             // value 存 timeIntervalSinceReferenceDate（纯数字，零歧义）
@@ -147,6 +138,28 @@ struct DateTimeDetector: ContentDetectorProtocol {
     }
 
     // MARK: - Format Validation
+
+    /// Distinguish the fields present in the user's text. A parsed Date cannot be
+    /// used for this because NSDataDetector fills every missing calendar field.
+    private func dateSubtype(for text: String) -> String {
+        if matchesEntireTimeExpression(text) {
+            return "time"
+        }
+        if containsExplicitTime(in: text) {
+            return "dateTime"
+        }
+        return "date"
+    }
+
+    private func matchesEntireTimeExpression(_ text: String) -> Bool {
+        let pattern = #"(?ix)^\s*(?:(?:上午|下午|中午|晚上|凌晨)?\s*(?:(?:[01]?\d|2[0-3]):[0-5]\d(?::[0-5]\d)?|(?:[01]?\d|2[0-3])点(?:[0-5]?\d分?)?)|(?:0?\d|1[0-2])(?::[0-5]\d)?\s*(?:a\.?m\.?|p\.?m\.?)|noon|midnight)\s*$"#
+        return text.range(of: pattern, options: .regularExpression) != nil
+    }
+
+    private func containsExplicitTime(in text: String) -> Bool {
+        let pattern = #"(?ix)(?:(?:上午|下午|中午|晚上|凌晨)?\s*(?:(?:[01]?\d|2[0-3]):[0-5]\d(?::[0-5]\d)?|(?:[01]?\d|2[0-3])点(?:[0-5]?\d分?)?)|(?:0?\d|1[0-2])(?::[0-5]\d)?\s*(?:a\.?m\.?|p\.?m\.?)|noon|midnight)"#
+        return text.range(of: pattern, options: .regularExpression) != nil
+    }
 
     /// 将“2026年7月15日”或“7月15日”转换为与 Locale 无关的 ISO 候选。
     /// 日期后的时间部分原样保留，已有预处理会先把“20点”转换为“20:00”。

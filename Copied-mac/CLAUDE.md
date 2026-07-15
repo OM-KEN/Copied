@@ -34,6 +34,7 @@ ClipboardAction.swift       Action 协议 + 内置 Action + ActionResolver
 KeyboardShortcutSettings.swift  ShortcutModifier 枚举（快速触发修饰键配置）
 ToastWindowController.swift 浮动 NSWindow + NSHostingView + Action + 可配置修饰键快速触发
 ToastViewModel.swift        @Observable 模型（含 sourceBundleID）
+RelativeDateDescription.swift 日期/时间详情格式化（日历日语义 + 本地化时间）
 ToastView.swift             SwiftUI 卡片 + glassEffect（macOS 26+）/ ultraThinMaterial（降级）+ 展开查看全文（if/else 双态）+ contextMenu
 LightReminderController.swift 轻提醒模式浮标（NSWindow + NSHostingView + macOS 26+ drawOff / opacity 降级）
 TypeSettingsView.swift      设置 → 智能识别 Tab（ContentKind 开关 + 插件管理）
@@ -52,11 +53,9 @@ UserDefaults 键：`searchEngine`, `launchAtLogin`, `isPaused`, `copyGestureEnab
 
 ### 轻提醒模式（LightReminderController）
 
-菜单栏右键 / 设置页 Toggle 切换。开启后所有复制仅显示 24pt `checkmark.app.fill` 浮标（鼠标右上方 4pt），1s 自消，不弹完整 Toast。
+菜单栏右键 / 设置页 Toggle 切换。开启后复制只显示鼠标右上方的 24pt `checkmark.app.fill` 浮标，1s 自消。浮标用忽略鼠标的 borderless floating `NSWindow` + `NSHostingView`，每次 `show()` 重建且不跟踪鼠标。
 
-**浮标实现**：`NSWindow`（borderless, `.floating`, `ignoresMouseEvents`）+ `NSHostingView<CheckmarkIcon>`。每次 `show()` 重建窗口（不复用），不跟踪鼠标移动。
-
-**绘制入场动画（关键陷阱）**：`checkmark.app.fill` 不支持 `drawOn(isActive:)` 正向触发——Symbol 默认已处于 100% 绘制态，任何 `isActive` 切换都会解释为 100%→0%（反向擦除）。**解法**：用 `drawOff(isActive: !show)`，初始 `!show=true`（drawOff 活跃 → 符号不可见），`onAppear` 后 `show=true`（drawOff 不活跃 → 反向播放 → 效果等同 drawOn 正向绘制）。颜色用 `.symbolRenderingMode(.palette)` + `.foregroundStyle(.white, .blue)` 实现蓝底白勾。**pre-macOS 26 降级**：`drawOff` 仅 macOS 26+ 可用，旧系统用 `.opacity` 淡入替代。
+**绘制动画陷阱**：Symbol 默认已是完整绘制态，`drawOn(isActive:)` 会反向擦除。必须用 `drawOff(isActive: !show)`：初始 `show=false` 隐藏，`onAppear` 后切为 true 反向播放；palette 使用白勾蓝底。macOS 26 以下改用 `.opacity` 淡入。
 
 ## 关键设计决策
 
@@ -91,6 +90,8 @@ SwiftUI `.onHover` + AppKit `NSEvent.addLocalMonitorForEvents(.leftMouseDown)`�
 
 `AppLanguage.isContentKindAvailable(_:)` 是语言相关检测策略的唯一入口：英文界面在检测管道和设置页同时隐藏 `englishPhrase`，且不改写 `disabledContentKinds`；中文界面保留英文单词翻译，所有语言都保留拼音及其他检测。中文年月日会先生成 ISO 候选再交给 `NSDataDetector`，禁止让输入识别结果依赖界面 Locale。
 
+日期检测的 `metadata["subtype"]` 必须按原始文本区分 `date` / `dateTime` / `time`，不能从解析后的 `DateComponents` 推断（`NSDataDetector` 会补齐缺失字段并给纯日期分配时刻）。`RelativeDateDescription` 对纯日期和日期时间按 `Calendar.startOfDay` 的日历组件生成“今天/明天/后天”等命名结果，日期时间再附本地化短时间；仅时间保留真实时差。
+
 ### Action 系统
 
 **内联更新模式**（`performsInlineUpdate = true`）：执行后弹窗保持显示，展示**结果覆盖层**（`ResultOverlay { displayText, copyText }`）。右侧按钮变为"复制"（`CopyTextAction`）。覆盖层 `\n` 拆分 VStack，每行 `.lineLimit(1)`，`ScrollView` + `.frame(maxHeight: 200)` 防止超长内容撑爆屏幕。
@@ -109,21 +110,11 @@ rebuild 后签名变化会使 macOS 清掉 `SMAppService` 登录项注册记录�
 
 ### 展开查看全文（ToastView expand/collapse）
 
-点击预览文本行 → `isExpanded = true` → 切换到 `ExpandedTextView` 布局：ZStack overlay（`.frame(width: 360)` 固定宽度），ScrollView（`.frame(maxHeight: 300)`）包含 Text（`.fixedSize(vertical: true)` 自然高度 + `.lineSpacing(4)` 行距 + `.padding(.bottom, 52)` 避让按钮栏），底部 HStack 按钮栏（`.background(.regularMaterial)` 毛玻璃）。短文本 ScrollView 收缩到内容高度无滚动，长文本 capped at 300pt 自动滚动。`updateWindowSize` 中含 340pt 安全上限。展开/收起通过 `updateWindowSize(animated: false)` 即时 resize + 全窗口 `CIGaussianBlur` + `alpha` 两段式过渡（blur out → 切换内容 → blur in，0.2s × 2）。
+`ExpandedTextView` 固定宽 360，文本自然高度、底部留 52pt，ScrollView 最大 300pt，底栏用 `.regularMaterial`；`updateWindowSize` 上限 340pt。所有内容类型均可展开，`expandedText` 优先级为结果覆盖层 > 原文 > 文件名+路径。折叠态预览和结果覆盖层 hover 使用 `Color.primary.opacity(0.1)`。
 
-所有内容类型（文本/图片/文件/内联结果覆盖层）均可展开。`ToastViewModel.expandedText` 优先级：结果覆盖层 > 原文 > 文件名+路径。图片/文件不显示类型和格式标签。
+展开态交互：按钮栏 Spacer 区域由 `handleTap()` 按底部 60pt、横向 42%~78% 判断并异步 dismiss；非 key window 的 ⌘C 由本地 keyDown monitor 找到 `NSTextView` 后复制选区；Escape（keyCode 53）收起；TextEdit 操作写 UUID 临时文件后用 `NSWorkspace` 打开。
 
-**折叠态悬浮效果**：预览行和结果覆盖层均有悬浮变暗（`Color.primary.opacity(0.1)` 背景叠加 + 0.15s easeInOut），替代旧的 `.opacity(0.7)` 方案（浅色玻璃上不可见）。
-
-**按钮栏空白区关闭**：展开态 `handleTap()` 检测点击距窗口底部 < 60pt 且 x 在 42%~78% 宽度（Spacer 区域）→ `DispatchQueue.main.async` 延迟 dismiss（给 SwiftUI 按钮 mouseUp 留时间），走 `dismissToast` 退场动画。
-
-**⌘C 复制选中文本**：borderless 窗口非 key，系统 ⌘C 无法路由到 `.textSelection(.enabled)` 的 NSTextView。解法：`NSEvent.addLocalMonitorForEvents(.keyDown)` 拦截 ⌘C → `findTextView(in:)` 递归查找 view hierarchy 中的 NSTextView → 调用 `textView.copy(nil)`，只复制选中部分。
-
-**Escape 收起**：独立 keyDown 监听器，keyCode 53 时触发 `handleCollapse()`。
-
-**TextEdit 编辑**：`handleEditInTextEdit()` 写临时文件到 `NSTemporaryDirectory()`（UUID 文件名）→ `NSWorkspace.shared.open(url)` → 自动 dismiss toast。
-
-**展开/收起过渡**：全窗口模糊淡入淡出——`handleExpand()`/`handleCollapse()` 先 blur(0→4) + alpha(1→0)，切换 `isExpanded` + `updateWindowSize`，再 blur(4→0) + alpha(0→1)。和 `dismissToast` 同一套 CIGaussianBlur + alpha 机制。`isExpandingOrCollapsing` 标志防重入。
+过渡必须使用全窗口 CIGaussianBlur + alpha 两段式切换，并由 `isExpandingOrCollapsing` 防重入；窗口 resize 不做动画。
 
 ### 点击处理
 
@@ -140,8 +131,6 @@ Toast 有主操作按钮（或结果覆盖层）时，按下并松开修饰键�
 3. **`dismissGeneration` 守卫** — 防止过期修饰键释放触发新 toast 的 Action。
 
 **转换检测**：`modifierCancelledByOtherEvent` 仅在修饰键从未按下→按下转换时重置，不在每次 `flagsChanged` 重置。
-
-**变量命名**（2026-07-12 泛化重命名）：`isCommandPressed` → `isTriggerModifierPressed`、`localCmdMonitor` → `localTriggerModifierMonitor`、`cmdKeyDownCount` → `modifierKeyDownCount`、`cmdIsPreExisting` → `modifierIsPreExisting`、`cmdCancelledByOtherEvent` → `modifierCancelledByOtherEvent`。
 
 **死路（勿重试）**：
 - `addGlobalMonitorForEvents(.keyDown)` — macOS 过滤修饰键组合键，需要 Accessibility 权限
@@ -196,11 +185,7 @@ private func dlog(_ s: String) {
 
 ## 已知限制
 
-- **边缘高光**：非 key 浮动窗口被 WindowServer 抑制 → `.stroke(.primary.opacity(0.15))` 补偿
 - **窗口位置**：WindowServer 限制在屏幕边界内，无法超出 `screen.frame.maxY`
 - **窗口动画裁切**：`showResultOverlay` 展开时右边缘短暂裁切（AppKit ↔ SwiftUI 时序错配）。缓解：0.25s 动画 + 2 行结果 + ZStack 交叉淡入淡出
-- **macOS 版本兼容**：部署目标 14.0。`.glassEffect()` 和 `.symbolEffect(.drawOff)` 仅 macOS 26+；旧系统自动降级为 `.ultraThinMaterial` / `.opacity` 淡入
 - **无 Xcode 工程**：`swiftc` + `actool` + `codesign`，Xcode 26 供 `actool` 编译 Liquid Glass 图标
-- **词典查询**：仅支持单个单词（DCSCopyTextDefinition API 限制）
-- **右键手势先松左键**：WindowServer HID 层 popup → 源 App 弹右键菜单（session tap 无法拦截）。CopyGestureManager 通过 rightMouseUp 兜底保证后续手势可靠触发
 - **指纹**：覆盖 `SOURCES` + `RESOURCES` + `BUILD_FILES`。新增资源文件需 `rm .build/.source_fingerprint`

@@ -12,6 +12,7 @@ SOURCES=(
     AppLanguage.swift
     ContentKind.swift
     ContentDetection.swift
+    RelativeDateDescription.swift
     KeyboardShortcutSettings.swift
     PluginActionTemplate.swift
     PluginManifest.swift
