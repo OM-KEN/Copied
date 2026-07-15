@@ -6,9 +6,9 @@ struct LookupAction: ClipboardAction {
     let text: String
 
     var id: String { "lookup" }
-    var title: String { "翻译" }
+    var title: String { String(localized: "翻译") }
     var systemImage: String { "translate" }
-    var menuTitle: String { "翻译" }
+    var menuTitle: String { String(localized: "翻译") }
     var performsInlineUpdate: Bool { true }
 
     func perform(content: ClipboardContent, controller: ToastWindowController?) {
@@ -18,7 +18,7 @@ struct LookupAction: ClipboardAction {
         if let definition = DictionaryLookupService.lookup(text) {
             controller?.showInlineResult(displayText: definition, copyText: definition)
         } else {
-            controller?.showInlineResult(displayText: "未找到释义", copyText: "")
+            controller?.showInlineResult(displayText: String(localized: "未找到释义"), copyText: "")
         }
     }
 }

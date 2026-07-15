@@ -20,6 +20,7 @@ ClipboardMonitor.swift      每 0.15s 轮询 NSPasteboard.changeCount（含黑�
 CopyGestureManager.swift    CGEventTap 左+右 → ⌘C 手势（双路径 + R_UP 兜底）
 DetectionRegistry.swift     全局检测器注册中心 + 优先级管道 + 限流
 ContentKind.swift           统一类型标识（struct + 静态常量）
+AppLanguage.swift           当前 Bundle 界面语言策略（英文环境过滤英文单词检测）
 Detectors/                  15 个内置检测器（详见目录）
 DictionaryLookupService.swift  DCSCopyTextDefinition 词典查询
 PluginLoader.swift          扫描/校验/加载 .copiedplugin 文件夹
@@ -39,7 +40,8 @@ TypeSettingsView.swift      设置 → 智能识别 Tab（ContentKind 开关 + �
 SettingsView.swift           设置（开机启动/搜索引擎/快速触发修饰键/智能识别/手势/黑名单/轻提醒 Tab）
 FilePreviewGenerator.swift  QLThumbnailGenerator 异步缩略图
 SourceAppDetector.swift     NSWorkspace.frontmostApplication（含 bundleIdentifier）
-build.sh                    swiftc + actool + codesign
+Localizable.xcstrings       String Catalog（zh-Hans 源语言 + en / zh-Hant）
+build.sh                    swiftc + xcstringstool + actool + codesign
 ```
 
 UserDefaults 键：`searchEngine`, `launchAtLogin`, `isPaused`, `copyGestureEnabled`, `lightReminderEnabled`, `quickTriggerModifier`, `contentKindPriorities`, `disabledContentKinds`, `installedPlugins`, `popupFilterBlockedApps`。
@@ -82,6 +84,12 @@ SwiftUI `.onHover` + AppKit `NSEvent.addLocalMonitorForEvents(.leftMouseDown)`�
 - **100KB 文本截断**：>100KB → 仅运行内置语言检测器（跳过插件与实体检测器）
 - **50ms 单检测器超时**：累计 >50ms → 限流 30s
 - **3 次限流自动禁用**：连续 ≥3 次 → 永久禁用 + 系统通知
+
+### 本地化
+
+`Localizable.xcstrings` 以 `zh-Hans` 为源语言，完整支持 `en` 和 `zh-Hant`。App 完全跟随 macOS 系统语言或单 App 语言设置，不增加语言 UserDefaults 或 App 内切换器。SwiftUI 字面量由 `LocalizedStringKey` 查询；先生成 `String` 的内置文案使用 `String(localized:)`；剪贴板内容、插件作者文案、文件名和 App 名称保持原文。
+
+`AppLanguage.isContentKindAvailable(_:)` 是语言相关检测策略的唯一入口：英文界面在检测管道和设置页同时隐藏 `englishPhrase`，且不改写 `disabledContentKinds`；中文界面保留英文单词翻译，所有语言都保留拼音及其他检测。中文年月日会先生成 ISO 候选再交给 `NSDataDetector`，禁止让输入识别结果依赖界面 Locale。
 
 ### Action 系统
 

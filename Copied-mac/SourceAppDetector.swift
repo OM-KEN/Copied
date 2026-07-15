@@ -9,7 +9,11 @@ struct SourceAppInfo {
 enum SourceAppDetector {
     static func detect(for content: ClipboardContent?) -> SourceAppInfo {
         guard let frontApp = NSWorkspace.shared.frontmostApplication else {
-            return SourceAppInfo(name: "未知应用", icon: nil, bundleIdentifier: nil)
+            return SourceAppInfo(
+                name: String(localized: "未知应用"),
+                icon: nil,
+                bundleIdentifier: nil
+            )
         }
 
         let isFinder = frontApp.bundleIdentifier == "com.apple.finder"
@@ -21,13 +25,13 @@ enum SourceAppDetector {
             let name = if unique.count == 1 {
                 unique[0]
             } else {
-                "\(unique.count)个文件夹"
+                String(localized: "\(unique.count)个文件夹")
             }
             return SourceAppInfo(name: name, icon: frontApp.icon, bundleIdentifier: frontApp.bundleIdentifier)
         }
 
         return SourceAppInfo(
-            name: frontApp.localizedName ?? "未知应用",
+            name: frontApp.localizedName ?? String(localized: "未知应用"),
             icon: frontApp.icon,
             bundleIdentifier: frontApp.bundleIdentifier
         )

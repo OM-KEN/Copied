@@ -33,7 +33,7 @@ struct ContentKind: Hashable, Identifiable {
 
     /// 用于 Settings 中显示来源标记。
     var sourceLabel: String? {
-        if case .plugin = source { return "插件" }
+        if case .plugin = source { return String(localized: "content-kind.source.plugin") }
         return nil
     }
 
@@ -81,64 +81,64 @@ extension ContentKind {
 
     static let code = ContentKind(
         id: "code", category: .language, source: .builtIn,
-        label: "代码", icon: "curlybraces"
+        label: String(localized: "代码"), icon: "curlybraces"
     )
 
     // ── 实体类 ──────────────────────────────────────────────
 
     static let url = ContentKind(
         id: "url", category: .entity, source: .builtIn,
-        label: "链接", icon: "link"
+        label: String(localized: "链接"), icon: "link"
     )
 
     static let phoneNumber = ContentKind(
         id: "phoneNumber", category: .entity, source: .builtIn,
-        label: "电话", icon: "phone"
+        label: String(localized: "电话"), icon: "phone"
     )
 
     static let email = ContentKind(
         id: "email", category: .entity, source: .builtIn,
-        label: "邮箱", icon: "envelope"
+        label: String(localized: "邮箱"), icon: "envelope"
     )
 
     static let filePath = ContentKind(
         id: "filePath", category: .entity, source: .builtIn,
-        label: "路径", icon: "folder"
+        label: String(localized: "路径"), icon: "folder"
     )
 
     static let mathExpr = ContentKind(
         id: "mathExpression", category: .entity, source: .builtIn,
-        label: "公式", icon: "function"
+        label: String(localized: "公式"), icon: "function"
     )
 
     static let dateTime = ContentKind(
         id: "dateTime", category: .entity, source: .builtIn,
-        label: "日期", icon: "calendar"
+        label: String(localized: "日期"), icon: "calendar"
     )
 
     static let colorHex = ContentKind(
         id: "colorHex", category: .entity, source: .builtIn,
-        label: "颜色", icon: "paintpalette"
+        label: String(localized: "颜色"), icon: "paintpalette"
     )
 
     static let colorRGB = ContentKind(
         id: "colorRGB", category: .entity, source: .builtIn,
-        label: "RGB 颜色", icon: "paintpalette"
+        label: String(localized: "RGB 颜色"), icon: "paintpalette"
     )
 
     static let colorHSL = ContentKind(
         id: "colorHSL", category: .entity, source: .builtIn,
-        label: "HSL 颜色", icon: "paintpalette"
+        label: String(localized: "HSL 颜色"), icon: "paintpalette"
     )
 
     static let chineseChar = ContentKind(
         id: "chineseCharacter", category: .entity, source: .builtIn,
-        label: "汉字", icon: "character"
+        label: String(localized: "汉字"), icon: "character"
     )
 
     static let englishPhrase = ContentKind(
         id: "englishPhrase", category: .entity, source: .builtIn,
-        label: "英文", icon: "textformat"
+        label: String(localized: "英文"), icon: "textformat"
     )
 }
 

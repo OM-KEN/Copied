@@ -116,7 +116,8 @@ final class ClipboardMonitor {
             let preview: String = if names.count <= 3 {
                 names.joined(separator: ", ")
             } else {
-                names.prefix(3).joined(separator: ", ") + "（\(names.count)个文件）"
+                names.prefix(3).joined(separator: ", ")
+                    + String(localized: "（\(names.count)个文件）")
             }
             // Single image file → thumbnail + dimensions; single file → size
             var thumb: NSImage? = nil
@@ -139,7 +140,7 @@ final class ClipboardMonitor {
                     imgFmt = nil
                 }
             } else {
-                detail = "\(urls.count)个文件"
+                detail = String(localized: "\(urls.count)个文件")
                 imgFmt = nil
             }
             return ClipboardContent(
@@ -184,7 +185,7 @@ final class ClipboardMonitor {
             }
             return ClipboardContent(
                 type: .image,
-                preview: "图片",
+                preview: String(localized: "图片"),
                 detail: "\(w)×\(h)",
                 thumbnail: thumb,
                 fileURLs: nil,
@@ -206,7 +207,7 @@ final class ClipboardMonitor {
                     let lines = truncated.components(separatedBy: .newlines)
                     let preview = lines.prefix(3).joined(separator: "\n")
                     let detail = text.count >= longTextThreshold
-                        ? "\(text.count)字符"
+                        ? String(localized: "\(text.count)字符")
                         : ""
                     let detections = DetectionRegistry.shared.detectAll(in: text)
                     let primaryKind = detections.first?.kind

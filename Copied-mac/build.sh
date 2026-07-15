@@ -9,6 +9,7 @@ RESOURCES_DIR="$APP_BUNDLE/Contents/Resources"
 FINGERPRINT="$BUILD_DIR/.source_fingerprint"
 
 SOURCES=(
+    AppLanguage.swift
     ContentKind.swift
     ContentDetection.swift
     KeyboardShortcutSettings.swift
@@ -52,7 +53,7 @@ SOURCES=(
 )
 ICON_FILES=(Copied.icon/icon.json Copied.icon/Assets/)
 
-RESOURCES=(Info.plist "${ICON_FILES[@]}")
+RESOURCES=(Info.plist Localizable.xcstrings "${ICON_FILES[@]}")
 
 # build.sh 自身和 SVG 源文件也纳入指纹
 BUILD_FILES=(build.sh Copied.svg)
@@ -89,6 +90,10 @@ cp Info.plist "$APP_BUNDLE/Contents/Info.plist"
 # Menu bar icon — strip white background (template image for dark/light mode)
 sed '/fill="white"/d' Copied.svg > "$RESOURCES_DIR/Copied-menu.svg"
 
+# Compile String Catalog → en/zh-Hans/zh-Hant .lproj resources
+xcrun xcstringstool compile Localizable.xcstrings \
+  --output-directory "$RESOURCES_DIR"
+
 # Compile Liquid Glass app icon (macOS 26+ .icon → Assets.car + legacy .icns)
 xcrun actool Copied.icon --compile "$RESOURCES_DIR" \
   --output-format human-readable-text \
@@ -96,7 +101,7 @@ xcrun actool Copied.icon --compile "$RESOURCES_DIR" \
   --app-icon Copied \
   --include-all-app-icons \
   --enable-on-demand-resources NO \
-  --development-region en \
+  --development-region zh-Hans \
   --target-device mac \
   --minimum-deployment-target 14.0 \
   --platform macosx \

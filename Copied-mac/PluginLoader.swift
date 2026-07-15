@@ -121,7 +121,9 @@ final class PluginLoader {
         guard let kind = loadPlugin(at: destURL) else {
             // Clean up on failure
             try? FileManager.default.removeItem(at: destURL)
-            throw PluginError.invalidPlugin(reason: "manifest.json 或 rules.json 格式不正确")
+            throw PluginError.invalidPlugin(
+                reason: String(localized: "manifest.json 或 rules.json 格式不正确")
+            )
         }
 
         // Persist enabled state
@@ -231,7 +233,7 @@ enum PluginError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .invalidPlugin(let reason):
-            return "插件无效：\(reason)"
+            return String(localized: "插件无效：") + reason
         }
     }
 }

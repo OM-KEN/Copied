@@ -18,7 +18,11 @@ struct TypeSettingsView: View {
     }
 
     private var entityKinds: [ContentKind] {
-        allKinds.filter { $0.isBuiltIn && $0.category == .entity }
+        allKinds.filter {
+            $0.isBuiltIn
+                && $0.category == .entity
+                && AppLanguage.isContentKindAvailable($0)
+        }
     }
 
     private var installedPluginIDs: [String] {
@@ -97,11 +101,11 @@ struct TypeSettingsView: View {
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
         panel.allowedContentTypes = []
-        panel.message = "选择 .copiedplugin 文件夹"
+        panel.message = String(localized: "选择 .copiedplugin 文件夹")
 
         guard panel.runModal() == .OK, let url = panel.url else { return }
         guard url.pathExtension == "copiedplugin" else {
-            showAlert(message: "请选择有效的 .copiedplugin 文件夹")
+            showAlert(message: String(localized: "请选择有效的 .copiedplugin 文件夹"))
             return
         }
 
@@ -115,7 +119,7 @@ struct TypeSettingsView: View {
 
     private func showAlert(message: String) {
         let alert = NSAlert()
-        alert.messageText = "插件安装"
+        alert.messageText = String(localized: "插件安装")
         alert.informativeText = message
         alert.alertStyle = .warning
         alert.runModal()
@@ -148,7 +152,7 @@ private struct KindRow: View {
                         .font(.system(size: 13))
                         .foregroundStyle(enabled ? .primary : .tertiary)
                     if let src = kind.sourceLabel {
-                        Text("(\(src))")
+                        Text(verbatim: "(\(src))")
                             .font(.system(size: 10))
                             .foregroundStyle(.secondary)
                     }

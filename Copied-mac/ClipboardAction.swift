@@ -21,9 +21,9 @@ extension ClipboardAction {
 struct OpenURLAction: ClipboardAction {
     let url: URL
     var id: String { "open-url" }
-    var title: String { "打开" }
+    var title: String { String(localized: "打开") }
     var systemImage: String { "arrow.up.forward" }
-    var menuTitle: String { "打开链接" }
+    var menuTitle: String { String(localized: "打开链接") }
 
     func perform(content: ClipboardContent, controller: ToastWindowController?) {
         NSWorkspace.shared.open(url)
@@ -35,9 +35,9 @@ struct OpenURLAction: ClipboardAction {
 struct RevealFileAction: ClipboardAction {
     let path: String
     var id: String { "reveal-file" }
-    var title: String { "打开" }
+    var title: String { String(localized: "打开") }
     var systemImage: String { "arrow.up.forward" }
-    var menuTitle: String { "打开文件位置" }
+    var menuTitle: String { String(localized: "打开文件位置") }
 
     func perform(content: ClipboardContent, controller: ToastWindowController?) {
         let fileURL = URL(fileURLWithPath: path)
@@ -50,9 +50,9 @@ struct RevealFileAction: ClipboardAction {
 struct CalculateAction: ClipboardAction {
     let expression: String
     var id: String { "calculate" }
-    var title: String { "计算" }
+    var title: String { String(localized: "计算") }
     var systemImage: String { "equal" }
-    var menuTitle: String { "计算结果" }
+    var menuTitle: String { String(localized: "计算结果") }
     var performsInlineUpdate: Bool { true }
 
     func perform(content: ClipboardContent, controller: ToastWindowController?) {
@@ -71,7 +71,7 @@ struct CalculateAction: ClipboardAction {
             // Integer division by zero → NSExpression returns inf.
             // Catch early for a clearer error message.
             if cleaned.range(of: #"/\s*0(?![.\d])"#, options: .regularExpression) != nil {
-                let displayText = "\(expression)\n无法计算"
+                let displayText = "\(expression)\n\(String(localized: "无法计算"))"
                 controller?.showResultOverlay(displayText: displayText, copyText: "")
                 return
             }
@@ -93,7 +93,7 @@ struct CalculateAction: ClipboardAction {
                 overflowRisk = maxDigits >= 19  // addition needs 19-digit operand to overflow
             }
             if overflowRisk {
-                let displayText = "\(expression)\n数字过大"
+                let displayText = "\(expression)\n\(String(localized: "数字过大"))"
                 controller?.showResultOverlay(displayText: displayText, copyText: "")
                 return
             }
@@ -133,7 +133,7 @@ struct CalculateAction: ClipboardAction {
 
         // Handle non-finite floating result (e.g. 1.0/0.0 → inf)
         guard number.isFinite else {
-            let displayText = "\(expression)\n无法计算"
+            let displayText = "\(expression)\n\(String(localized: "无法计算"))"
             controller?.showResultOverlay(displayText: displayText, copyText: "")
             return
         }
@@ -143,7 +143,7 @@ struct CalculateAction: ClipboardAction {
         // produce unwieldy display strings (20+ chars) that overflow the toast.
         let safeIntegerLimit: Double = 9_007_199_254_740_992.0
         if isIntegerExpr && abs(number) > safeIntegerLimit {
-            let displayText = "\(expression)\n数字过大"
+            let displayText = "\(expression)\n\(String(localized: "数字过大"))"
             controller?.showResultOverlay(displayText: displayText, copyText: "")
             return
         }
@@ -169,9 +169,9 @@ struct CalculateAction: ClipboardAction {
 struct SearchTextAction: ClipboardAction {
     let text: String
     var id: String { "search" }
-    var title: String { "搜索" }
+    var title: String { String(localized: "搜索") }
     var systemImage: String { "magnifyingglass" }
-    var menuTitle: String { "搜索" }
+    var menuTitle: String { String(localized: "搜索") }
 
     private static let searchEngines: [String: String] = [
         "google":    "https://www.google.com/search?q=%@",
@@ -196,9 +196,9 @@ struct SearchTextAction: ClipboardAction {
 struct ShowPinyinAction: ClipboardAction {
     let character: Character
     var id: String { "pinyin" }
-    var title: String { "拼音" }
+    var title: String { String(localized: "拼音") }
     var systemImage: String { "keyboard" }
-    var menuTitle: String { "显示拼音" }
+    var menuTitle: String { String(localized: "显示拼音") }
     var performsInlineUpdate: Bool { true }
 
     func perform(content: ClipboardContent, controller: ToastWindowController?) {
@@ -218,9 +218,9 @@ struct ShowPinyinAction: ClipboardAction {
 struct CallPhoneAction: ClipboardAction {
     let phoneNumber: String
     var id: String { "call-phone" }
-    var title: String { "拨打" }
+    var title: String { String(localized: "拨打") }
     var systemImage: String { "phone.arrow.up.right" }
-    var menuTitle: String { "拨打电话" }
+    var menuTitle: String { String(localized: "拨打电话") }
 
     func perform(content: ClipboardContent, controller: ToastWindowController?) {
         let cleaned = phoneNumber
@@ -238,9 +238,9 @@ struct CallPhoneAction: ClipboardAction {
 struct ComposeEmailAction: ClipboardAction {
     let email: String
     var id: String { "compose-email" }
-    var title: String { "发邮件" }
+    var title: String { String(localized: "发邮件") }
     var systemImage: String { "pencil" }
-    var menuTitle: String { "发送邮件" }
+    var menuTitle: String { String(localized: "发送邮件") }
 
     func perform(content: ClipboardContent, controller: ToastWindowController?) {
         let cleaned = email.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -269,9 +269,9 @@ struct SaveFileAction: ClipboardAction {
     let text: String
     let defaultName: String
     var id: String { "save-file" }
-    var title: String { "另存为" }
+    var title: String { String(localized: "另存为") }
     var systemImage: String { "arrow.down.doc" }
-    var menuTitle: String { "另存为…" }
+    var menuTitle: String { String(localized: "另存为…") }
 
     func perform(content: ClipboardContent, controller: ToastWindowController?) {
         // Determine save location
@@ -298,9 +298,9 @@ struct SaveFileAction: ClipboardAction {
 struct CopyTextAction: ClipboardAction {
     let text: String
     var id: String { "copy-result" }
-    var title: String { "复制" }
+    var title: String { String(localized: "复制") }
     var systemImage: String { "doc.on.doc" }
-    var menuTitle: String { "复制结果" }
+    var menuTitle: String { String(localized: "复制结果") }
 
     func perform(content: ClipboardContent, controller: ToastWindowController?) {
         let pasteboard = NSPasteboard.general
@@ -314,9 +314,9 @@ struct CopyTextAction: ClipboardAction {
 struct OpenCalendarAction: ClipboardAction {
     let date: Date
     var id: String { "open-calendar" }
-    var title: String { "日历" }
+    var title: String { String(localized: "日历") }
     var systemImage: String { "calendar" }
-    var menuTitle: String { "在日历中打开" }
+    var menuTitle: String { String(localized: "在日历中打开") }
 
     func perform(content: ClipboardContent, controller: ToastWindowController?) {
         let cal = Calendar.current

@@ -88,6 +88,16 @@ struct DateTimeDetector: ContentDetectorProtocol {
         }
         candidates.append(contentsOf: stripSecondsCandidates)
 
+        // 中文年月日不应依赖 App 当前界面语言。NSDataDetector 在英文 Locale 下
+        // 无法解析“2026年7月15日”，因此追加等价的 ISO 候选；原文仍排在首位，
+        // 中文环境的既有解析行为保持不变。
+        let normalizedChineseCandidates = candidates.compactMap {
+            normalizedChineseDateCandidate(from: $0)
+        }
+        for candidate in normalizedChineseCandidates where !candidates.contains(candidate) {
+            candidates.append(candidate)
+        }
+
         // ── NSDataDetector 全文本匹配 ──
         guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.date.rawValue) else {
             return nil
@@ -137,6 +147,34 @@ struct DateTimeDetector: ContentDetectorProtocol {
     }
 
     // MARK: - Format Validation
+
+    /// 将“2026年7月15日”或“7月15日”转换为与 Locale 无关的 ISO 候选。
+    /// 日期后的时间部分原样保留，已有预处理会先把“20点”转换为“20:00”。
+    private func normalizedChineseDateCandidate(from text: String) -> String? {
+        let pattern = #"^(?:(\d{4})年)?(\d{1,2})月(\d{1,2})日(.*)$"#
+        guard let match = try? NSRegularExpression(pattern: pattern)
+            .firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+              match.numberOfRanges == 5,
+              let monthRange = Range(match.range(at: 2), in: text),
+              let dayRange = Range(match.range(at: 3), in: text),
+              let month = Int(text[monthRange]),
+              let day = Int(text[dayRange]),
+              (1...12).contains(month),
+              (1...31).contains(day) else { return nil }
+
+        let year: Int
+        if let yearRange = Range(match.range(at: 1), in: text),
+           let explicitYear = Int(text[yearRange]) {
+            year = explicitYear
+        } else {
+            year = Calendar.autoupdatingCurrent.component(.year, from: Date())
+        }
+
+        let date = String(format: "%04d-%02d-%02d", year, month, day)
+        guard let suffixRange = Range(match.range(at: 4), in: text) else { return date }
+        let suffix = text[suffixRange].trimmingCharacters(in: .whitespacesAndNewlines)
+        return suffix.isEmpty ? date : "\(date) \(suffix)"
+    }
 
     /// Two-segment slash patterns (e.g. "10/3", "31/11") are rejected:
     /// inherently ambiguous between M/D and D/M, and conflict with math division.

@@ -10,6 +10,7 @@
 - **克制** — 可按应用设置黑名单，不想被打扰的 App 里不弹窗
 - **安静** — 3 秒自动消失，不抢焦点，不打断工作流
 - **轻提醒模式** — 菜单栏一键切换，复制时仅鼠标旁弹出绘制动画图标，零干扰
+- **原生多语言** — 完全跟随 macOS，支持简体中文、繁体中文和英文
 - **干净** — 零第三方依赖，无网络请求，CPU ≈ 0%
 
 ## 安装
@@ -40,6 +41,8 @@ pip3 install 'dmgbuild>=1.6.5'   # 首次需安装
 
 右键菜单提供搜索、另存为、类型专属操作，以及一键将当前 App 加入黑名单。设置中可开启左右键手势（按住左键+右键=⌘C）、管理检测类型、管理黑名单、安装插件。
 
+界面语言跟随 macOS 的系统语言或“语言与地区 → 应用程序”设置。中文界面可识别单个英文单词并查询系统词典；英文界面将普通英文文本直接用于搜索，其他内容检测和单字拼音保持不变。
+
 ## 架构
 
 ```
@@ -48,6 +51,7 @@ ClipboardMonitor.swift      — NSPasteboard 轮询 + 内容解析 + 黑名单�
 CopyGestureManager.swift    — 全局鼠标手势（CGEventTap）+ ⌘C 模拟
 DetectionRegistry.swift     — 全局检测器注册中心 + 优先级管道
 ContentKind.swift           — 统一类型标识
+AppLanguage.swift           — 界面语言相关的检测可用性策略
 Detectors/                  — 15 个内置检测器
 PluginLoader.swift          — .copiedplugin 扩展加载/管理
 AppFilterSettings.swift     — 应用黑名单过滤 + 持久化
@@ -62,7 +66,7 @@ ToastViewModel.swift        — @Observable 模型（含展开状态管理）
 SettingsView.swift          — 设置页（通用/类型/手势/黑名单，含快速触发修饰键配置）
 Copied.icon                 — Liquid Glass 分层图标
 Copied.svg                  — 菜单栏 template 图标
-build.sh                    — swiftc + actool + codesign 一键构建
+Localizable.xcstrings       — 简中、繁中、英文 String Catalog
+build.sh                    — swiftc + xcstringstool + actool + codesign 一键构建
 create-dmg.sh               — DMG 安装包生成
 ```
-

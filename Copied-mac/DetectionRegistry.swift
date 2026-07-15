@@ -89,7 +89,11 @@ final class DetectionRegistry {
     /// 被禁用/熔断冷却中的检测器排在末尾（仍会被遍历，但 detectAll 会跳过）。
     var activeDetectors: [any ContentDetectorProtocol] {
         detectors
-            .filter { !userDisabledKinds.contains($0.kind.id) && !disabledKinds.contains($0.kind.id) }
+            .filter {
+                AppLanguage.isContentKindAvailable($0.kind)
+                    && !userDisabledKinds.contains($0.kind.id)
+                    && !disabledKinds.contains($0.kind.id)
+            }
             .sorted { lhs, rhs in
                 let lhsThrottled = throttledUntil[lhs.kind.id].map { $0 > Date() } ?? false
                 let rhsThrottled = throttledUntil[rhs.kind.id].map { $0 > Date() } ?? false

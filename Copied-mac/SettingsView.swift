@@ -56,7 +56,7 @@ struct SettingsView: View {
                                 launchAtLogin = toggle
                                 loginItemError = nil
                             } else {
-                                loginItemError = "需要将 Copied 移到 Applications 文件夹"
+                                loginItemError = String(localized: "需要将 Copied 移到 Applications 文件夹")
                             }
                         }
                     ))
@@ -161,7 +161,9 @@ struct SettingsView: View {
                     Image(systemName: CopyGestureManager.shared.isRunning
                           ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
                         .foregroundStyle(CopyGestureManager.shared.isRunning ? .green : .yellow)
-                    Text(CopyGestureManager.shared.isRunning ? "运行中" : "未运行")
+                    Text(CopyGestureManager.shared.isRunning
+                         ? String(localized: "运行中")
+                         : String(localized: "未运行"))
                     if !CopyGestureManager.shared.isRunning {
                         Button("打开辅助功能设置…") {
                             openAccessibilityPrefs()
@@ -223,7 +225,7 @@ struct SettingsView: View {
         } catch {
             let msg = error.localizedDescription
             NSLog("Copied: SMAppService error: \(msg)")
-            loginItemError = "无法设置开机自启：\(msg)"
+            loginItemError = String(localized: "无法设置开机自启：") + msg
             return false
         }
     }

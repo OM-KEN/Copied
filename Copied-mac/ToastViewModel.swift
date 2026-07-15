@@ -79,7 +79,7 @@ final class ToastViewModel {
     var typeLabel: String {
         // 1. Image clipboard or image file
         if let fmt = rawContent?.imageFormat {
-            return "\(fmt) 图片"
+            return String(localized: "\(fmt) 图片")
         }
         // 2. Single file/folder
         if contentType == .file,
@@ -87,10 +87,10 @@ final class ToastViewModel {
             let url = urls[0]
             let res = try? url.resourceValues(forKeys: [.isDirectoryKey, .isPackageKey])
             if res?.isDirectory == true && res?.isPackage != true {
-                return "文件夹"
+                return String(localized: "文件夹")
             }
             let ext = url.pathExtension.uppercased()
-            if !ext.isEmpty { return "\(ext) 文件" }
+            if !ext.isEmpty { return String(localized: "\(ext) 文件") }
         }
         // 3. Content detection label (entity types first, then language types)
         for detection in rawContent?.detections ?? [] {
@@ -162,7 +162,7 @@ final class ToastViewModel {
                let ts = TimeInterval(tsStr) {
                 let date = Date(timeIntervalSinceReferenceDate: ts)
                 let formatter = RelativeDateTimeFormatter()
-                formatter.locale = Locale(identifier: "zh_CN")
+                formatter.locale = .autoupdatingCurrent
                 formatter.unitsStyle = .full
                 formatter.dateTimeStyle = .named
                 let relative = formatter.localizedString(for: date, relativeTo: Date())

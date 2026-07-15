@@ -26,7 +26,7 @@ final class CopyGestureManager {
 
     func start() {
         guard eventTap == nil else {
-            lastDiagnostic = "已运行"
+            lastDiagnostic = String(localized: "已运行")
             return
         }
         tryCreateTap()
@@ -37,19 +37,20 @@ final class CopyGestureManager {
         lastDiagnostic = "AXIsProcessTrusted=\(trusted)"
 
         if !trusted && !afterAuthPrompt {
-            lastDiagnostic += "\n弹出授权对话框…"
+            lastDiagnostic += "\n" + String(localized: "弹出授权对话框…")
             let opts = [kAXTrustedCheckOptionPrompt.takeRetainedValue() as String: true] as CFDictionary
             AXIsProcessTrustedWithOptions(opts)
 
             DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
-                self?.lastDiagnostic += "\n授权对话框已关闭，重试…"
+                self?.lastDiagnostic += "\n" + String(localized: "授权对话框已关闭，重试…")
                 self?.tryCreateTap(afterAuthPrompt: true)
             }
             return
         }
 
         if afterAuthPrompt {
-            lastDiagnostic += "\n重新检查: AXIsProcessTrusted=\(trusted)"
+            lastDiagnostic += "\n" + String(localized: "重新检查: AXIsProcessTrusted=")
+                + String(trusted)
         }
 
         let events: CGEventMask =
@@ -72,9 +73,9 @@ final class CopyGestureManager {
         ) else {
             lastDiagnostic += "\ntapCreate → nil"
             if trusted {
-                lastDiagnostic += "（权限已授但签名不匹配？试试去系统设置关掉再重开 Copied 的辅助功能开关）"
+                lastDiagnostic += String(localized: "（权限已授但签名不匹配？试试去系统设置关掉再重开 Copied 的辅助功能开关）")
             } else {
-                lastDiagnostic += "（请在弹窗中授权，或去系统设置手动开启）"
+                lastDiagnostic += String(localized: "（请在弹窗中授权，或去系统设置手动开启）")
             }
             return
         }
@@ -85,7 +86,7 @@ final class CopyGestureManager {
         CGEvent.tapEnable(tap: tap, enable: true)
 
         registerStateResetObservers()
-        lastDiagnostic += "\n✅ 启动成功，等待手势…"
+        lastDiagnostic += "\n" + String(localized: "✅ 启动成功，等待手势…")
     }
 
     func stop() {
