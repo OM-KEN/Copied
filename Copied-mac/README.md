@@ -6,12 +6,12 @@
 
 - **漂亮** — macOS 26+ 原生液态玻璃，旧系统毛玻璃降级，弹簧动画，SF Symbols 图标
 - **聪明** — 自动识别 URL、邮箱、电话、色值、公式、日期、汉字、英文、代码语言
-- **高效** — ⌘ 键直接触发操作（打开链接、计算、翻译、搜索），无需鼠标
+- **高效** — 默认双击 Control 直接触发操作，也可改为单击修饰键或鼠标侧键
 - **克制** — 可按应用设置黑名单，不想被打扰的 App 里不弹窗
 - **安静** — 3 秒自动消失，不抢焦点，不打断工作流
 - **轻提醒模式** — 菜单栏一键切换，复制时仅鼠标旁弹出绘制动画图标，零干扰
 - **原生多语言** — 完全跟随 macOS，支持简体中文、繁体中文和英文
-- **干净** — 零第三方依赖，无网络请求，CPU ≈ 0%
+- **干净** — 零第三方依赖；除检查 GitHub Releases 更新外不联网，CPU ≈ 0%
 
 ## 安装
 
@@ -37,7 +37,9 @@ pip3 install 'dmgbuild>=1.6.5'   # 首次需安装
 
 ## 使用
 
-复制任意内容 → 卡片弹出。悬停保持，点击预览行展开全文，点击其他区域关闭，⌘ 键触发操作。
+复制任意内容 → 卡片弹出。悬停保持，点击预览行展开全文，点击其他区域关闭。默认在第一次 Control 松开后的 350ms 内再次按下并松开 Control，即可触发主操作；设置中也可选择单击模式、其他修饰键或原生鼠标侧键。
+
+侧键录制需要辅助功能权限。Mac Mouse Fix 等鼠标重映射工具可能在事件到达 Copied 前将侧键拦截或改写；此时需在该工具中保留原生侧键事件，或关闭对应映射。
 
 右键菜单提供搜索、另存为、类型专属操作，以及一键将当前 App 加入黑名单。设置中可开启左右键手势（按住左键+右键=⌘C）、管理检测类型、管理黑名单、安装插件。
 
@@ -48,7 +50,7 @@ pip3 install 'dmgbuild>=1.6.5'   # 首次需安装
 ```
 CopiedApp.swift             — 入口：MenuBarExtra + AppDelegate + Settings
 ClipboardMonitor.swift      — NSPasteboard 轮询 + 内容解析 + 黑名单过滤
-CopyGestureManager.swift    — 全局鼠标手势（CGEventTap）+ ⌘C 模拟
+CopyGestureManager.swift    — 共享全局鼠标事件管道 + 左右键手势 + ⌘C 模拟
 DetectionRegistry.swift     — 全局检测器注册中心 + 优先级管道
 ContentKind.swift           — 统一类型标识
 AppLanguage.swift           — 界面语言相关的检测可用性策略
@@ -56,7 +58,9 @@ Detectors/                  — 15 个内置检测器
 PluginLoader.swift          — .copiedplugin 扩展加载/管理
 AppFilterSettings.swift     — 应用黑名单过滤 + 持久化
 ClipboardAction.swift       — Action 协议 + 内置 Action + ActionResolver
-KeyboardShortcutSettings.swift — ShortcutModifier 枚举（快速触发修饰键）
+KeyboardShortcutSettings.swift — 快速触发修饰键、双击/单击模式和侧键配置
+QuickTriggerModifierKeyPolicy.swift — 按实际键码处理修饰键状态与冲突
+AppUpdateService.swift      — GitHub Releases 版本检查、缓存与提醒节流
 FilePreviewGenerator.swift  — QLThumbnailGenerator 异步文件缩略图
 SourceAppDetector.swift     — NSWorkspace 前台 App 检测（含 bundleIdentifier）
 ToastWindowController.swift — NSWindow + NSHostingView 管理（标准模式）
@@ -64,7 +68,7 @@ LightReminderController.swift — 轻提醒模式浮标（NSWindow + drawOff 反
 ToastView.swift             — SwiftUI 卡片 + 展开查看全文 + 色块 + 右键菜单
 ToastViewModel.swift        — @Observable 模型（含展开状态管理）
 RelativeDateDescription.swift — 日期/时间详情的日历语义与本地化格式化
-SettingsView.swift          — 设置页（通用/类型/手势/黑名单，含快速触发修饰键配置）
+SettingsView.swift          — 设置页（含快速触发录制、软件更新与关于页）
 Copied.icon                 — Liquid Glass 分层图标
 Copied.svg                  — 菜单栏 template 图标
 Localizable.xcstrings       — 简中、繁中、英文 String Catalog
