@@ -1,7 +1,11 @@
 .build/
 .claude/
 docs/
-Tests/
+Tests/*
+!Tests/QuickTriggerStateMachineTests.swift
+!Tests/AppUpdateModelsTests.swift
+!Tests/AppUpdateServiceTests.swift
+!Tests/InteractionWiringTests.swift
 .DS_Store
 *.dmg
 *.zip

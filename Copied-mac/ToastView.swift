@@ -10,6 +10,7 @@ struct ToastView: View {
     let onPerformAction: ((any ClipboardAction)?) -> Void
     let onNeedsLayout: (() -> Void)?
     let onAction: (ToastAction) -> Void
+    let onOpenUpdateAbout: () -> Void
 
     @State private var animateIn = false
     @State private var isActionButtonHovered = false
@@ -22,7 +23,7 @@ struct ToastView: View {
     private static let cardCornerRadius: CGFloat = 32
 
     var body: some View {
-        ZStack {
+        ZStack(alignment: .topTrailing) {
             // 降级材质背景（pre-macOS 26，延迟显示避免首帧灰色闪烁）
             if fallbackMaterialReady {
                 RoundedRectangle(cornerRadius: Self.cardCornerRadius, style: .continuous)
@@ -171,8 +172,10 @@ struct ToastView: View {
                         .background(actionButtonBackground)
                     }
                     .buttonStyle(PressTrackingButtonStyle(isPressed: $isActionButtonPressed))
-                    .scaleEffect((viewModel.isTriggerModifierPressed || isActionButtonPressed) ? 0.92 : 1.0)
-                    .animation(.spring(response: 0.2, dampingFraction: 0.6), value: viewModel.isTriggerModifierPressed)
+                    .overlay(quickTriggerWaitingHighlight)
+                    .scaleEffect((viewModel.quickTriggerVisualState == .pressed || isActionButtonPressed) ? 0.92 : 1.0)
+                    .opacity(viewModel.quickTriggerVisualState == .waitingForSecondTap ? 0.82 : 1.0)
+                    .animation(.spring(response: 0.2, dampingFraction: 0.6), value: viewModel.quickTriggerVisualState)
                     .animation(.spring(response: 0.2, dampingFraction: 0.6), value: isActionButtonPressed)
                     .onHover { hovering in
                         if hovering {
@@ -209,8 +212,10 @@ struct ToastView: View {
                         .background(actionButtonBackground)
                     }
                     .buttonStyle(PressTrackingButtonStyle(isPressed: $isActionButtonPressed))
-                    .scaleEffect((viewModel.isTriggerModifierPressed || isActionButtonPressed) ? 0.92 : 1.0)
-                    .animation(.spring(response: 0.2, dampingFraction: 0.6), value: viewModel.isTriggerModifierPressed)
+                    .overlay(quickTriggerWaitingHighlight)
+                    .scaleEffect((viewModel.quickTriggerVisualState == .pressed || isActionButtonPressed) ? 0.92 : 1.0)
+                    .opacity(viewModel.quickTriggerVisualState == .waitingForSecondTap ? 0.82 : 1.0)
+                    .animation(.spring(response: 0.2, dampingFraction: 0.6), value: viewModel.quickTriggerVisualState)
                     .animation(.spring(response: 0.2, dampingFraction: 0.6), value: isActionButtonPressed)
                     .onHover { hovering in
                         if hovering {
@@ -229,6 +234,20 @@ struct ToastView: View {
                 }
             }
             .padding(16)
+            }
+
+            if viewModel.showsUpdateReminder, !viewModel.isExpanded {
+                Button(action: onOpenUpdateAbout) {
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.green)
+                        .frame(width: 28, height: 28)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("有新版本")
+                .padding(.top, 6)
+                .padding(.trailing, 6)
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: Self.cardCornerRadius))
@@ -262,6 +281,14 @@ struct ToastView: View {
                 .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 8))
         } else {
             shape.fill(.quaternary)
+        }
+    }
+
+    @ViewBuilder
+    private var quickTriggerWaitingHighlight: some View {
+        if viewModel.quickTriggerVisualState == .waitingForSecondTap {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(.tint.opacity(0.7), lineWidth: 1.5)
         }
     }
 

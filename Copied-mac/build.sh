@@ -7,13 +7,26 @@ APP_BUNDLE="$BUILD_DIR/$APP_NAME.app"
 MACOS_DIR="$APP_BUNDLE/Contents/MacOS"
 RESOURCES_DIR="$APP_BUNDLE/Contents/Resources"
 FINGERPRINT="$BUILD_DIR/.source_fingerprint"
+VERSION_FILE="VERSION"
+VERSION=$(tr -d '[:space:]' < "$VERSION_FILE")
+
+if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo "❌ VERSION must use MAJOR.MINOR.PATCH (found: $VERSION)" >&2
+    exit 1
+fi
 
 SOURCES=(
+    CopyGestureEventSequence.swift
+    MouseButtonRecordingStateMachine.swift
     AppLanguage.swift
     ContentKind.swift
     ContentDetection.swift
     RelativeDateDescription.swift
     KeyboardShortcutSettings.swift
+    QuickTriggerModifierKeyPolicy.swift
+    QuickTriggerStateMachine.swift
+    AppUpdateModels.swift
+    AppUpdateService.swift
     PluginActionTemplate.swift
     PluginManifest.swift
     PluginAction.swift
@@ -41,6 +54,7 @@ SOURCES=(
     SourceAppDetector.swift
     BlacklistSourceAppAction.swift
     ClipboardAction.swift
+    GlobalMouseEventCoordinator.swift
     CopyGestureManager.swift
     FilePreviewGenerator.swift
     DictionaryLookupService.swift
@@ -57,7 +71,7 @@ ICON_FILES=(Copied.icon/icon.json Copied.icon/Assets/)
 RESOURCES=(Info.plist Localizable.xcstrings "${ICON_FILES[@]}")
 
 # build.sh 自身和 SVG 源文件也纳入指纹
-BUILD_FILES=(build.sh Copied.svg)
+BUILD_FILES=(build.sh Copied.svg VERSION)
 
 echo "🔨 Building Copied..."
 
@@ -87,6 +101,8 @@ swiftc \
 
 # Copy Info.plist
 cp Info.plist "$APP_BUNDLE/Contents/Info.plist"
+plutil -replace CFBundleShortVersionString -string "$VERSION" "$APP_BUNDLE/Contents/Info.plist"
+plutil -replace CFBundleVersion -string "$VERSION" "$APP_BUNDLE/Contents/Info.plist"
 
 # Menu bar icon — strip white background (template image for dark/light mode)
 sed '/fill="white"/d' Copied.svg > "$RESOURCES_DIR/Copied-menu.svg"

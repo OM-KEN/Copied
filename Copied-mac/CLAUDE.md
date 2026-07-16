@@ -17,7 +17,7 @@ DMG 背景图：放 `.build/dmg_background.png`（440×240），由 `dmg_setting
 ```
 CopiedApp.swift             MenuBarExtra + AppDelegate + Settings
 ClipboardMonitor.swift      每 0.15s 轮询 NSPasteboard.changeCount（含黑名单过滤门）
-CopyGestureManager.swift    CGEventTap 左+右 → ⌘C 手势（双路径 + R_UP 兜底）
+CopyGestureManager.swift    共享 CGEventTap 左+右 → ⌘C 手势（双路径 + R_UP 兜底）
 DetectionRegistry.swift     全局检测器注册中心 + 优先级管道 + 限流
 ContentKind.swift           统一类型标识（struct + 静态常量）
 AppLanguage.swift           当前 Bundle 界面语言策略（英文环境过滤英文单词检测）
@@ -31,8 +31,11 @@ AppFilterSettings.swift     应用黑名单单例 — 过滤判断 + 持久化
 AppFilterView.swift         设置 → 黑名单 Tab（列表管理 + 运行中应用选择器）
 BlacklistSourceAppAction.swift  右键"屏蔽此来源" Action
 ClipboardAction.swift       Action 协议 + 内置 Action + ActionResolver
-KeyboardShortcutSettings.swift  ShortcutModifier 枚举（快速触发修饰键配置）
-ToastWindowController.swift 浮动 NSWindow + NSHostingView + Action + 可配置修饰键快速触发
+KeyboardShortcutSettings.swift  快速触发修饰键、双击/单击模式、侧键配置
+QuickTriggerModifierKeyPolicy.swift  按实际 keyCode 维护左右修饰键状态
+MouseButtonRecordingStateMachine.swift  侧键录制状态与取消/绑定决策
+AppUpdateService.swift      GitHub Releases 检查、缓存、节流与提醒状态
+ToastWindowController.swift 浮动 NSWindow + NSHostingView + Action + 键盘/侧键快速触发
 ToastViewModel.swift        @Observable 模型（含 sourceBundleID）
 RelativeDateDescription.swift 日期/时间详情格式化（日历日语义 + 本地化时间）
 ToastView.swift             SwiftUI 卡片 + glassEffect（macOS 26+）/ ultraThinMaterial（降级）+ 展开查看全文（if/else 双态）+ contextMenu
@@ -45,7 +48,7 @@ Localizable.xcstrings       String Catalog（zh-Hans 源语言 + en / zh-Hant）
 build.sh                    swiftc + xcstringstool + actool + codesign
 ```
 
-UserDefaults 键：`searchEngine`, `launchAtLogin`, `isPaused`, `copyGestureEnabled`, `lightReminderEnabled`, `quickTriggerModifier`, `contentKindPriorities`, `disabledContentKinds`, `installedPlugins`, `popupFilterBlockedApps`。
+UserDefaults 键：`searchEngine`, `launchAtLogin`, `isPaused`, `copyGestureEnabled`, `lightReminderEnabled`, `keyboardQuickTriggerModifier`, `keyboardQuickTriggerMode`, `mouseQuickTriggerButton`, `automaticUpdateRemindersEnabled`, `contentKindPriorities`, `disabledContentKinds`, `installedPlugins`, `popupFilterBlockedApps`。
 
 **数据流**：`ClipboardMonitor` → `DetectionRegistry.detectAll()` → `SourceAppDetector.detect()` → `AppFilterSettings.shouldShowPopup()` 过滤门 → `ClipboardContent` → 分支：轻提醒模式 → `LightReminderController.show()`，标准模式 → `ToastWindowController.show()` → `ToastViewModel` → `ToastView`
 
@@ -122,24 +125,23 @@ NSEvent 本地监听器 + SwiftUI Button 两层协作。异步延迟防 `dismiss
 
 ### 快速触发（修饰键）
 
-Toast 有主操作按钮（或结果覆盖层）时，按下并松开修饰键触发。修饰键可配置（设置 → 通用 → 快速触发），默认 ⌘，支持 ⌥/⌃/⇧。`ShortcutModifier` 枚举提供 `nseventFlags`、`sfSymbolName`、`displayName`，从 UserDefaults `quickTriggerModifier` 读取。按钮 hover 时动态显示对应 SF Symbol 图标（`viewModel.triggerModifierIcon`）。
+Toast 有主操作按钮（或结果覆盖层）时，默认在第一次 Control 松开后的 350ms 内再次按下并松开 Control 触发。设置 → 通用 → 快速触发可改为 Command/Option/Shift、关闭键盘触发，或启用单击（高级）模式；原生鼠标侧键可作为并行触发。按钮 hover 时动态显示对应图标。
 
-**三层防御**，无需 Accessibility 权限（仅用 `addGlobalMonitorForEvents(.flagsChanged)`）：
+**输入边界**：从第一次按下到第二次松开之间，出现普通键、其他修饰键、鼠标点击或滚轮即取消。键盘路径不需要辅助功能权限；侧键录制/触发与左右键复制共享 `GlobalMouseEventCoordinator` 的 CGEventTap，需要辅助功能权限。
 
-1. **`NSEvent.addLocalMonitorForEvents`** — 捕获修饰键+key 组合键。修饰键按住期间任何按键/鼠标事件 → `modifierCancelledByOtherEvent = true`。
-2. **`CGEventSource.counterForEventType(.hidSystemState, .keyDown)`** — HID 级计数器，runloop 延迟对比。未变 → 触发；变化 → 中止。
-3. **`dismissGeneration` 守卫** — 防止过期修饰键释放触发新 toast 的 Action。
+1. **实际 keyCode 策略** — `QuickTriggerModifierKeyPolicy` 按左右修饰键 keyCode 转换状态；不要用聚合 flags 推断按键，因为 macOS 可能携带残留 Function/NumericPad flags。
+2. **本地事件 + HID 计数器** — 捕获组合键、鼠标与滚轮输入；事件计数变化即中止。
+3. **`dismissGeneration` 守卫** — 防止旧弹窗的延迟释放触发新 toast Action。
 
-**转换检测**：`modifierCancelledByOtherEvent` 仅在修饰键从未按下→按下转换时重置，不在每次 `flagsChanged` 重置。
+**侧键限制**：只绑定 button number ≥3 的原生 `otherMouseDown`。Mac Mouse Fix 等重映射工具可能在 Copied 前拦截或改写事件；此时需关闭对应映射或保留原生侧键。
 
-**死路（勿重试）**：
-- `addGlobalMonitorForEvents(.keyDown)` — macOS 过滤修饰键组合键，需要 Accessibility 权限
-- `CGEvent.tapCreate` 用于快速触发 — 过度复杂
-- 时序推断 — 不可靠
+### 版本与更新
+
+`VERSION` 是构建版本单一来源，`build.sh` 同步写入 `CFBundleShortVersionString`。菜单栏显示实际版本并可打开关于页；有更新时显示绿色圆点和“有新版本”。关于页可手动检查，自动提醒最多每天成功检查一次、失败一小时后重试；只读取 GitHub 最新稳定 Release，更新按钮打开 GitHub，不做应用内下载安装。标准 Toast 右上角用 `arrow.up.circle.fill` 提醒，点击进入关于页；轻提醒模式不叠加更新提醒。
 
 ### 菜单栏
 
-`MenuBarExtra` + `Copied.svg` 模板图像。`build.sh` 将 `fill="white"` 替换为 `fill="black"` 做模板遮罩。暂停/恢复直接读 `UserDefaults`（避免绑定传播复杂度）。`Info.plist` 设 `LSUIElement = YES`。
+`MenuBarExtra` + `Copied.svg` 模板图像。`build.sh` 将 `fill="white"` 替换为 `fill="black"` 做模板遮罩。设置与版本放在同一区域，版本项位于退出上方，点击打开关于页。暂停/恢复直接读 `UserDefaults`。`Info.plist` 设 `LSUIElement = YES`。
 
 ### 左右键快捷复制（CopyGestureManager）
 
@@ -148,7 +150,7 @@ Toast 有主操作按钮（或结果覆盖层）时，按下并松开修饰键�
 - **rightMouseDown** → `isLeftPressed && !gestureFired`：吞掉 + 15ms ⌘C + `gestureFired=true`
 - **rightMouseUp 兜底** → `isLeftPressed && !gestureFired`：rightMouseDown 被 WindowServer 静默吞掉时补触发
 - `gestureFired` 每次 leftDown/leftUp 重置，防双击发
-- ⌘C 模拟：CGEvent keyboard source 传 `nil`，仅发 C 键 + `.maskCommand`
+- ⌘C 模拟：CGEvent keyboard source 传 `nil`，完整发送 Command down → C down → C up → Command up，末次释放清空 flags
 
 **权限 UX（三重保障）**：无权限 Toggle 强制 OFF → 重启引导 Alert → 权限丢失自动回正。签名：Apple Development，Team ID `683MU5Q6FB`（TCC 凭 Team ID 识别）。
 
