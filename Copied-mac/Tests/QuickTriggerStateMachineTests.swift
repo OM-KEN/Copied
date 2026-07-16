@@ -36,6 +36,34 @@ struct QuickTriggerStateMachineTests {
         )
         expect(staleFlagSingle.targetChanged(isDown: false, at: 0.1, counters: base, context: 1), "stale flags still allow single tap")
 
+        var heldRepeatPolicy = QuickTriggerModifierKeyPolicy(targetModifier: .control)
+        heldRepeatPolicy.appeared(preExisting: false)
+        expect(
+            heldRepeatPolicy.handleFlagsChanged(
+                keyCode: 59,
+                eventFlags: [.control, .function, .numericPad],
+                sequenceActive: false
+            ) == .targetDown,
+            "initial held Control event is a down transition"
+        )
+        expect(
+            heldRepeatPolicy.handleFlagsChanged(
+                keyCode: 59,
+                eventFlags: [.control, .function, .numericPad],
+                sequenceActive: true
+            ) == .ignore,
+            "repeated flagsChanged while Control remains held is ignored"
+        )
+        expect(heldRepeatPolicy.isAnyTargetKeyDown, "held repeat keeps target down")
+        expect(
+            heldRepeatPolicy.handleFlagsChanged(
+                keyCode: 59,
+                eventFlags: [.function, .numericPad],
+                sequenceActive: true
+            ) == .targetUp,
+            "Control flag disappearance is the release transition"
+        )
+
         var staleDoublePolicy = QuickTriggerModifierKeyPolicy(targetModifier: .control)
         staleDoublePolicy.appeared(preExisting: false)
         var staleDouble = KeyboardQuickTriggerStateMachine(mode: .doubleTap)

@@ -57,17 +57,18 @@ struct QuickTriggerModifierKeyPolicy {
         let targetFlagIsPresent = eventFlags.contains(targetModifier.nseventFlags)
 
         if pressedTargetKeyCodes.contains(keyCode) {
+            // macOS repeats flagsChanged while a modifier remains held. The
+            // repeated event has the same keyCode and still carries the target
+            // flag, so it is not a release transition.
+            if targetFlagIsPresent { return .ignore }
             pressedTargetKeyCodes.remove(keyCode)
             if suppressUntilAllTargetKeysReleased {
-                if !targetFlagIsPresent {
-                    let shouldReleasePreExistingState = preExistingTarget
-                    pressedTargetKeyCodes.removeAll()
-                    preExistingTarget = false
-                    suppressUntilAllTargetKeysReleased = false
-                    sequenceTargetKeyCode = nil
-                    return shouldReleasePreExistingState ? .targetUp : .ignore
-                }
-                return .ignore
+                let shouldReleasePreExistingState = preExistingTarget
+                pressedTargetKeyCodes.removeAll()
+                preExistingTarget = false
+                suppressUntilAllTargetKeysReleased = false
+                sequenceTargetKeyCode = nil
+                return shouldReleasePreExistingState ? .targetUp : .ignore
             }
             return pressedTargetKeyCodes.isEmpty ? .targetUp : .ignore
         }
