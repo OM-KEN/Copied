@@ -11,25 +11,34 @@ final class ToastWindowController {
     private var isDismissing = false
     private var dismissGeneration = 0
     private var localMouseMonitor: Any?
+    private var globalTriggerModifierMonitor: Any?
     private var localTriggerModifierMonitor: Any?
-    private var localOtherEventMonitor: Any?  // 监听修饰键按下期间的其他按键/鼠标事件
+    private var localOtherEventMonitor: Any?
     private var localEscapeMonitor: Any?     // 展开态 Escape 收起
     private var localCopyMonitor: Any?      // 展开态 ⌘C 复制全文
-    private var modifierKeyDownCount: UInt32 = 0
-    private var modifierIsPreExisting = false  // 修饰键在 toast 出现时已按下
-    private var modifierCancelledByOtherEvent = false  // 修饰键按下期间有其他按键/鼠标事件
+    private var mouseEventListenerToken: UUID?
+    private var keyboardQuickTrigger = KeyboardQuickTriggerStateMachine(mode: .doubleTap)
+    private var mouseQuickTrigger = MouseQuickTriggerStateMachine()
+    private var keyboardTargetIsDown = false
+    private var quickTriggerContextGeneration = 0
+    private var quickTriggerTimeout: DispatchWorkItem?
+    private var quickTriggerHIDPoll: DispatchWorkItem?
     private let displayDuration: TimeInterval = 3.0
 
     private var isExpandingOrCollapsing = false
     private var currentContent: ClipboardContent?
 
     func show(content: ClipboardContent, source: SourceAppInfo) {
+        removeAllMonitors()
         viewModel.configure(with: content, source: source)
+        viewModel.showsUpdateReminder = AppUpdateService.shared
+            .shouldAttachUpdateReminderToStandardToast()
         currentContent = content
 
         isDismissing = false
         isExpandingOrCollapsing = false
         dismissGeneration += 1
+        quickTriggerContextGeneration += 1
         contentView?.layer?.filters = nil
         // Always recreate window for fresh Space association.
         // Fullscreen Spaces can lose track of reused windows after
@@ -51,6 +60,9 @@ final class ToastWindowController {
                 case .collapse: self?.handleCollapse()
                 case .editInTextEdit: self?.handleEditInTextEdit()
                 }
+            },
+            onOpenUpdateAbout: {
+                SettingsNavigation.openAboutFromToast()
             }
         )
 
@@ -75,6 +87,9 @@ final class ToastWindowController {
         window?.setFrame(NSRect(x: x, y: y, width: panelSize.width, height: panelSize.height), display: true, animate: false)
         window?.alphaValue = 1.0
         window?.orderFront(nil)
+        if viewModel.showsUpdateReminder {
+            AppUpdateService.shared.recordUpdateReminderDisplayed()
+        }
 
         if isMouseInsideWindow() {} else { startDismissTimer() }
 
@@ -86,76 +101,7 @@ final class ToastWindowController {
             }
         }
 
-        let triggerModifier = ShortcutModifier.current
-        let triggerFlags = triggerModifier.nseventFlags
-
-        if localTriggerModifierMonitor == nil, viewModel.primaryAction != nil || viewModel.resultOverlay != nil {
-            localTriggerModifierMonitor = NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
-                guard let self,
-                      let window = self.window,
-                      window.isVisible,
-                      !self.isDismissing else { return }
-                let isModifierPressed = event.modifierFlags.contains(triggerFlags)
-                let wasPressed = self.viewModel.isTriggerModifierPressed
-                if isModifierPressed {
-                    self.modifierIsPreExisting = false
-                    // 仅在修饰键从未按下到按下的「转换」时重置取消标志，而非每次
-                    // flagsChanged 都重置。避免其他修饰键变化（Shift 等）在
-                    // 修饰键按住期间错误地清除已设置的取消标志。
-                    if !wasPressed {
-                        self.modifierCancelledByOtherEvent = false
-                    }
-                    self.modifierKeyDownCount = CGEventSource.counterForEventType(.hidSystemState, eventType: .keyDown)
-                    self.viewModel.isTriggerModifierPressed = true
-                } else {
-                    self.viewModel.isTriggerModifierPressed = false
-                    if self.modifierIsPreExisting {
-                        self.modifierIsPreExisting = false
-                        return
-                    }
-                    // 双保险：本地事件取消标志 + HID 计数器（延迟到下一个 runloop
-                    // 让 HID 计数器有足够时间反映组合键的 keyDown 事件）。
-                    let capturedKeyDownCount = self.modifierKeyDownCount
-                    let capturedCancelled = self.modifierCancelledByOtherEvent
-                    let capturedDismissGen = self.dismissGeneration
-                    self.modifierCancelledByOtherEvent = false
-                    DispatchQueue.main.async { [weak self] in
-                        guard let self,
-                              !self.isDismissing,
-                              self.dismissGeneration == capturedDismissGen,
-                              !capturedCancelled else { return }
-                        let newCount = CGEventSource.counterForEventType(.hidSystemState, eventType: .keyDown)
-                        guard newCount == capturedKeyDownCount else { return }
-                        // In result mode, modifier triggers copy; otherwise primary action.
-                        let action: (any ClipboardAction)? = self.viewModel.resultOverlay.map {
-                            CopyTextAction(text: $0.copyText)
-                        } ?? self.viewModel.primaryAction
-                        if let action {
-                            self.handlePerformAction(action)
-                        }
-                    }
-                }
-            }
-        }
-
-        // 修饰键按下期间有其他按键或鼠标事件 → 取消触发。
-        // 本地监听器能看到组合键（全局监听器会被 macOS 过滤），
-        // 作为 HID 计数器之外的「双保险」安全网。
-        if localOtherEventMonitor == nil {
-            localOtherEventMonitor = NSEvent.addLocalMonitorForEvents(
-                matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown]
-            ) { [weak self] event in
-                guard let self else { return event }
-                if self.viewModel.isTriggerModifierPressed {
-                    self.modifierCancelledByOtherEvent = true
-                }
-                return event
-            }
-        }
-
-        if NSEvent.modifierFlags.contains(triggerFlags) {
-            modifierIsPreExisting = true
-        }
+        installQuickTriggerMonitors()
 
         if localEscapeMonitor == nil {
             localEscapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
@@ -177,6 +123,217 @@ final class ToastWindowController {
                 return event
             }
         }
+    }
+
+    // MARK: - Quick trigger
+
+    private func installQuickTriggerMonitors() {
+        guard quickTriggerAction() != nil else { return }
+        let settings = QuickTriggerSettings.current()
+        keyboardQuickTrigger = KeyboardQuickTriggerStateMachine(mode: settings.keyboardMode)
+
+        if settings.keyboardModifier != .disabled {
+            let triggerFlags = settings.keyboardModifier.nseventFlags
+            keyboardTargetIsDown = NSEvent.modifierFlags.contains(triggerFlags)
+            keyboardQuickTrigger.appeared(preExisting: keyboardTargetIsDown)
+
+            globalTriggerModifierMonitor = NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged) {
+                [weak self] event in self?.handleModifierFlagsChanged(event)
+            }
+            localTriggerModifierMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) {
+                [weak self] event in
+                self?.handleModifierFlagsChanged(event)
+                return event
+            }
+        }
+
+        localOtherEventMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel]
+        ) { [weak self] event in
+            self?.cancelKeyboardQuickTrigger()
+            self?.mouseQuickTrigger.cancelPendingTrigger()
+            return event
+        }
+
+        mouseEventListenerToken = GlobalMouseEventCoordinator.shared.addListener(
+            promptForAccessibility: false
+        ) { [weak self] type, event in
+            self?.handleGlobalMouseEvent(type: type, event: event) ?? false
+        }
+    }
+
+    private func handleModifierFlagsChanged(_ event: NSEvent) {
+        guard let window, window.isVisible, !isDismissing, quickTriggerAction() != nil else {
+            cancelKeyboardQuickTrigger()
+            return
+        }
+        let settings = QuickTriggerSettings.current()
+        guard settings.keyboardModifier != .disabled else {
+            cancelKeyboardQuickTrigger()
+            return
+        }
+
+        let triggerFlags = settings.keyboardModifier.nseventFlags
+        if QuickTriggerModifierPolicy.hasInterferingModifier(
+            eventFlags: event.modifierFlags,
+            triggerFlags: triggerFlags
+        ) {
+            cancelKeyboardQuickTrigger()
+            mouseQuickTrigger.cancelPendingTrigger()
+            return
+        }
+
+        let isDown = event.modifierFlags.contains(triggerFlags)
+        guard isDown != keyboardTargetIsDown else { return }
+        keyboardTargetIsDown = isDown
+        mouseQuickTrigger.cancelPendingTrigger()
+
+        if isDown {
+            let shouldTrigger = keyboardQuickTrigger.targetChanged(
+                isDown: true,
+                at: event.timestamp,
+                counters: captureQuickTriggerEventCounters(),
+                context: quickTriggerContextGeneration
+            )
+            updateQuickTriggerVisualState()
+            if shouldTrigger { performQuickTriggerAction() }
+        } else {
+            let capturedContext = quickTriggerContextGeneration
+            let timestamp = event.timestamp
+            DispatchQueue.main.async { [weak self] in
+                guard let self,
+                      !self.isDismissing,
+                      capturedContext == self.quickTriggerContextGeneration else { return }
+                let shouldTrigger = self.keyboardQuickTrigger.targetChanged(
+                    isDown: false,
+                    at: timestamp,
+                    counters: self.captureQuickTriggerEventCounters(),
+                    context: capturedContext
+                )
+                self.updateQuickTriggerVisualState()
+                if shouldTrigger { self.performQuickTriggerAction() }
+            }
+        }
+    }
+
+    private func handleGlobalMouseEvent(type: CGEventType, event: CGEvent) -> Bool {
+        cancelKeyboardQuickTrigger()
+        let settings = QuickTriggerSettings.current()
+        guard let configuredButton = settings.mouseButton else {
+            mouseQuickTrigger.cancelPendingTrigger()
+            return false
+        }
+        let button = Int(event.getIntegerValueField(.mouseEventButtonNumber))
+        switch type {
+        case .otherMouseDown where button == configuredButton:
+            let consume = mouseQuickTrigger.mouseDown(
+                button: button,
+                configuredButton: configuredButton,
+                context: quickTriggerContextGeneration,
+                canPerform: window?.isVisible == true && !isDismissing && quickTriggerAction() != nil
+            )
+            if consume {
+                DispatchQueue.main.async { [weak self] in
+                    self?.viewModel.quickTriggerVisualState = .pressed
+                }
+            }
+            return consume
+        case .otherMouseUp where button == configuredButton:
+            let result = mouseQuickTrigger.mouseUp(
+                button: button,
+                context: quickTriggerContextGeneration
+            )
+            if result.consume {
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    self.viewModel.quickTriggerVisualState = .idle
+                    if result.trigger { self.performQuickTriggerAction() }
+                }
+            }
+            return result.consume
+        default:
+            mouseQuickTrigger.cancelPendingTrigger()
+            return false
+        }
+    }
+
+    private func captureQuickTriggerEventCounters() -> QuickTriggerEventCounters {
+        func count(_ type: CGEventType) -> UInt32 {
+            CGEventSource.counterForEventType(.hidSystemState, eventType: type)
+        }
+        return QuickTriggerEventCounters(
+            keyDown: count(.keyDown),
+            leftMouseDown: count(.leftMouseDown),
+            leftMouseUp: count(.leftMouseUp),
+            rightMouseDown: count(.rightMouseDown),
+            rightMouseUp: count(.rightMouseUp),
+            otherMouseDown: count(.otherMouseDown),
+            otherMouseUp: count(.otherMouseUp),
+            scrollWheel: count(.scrollWheel)
+        )
+    }
+
+    private func updateQuickTriggerVisualState() {
+        quickTriggerTimeout?.cancel()
+        viewModel.quickTriggerVisualState = keyboardQuickTrigger.visualState
+        scheduleQuickTriggerHIDValidation()
+        guard keyboardQuickTrigger.visualState == .waitingForSecondTap else { return }
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.keyboardQuickTrigger.tick(at: ProcessInfo.processInfo.systemUptime)
+            self.viewModel.quickTriggerVisualState = self.keyboardQuickTrigger.visualState
+        }
+        quickTriggerTimeout = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(351), execute: work)
+    }
+
+    private func scheduleQuickTriggerHIDValidation() {
+        quickTriggerHIDPoll?.cancel()
+        quickTriggerHIDPoll = nil
+        guard keyboardQuickTrigger.visualState != .idle else { return }
+        let capturedContext = quickTriggerContextGeneration
+        let work = DispatchWorkItem { [weak self] in
+            guard let self,
+                  capturedContext == self.quickTriggerContextGeneration else { return }
+            let isValid = self.keyboardQuickTrigger.validate(
+                counters: self.captureQuickTriggerEventCounters(),
+                context: capturedContext
+            )
+            self.viewModel.quickTriggerVisualState = self.keyboardQuickTrigger.visualState
+            if isValid { self.scheduleQuickTriggerHIDValidation() }
+        }
+        quickTriggerHIDPoll = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(20), execute: work)
+    }
+
+    private func cancelKeyboardQuickTrigger() {
+        quickTriggerTimeout?.cancel()
+        quickTriggerTimeout = nil
+        quickTriggerHIDPoll?.cancel()
+        quickTriggerHIDPoll = nil
+        keyboardQuickTrigger.cancel()
+        viewModel.quickTriggerVisualState = .idle
+    }
+
+    private func invalidateQuickTriggerContext() {
+        quickTriggerContextGeneration += 1
+        keyboardQuickTrigger.contextChanged()
+        mouseQuickTrigger.cancelPendingTrigger()
+        quickTriggerTimeout?.cancel()
+        quickTriggerTimeout = nil
+        quickTriggerHIDPoll?.cancel()
+        quickTriggerHIDPoll = nil
+        viewModel.quickTriggerVisualState = .idle
+    }
+
+    private func quickTriggerAction() -> (any ClipboardAction)? {
+        viewModel.resultOverlay.map { CopyTextAction(text: $0.copyText) }
+            ?? viewModel.primaryAction
+    }
+
+    private func performQuickTriggerAction() {
+        guard let action = quickTriggerAction(), !isDismissing else { return }
+        handlePerformAction(action)
     }
 
     // MARK: - Action execution
@@ -345,6 +502,7 @@ final class ToastWindowController {
 
     private func handleTap() {
         guard !isDismissing, !isExpandingOrCollapsing else { return }
+        if isUpdateReminderHitRegion() { return }
         if viewModel.isExpanded {
             // Tap on button-bar blank area (between the two buttons) → dismiss.
             // Taps on the actual buttons are handled by SwiftUI (collapse / edit).
@@ -379,6 +537,7 @@ final class ToastWindowController {
     private func cancelDismiss() {
         isDismissing = false
         dismissGeneration += 1
+        invalidateQuickTriggerContext()
         contentView?.layer?.filters = nil
         contentView?.layer?.removeAnimation(forKey: "dismissBlurAnim")
         window?.alphaValue = 1.0
@@ -428,6 +587,17 @@ final class ToastWindowController {
     private func isMouseInsideWindow() -> Bool {
         guard let windowFrame = window?.frame else { return false }
         return windowFrame.contains(NSEvent.mouseLocation)
+    }
+
+    private func isUpdateReminderHitRegion() -> Bool {
+        guard viewModel.showsUpdateReminder,
+              !viewModel.isExpanded,
+              let window else { return false }
+        let point = NSEvent.mouseLocation
+        guard window.frame.contains(point) else { return false }
+        let x = point.x - window.frame.minX
+        let y = point.y - window.frame.minY
+        return x >= window.frame.width - 56 && y >= window.frame.height - 56
     }
 
     // MARK: - Window
@@ -482,6 +652,8 @@ final class ToastWindowController {
     func dismissToast(animated: Bool) {
         dismissTimer?.invalidate()
         dismissTimer = nil
+        invalidateQuickTriggerContext()
+        removeAllMonitors()
         if animated {
             let gen = dismissGeneration
 
@@ -527,12 +699,20 @@ final class ToastWindowController {
 
     private func removeAllMonitors() {
         if let m = localMouseMonitor { NSEvent.removeMonitor(m); localMouseMonitor = nil }
+        if let m = globalTriggerModifierMonitor { NSEvent.removeMonitor(m); globalTriggerModifierMonitor = nil }
         if let m = localTriggerModifierMonitor  { NSEvent.removeMonitor(m); localTriggerModifierMonitor = nil }
         if let m = localOtherEventMonitor { NSEvent.removeMonitor(m); localOtherEventMonitor = nil }
         if let m = localEscapeMonitor  { NSEvent.removeMonitor(m); localEscapeMonitor = nil }
         if let m = localCopyMonitor    { NSEvent.removeMonitor(m); localCopyMonitor = nil }
-        modifierIsPreExisting = false
-        modifierCancelledByOtherEvent = false
-        viewModel.isTriggerModifierPressed = false
+        GlobalMouseEventCoordinator.shared.removeListener(mouseEventListenerToken)
+        mouseEventListenerToken = nil
+        quickTriggerTimeout?.cancel()
+        quickTriggerTimeout = nil
+        quickTriggerHIDPoll?.cancel()
+        quickTriggerHIDPoll = nil
+        keyboardTargetIsDown = false
+        keyboardQuickTrigger.cancel()
+        mouseQuickTrigger.reset()
+        viewModel.quickTriggerVisualState = .idle
     }
 }

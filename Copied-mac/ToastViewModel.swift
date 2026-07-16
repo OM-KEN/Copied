@@ -20,9 +20,10 @@ final class ToastViewModel {
 
     // ── Action & detection state ──────────────────────────
     var primaryAction: (any ClipboardAction)? = nil
-    var isTriggerModifierPressed = false
+    var quickTriggerVisualState: QuickTriggerVisualState = .idle
     var menuActions: [any ClipboardAction] = []
-    var triggerModifierIcon: String = "command"
+    var triggerModifierIcon: String = "control"
+    var showsUpdateReminder = false
     var detectedColor: NSColor? = nil
     var resultOverlay: ResultOverlay? = nil
     var rawContent: ClipboardContent? = nil
@@ -140,8 +141,12 @@ final class ToastViewModel {
         thumbnailImage = content.thumbnail
         rawContent = content
         resultOverlay = nil  // clear previous result
-        isTriggerModifierPressed = false
-        triggerModifierIcon = ShortcutModifier.current.sfSymbolName
+        quickTriggerVisualState = .idle
+        let quickTriggerSettings = QuickTriggerSettings.current()
+        triggerModifierIcon = quickTriggerSettings.keyboardModifier == .disabled
+            ? "computermouse"
+            : quickTriggerSettings.keyboardModifier.sfSymbolName
+        showsUpdateReminder = false
         isExpanded = false
 
         // Resolve actions

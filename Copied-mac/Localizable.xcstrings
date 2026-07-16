@@ -1,6 +1,223 @@
 {
   "sourceLanguage": "zh-Hans",
   "strings": {
+    "版本": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Version" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "版本" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "版本" } }
+      }
+    },
+    "有新版本": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Update Available" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "有新版本" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "有新版本" } }
+      }
+    },
+    "关于": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "About" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "关于" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "關於" } }
+      }
+    },
+    "软件更新": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Software Update" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "软件更新" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "軟體更新" } }
+      }
+    },
+    "检查更新": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Check for Updates" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "检查更新" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "檢查更新" } }
+      }
+    },
+    "正在检查…": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Checking…" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "正在检查…" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "正在檢查…" } }
+      }
+    },
+    "前往 GitHub 更新": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Update on GitHub" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "前往 GitHub 更新" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "前往 GitHub 更新" } }
+      }
+    },
+    "更新提醒": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Update Notifications" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "更新提醒" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "更新提醒" } }
+      }
+    },
+    "开启后，Copied 每天最多检查一次稳定版本，并在下一次完整复制提醒中提示。": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "When enabled, Copied checks for a stable release at most once a day and shows it on the next full copy notification." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "开启后，Copied 每天最多检查一次稳定版本，并在下一次完整复制提醒中提示。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "開啟後，Copied 每天最多檢查一次穩定版本，並在下一次完整複製提醒中提示。" } }
+      }
+    },
+    "尚未检查更新": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Updates have not been checked yet." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "尚未检查更新" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "尚未檢查更新" } }
+      }
+    },
+    "正在检查更新…": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Checking for updates…" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "正在检查更新…" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "正在檢查更新…" } }
+      }
+    },
+    "已是最新版本": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Copied is up to date." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "已是最新版本" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "已是最新版本" } }
+      }
+    },
+    "当前没有稳定版本": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No stable release is currently available." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "当前没有稳定版本" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "目前沒有穩定版本" } }
+      }
+    },
+    "发现新版本 %@": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Version %@ is available." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "发现新版本 %@" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "發現新版本 %@" } }
+      }
+    },
+    "检查更新失败：": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Update check failed: " } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "检查更新失败：" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "檢查更新失敗：" } }
+      }
+    },
+    "无效的服务器响应": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Invalid server response" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "无效的服务器响应" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "無效的伺服器回應" } }
+      }
+    },
+    "无法读取更新信息": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Could not read update information" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "无法读取更新信息" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "無法讀取更新資訊" } }
+      }
+    },
+    "当前版本号无效": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The current app version is invalid" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "当前版本号无效" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "目前版本號無效" } }
+      }
+    },
+    "键盘修饰键": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Keyboard Modifier" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "键盘修饰键" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "鍵盤修飾鍵" } }
+      }
+    },
+    "触发方式": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Trigger Mode" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "触发方式" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "觸發方式" } }
+      }
+    },
+    "鼠标侧键": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Mouse Side Button" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "鼠标侧键" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "滑鼠側鍵" } }
+      }
+    },
+    "清除": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Clear" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "清除" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "清除" } }
+      }
+    },
+    "正在等待侧键…": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Waiting for Side Button…" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "正在等待侧键…" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "正在等待側鍵…" } }
+      }
+    },
+    "录制侧键…": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Record Side Button…" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "录制侧键…" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "錄製側鍵…" } }
+      }
+    },
+    "请求辅助功能权限…": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Request Accessibility Access…" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "请求辅助功能权限…" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "要求輔助使用權限…" } }
+      }
+    },
+    "鼠标侧键快速触发需要辅助功能权限。": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Mouse side-button quick trigger requires Accessibility access." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "鼠标侧键快速触发需要辅助功能权限。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "滑鼠側鍵快速觸發需要輔助使用權限。" } }
+      }
+    },
+    "默认双击 Control；第一次松开后需在 350 毫秒内再次按下。单击模式适合高级用户。": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Control is double-tapped by default; press it again within 350 ms after the first release. Single-tap mode is for advanced users." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "默认双击 Control；第一次松开后需在 350 毫秒内再次按下。单击模式适合高级用户。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "預設連按兩下 Control；第一次放開後需在 350 毫秒內再次按下。單擊模式適合進階使用者。" } }
+      }
+    },
+    "双击": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Double Tap" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "双击" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "連按兩下" } }
+      }
+    },
+    "单击（高级）": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Single Tap (Advanced)" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "单击（高级）" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "單擊（進階）" } }
+      }
+    },
+    "关闭": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Off" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "关闭" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "關閉" } }
+      }
+    },
+    "按钮 %lld": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Button %lld" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "按钮 %lld" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "按鈕 %lld" } }
+      }
+    },
     "content-kind.source.plugin": {
       "comment": "Singular source badge shown next to a content type supplied by a plugin.",
       "localizations": {

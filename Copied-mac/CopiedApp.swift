@@ -2,9 +2,34 @@ import SwiftUI
 import AppKit
 import ServiceManagement
 
+enum SettingsNavigation {
+    static let showAboutNotification = Notification.Name("CopiedShowAboutSettings")
+    private(set) static var requestedTab: String?
+
+    static func requestAboutTab() {
+        requestedTab = "about"
+        NotificationCenter.default.post(name: showAboutNotification, object: nil)
+    }
+
+    static func clearRequest() {
+        requestedTab = nil
+    }
+
+    static func openAboutFromToast() {
+        requestAboutTab()
+        NSApp.activate(ignoringOtherApps: true)
+        let opened = NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+        if !opened {
+            NSApp.sendAction(Selector(("showPreferencesWindow:")), to: nil, from: nil)
+        }
+    }
+}
+
 private struct MenuBarContent: View {
+    @Environment(\.openSettings) private var openSettings
     @AppStorage("isPaused") private var isPaused = false
     @AppStorage("lightReminderEnabled") private var lightReminderEnabled = false
+    @ObservedObject private var updateService = AppUpdateService.shared
     let onPauseToggle: (Bool) -> Void
 
     var body: some View {
@@ -16,12 +41,28 @@ private struct MenuBarContent: View {
                     onPauseToggle(newValue)
                 }
             ))
-            Divider()
             Toggle("轻提醒模式", isOn: $lightReminderEnabled)
             Divider()
             SettingsLink {
                 Text("设置…")
             }
+            Button {
+                SettingsNavigation.requestAboutTab()
+                openSettings()
+            } label: {
+                HStack(spacing: 4) {
+                    if updateService.showsMenuUpdateIndicator {
+                        Image(systemName: "circle.fill")
+                            .foregroundStyle(.green)
+                    }
+                    Text("版本")
+                    Text(verbatim: AppVersion.currentString)
+                    if updateService.showsMenuUpdateIndicator {
+                        Text("有新版本")
+                    }
+                }
+            }
+            Divider()
             Button("退出") {
                 NSApp.terminate(nil)
             }
@@ -98,6 +139,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 copyGestureEnabled = false
             }
         }
+
+        AppUpdateService.shared.startAutomaticChecks()
     }
 
     /// 确保 UserDefaults 中的 launchAtLogin 与 SMAppService 实际状态一致

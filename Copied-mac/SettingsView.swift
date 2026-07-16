@@ -8,15 +8,14 @@ struct SettingsView: View {
     @AppStorage("lightReminderEnabled") private var lightReminderEnabled = false
     @State private var loginItemError: String? = nil
 
-    // ── Quick Trigger Modifier ────────────────────────────
-    @AppStorage("quickTriggerModifier") private var quickTriggerModifier = "command"
-
-    private let modifierNames: [(id: String, label: String)] = [
-        ("command", "Command (⌘)"),
-        ("option",  "Option (⌥)"),
-        ("control", "Control (⌃)"),
-        ("shift",   "Shift (⇧)"),
-    ]
+    // ── Quick Trigger ─────────────────────────────────────
+    @AppStorage(QuickTriggerSettings.keyboardModifierKey)
+    private var keyboardQuickTriggerModifier = KeyboardQuickTriggerModifier.control.rawValue
+    @AppStorage(QuickTriggerSettings.keyboardModeKey)
+    private var keyboardQuickTriggerMode = KeyboardQuickTriggerMode.doubleTap.rawValue
+    @State private var mouseQuickTriggerButton: Int? = QuickTriggerSettings.current().mouseButton
+    @State private var isRecordingMouseButton = false
+    @State private var mouseRecordingMonitor: Any?
 
     // ── Search Engine ──────────────────────────────────────
     @AppStorage("searchEngine") private var searchEngine = "google"
@@ -33,6 +32,9 @@ struct SettingsView: View {
     @State private var selectedTab = "general"
     @State private var isGestureTrusted = AXIsProcessTrusted()
     @State private var showRestartAlert = false
+    @AppStorage(AppUpdateService.automaticRemindersKey)
+    private var automaticUpdateRemindersEnabled = true
+    @ObservedObject private var updateService = AppUpdateService.shared
 
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -81,13 +83,45 @@ struct SettingsView: View {
                 }
 
                 Section {
-                    Picker("修饰键", selection: $quickTriggerModifier) {
-                        ForEach(modifierNames, id: \.id) { mod in
-                            Text(mod.label).tag(mod.id)
+                    Picker("键盘修饰键", selection: $keyboardQuickTriggerModifier) {
+                        ForEach(KeyboardQuickTriggerModifier.allCases, id: \.rawValue) { modifier in
+                            Text(modifier.displayName).tag(modifier.rawValue)
                         }
                     }
                     .pickerStyle(.menu)
-                    Text("弹窗显示期间，轻点修饰键快速触发右侧的按钮。")
+
+                    if keyboardQuickTriggerModifier != KeyboardQuickTriggerModifier.disabled.rawValue {
+                        Picker("触发方式", selection: $keyboardQuickTriggerMode) {
+                            ForEach(KeyboardQuickTriggerMode.allCases, id: \.rawValue) { mode in
+                                Text(mode.displayName).tag(mode.rawValue)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                    }
+
+                    HStack {
+                        Text("鼠标侧键")
+                        Spacer()
+                        if let button = mouseQuickTriggerButton {
+                            Text(String(localized: "按钮 \(button)"))
+                                .foregroundStyle(.secondary)
+                            Button("清除") { clearMouseQuickTriggerButton() }
+                        } else {
+                            Button(isRecordingMouseButton ? "正在等待侧键…" : "录制侧键…") {
+                                startMouseButtonRecording()
+                            }
+                            .disabled(isRecordingMouseButton)
+                        }
+                    }
+
+                    if mouseQuickTriggerButton != nil, !isGestureTrusted {
+                        Button("请求辅助功能权限…") { requestAccessibilityAndRetry() }
+                        Text("鼠标侧键快速触发需要辅助功能权限。")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Text("默认双击 Control；第一次松开后需在 350 毫秒内再次按下。单击模式适合高级用户。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } header: {
@@ -120,10 +154,120 @@ struct SettingsView: View {
                     Label("黑名单", systemImage: "hand.raised.slash")
                 }
                 .tag("blacklist")
+
+            aboutTab
+                .tabItem {
+                    Label("关于", systemImage: "info.circle")
+                }
+                .tag("about")
         }
-        .frame(width: 380, height: 440)
+        .frame(width: 400, height: 480)
         .onAppear {
             NSApp.activate(ignoringOtherApps: true)
+            isGestureTrusted = AXIsProcessTrusted()
+            mouseQuickTriggerButton = QuickTriggerSettings.current().mouseButton
+            if SettingsNavigation.requestedTab == "about" {
+                selectedTab = "about"
+                SettingsNavigation.clearRequest()
+            }
+        }
+        .onDisappear {
+            stopMouseButtonRecording()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: SettingsNavigation.showAboutNotification)) { _ in
+            selectedTab = "about"
+            SettingsNavigation.clearRequest()
+        }
+    }
+
+    // MARK: - About
+
+    private var aboutTab: some View {
+        Form {
+            Section {
+                HStack(spacing: 16) {
+                    Image(nsImage: NSWorkspace.shared.icon(forFile: Bundle.main.bundlePath))
+                        .resizable()
+                        .frame(width: 64, height: 64)
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("Copied")
+                            .font(.title2.weight(.semibold))
+                        HStack(spacing: 4) {
+                            Text("版本")
+                            Text(verbatim: AppVersion.currentString)
+                        }
+                        .foregroundStyle(.secondary)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            Section("软件更新") {
+                HStack {
+                    Image(systemName: updateStatusSymbol)
+                        .foregroundStyle(updateStatusColor)
+                    Text(updateStatusText)
+                }
+
+                Button(updateService.status == .checking ? "正在检查…" : "检查更新") {
+                    updateService.checkManually()
+                }
+                .disabled(updateService.status == .checking)
+
+                if let release = updateService.availableRelease {
+                    Button("前往 GitHub 更新") {
+                        NSWorkspace.shared.open(release.pageURL)
+                    }
+                }
+
+                Toggle("更新提醒", isOn: Binding(
+                    get: { automaticUpdateRemindersEnabled },
+                    set: { enabled in
+                        automaticUpdateRemindersEnabled = enabled
+                        updateService.setAutomaticRemindersEnabled(enabled)
+                    }
+                ))
+                Text("开启后，Copied 每天最多检查一次稳定版本，并在下一次完整复制提醒中提示。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    private var updateStatusText: String {
+        switch updateService.status {
+        case .idle:
+            String(localized: "尚未检查更新")
+        case .checking:
+            String(localized: "正在检查更新…")
+        case .upToDate:
+            String(localized: "已是最新版本")
+        case .noStableRelease:
+            String(localized: "当前没有稳定版本")
+        case let .updateAvailable(version):
+            String(localized: "发现新版本 \(version.description)")
+        case let .manualFailure(message):
+            String(localized: "检查更新失败：") + message
+        }
+    }
+
+    private var updateStatusSymbol: String {
+        switch updateService.status {
+        case .updateAvailable: "arrow.up.circle.fill"
+        case .manualFailure: "exclamationmark.triangle.fill"
+        case .checking: "arrow.triangle.2.circlepath"
+        default: "checkmark.circle.fill"
+        }
+    }
+
+    private var updateStatusColor: Color {
+        switch updateService.status {
+        case .updateAvailable: .green
+        case .manualFailure: .yellow
+        case .checking, .idle: .secondary
+        default: .green
         }
     }
 
@@ -210,6 +354,33 @@ struct SettingsView: View {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
             NSWorkspace.shared.open(url)
         }
+    }
+
+    private func startMouseButtonRecording() {
+        stopMouseButtonRecording()
+        isRecordingMouseButton = true
+        mouseRecordingMonitor = NSEvent.addLocalMonitorForEvents(matching: .otherMouseDown) { event in
+            let button = Int(event.buttonNumber)
+            guard button >= 3 else { return event }
+            UserDefaults.standard.set(button, forKey: QuickTriggerSettings.mouseButtonKey)
+            mouseQuickTriggerButton = button
+            stopMouseButtonRecording()
+            return nil
+        }
+    }
+
+    private func clearMouseQuickTriggerButton() {
+        UserDefaults.standard.removeObject(forKey: QuickTriggerSettings.mouseButtonKey)
+        mouseQuickTriggerButton = nil
+        stopMouseButtonRecording()
+    }
+
+    private func stopMouseButtonRecording() {
+        if let mouseRecordingMonitor {
+            NSEvent.removeMonitor(mouseRecordingMonitor)
+            self.mouseRecordingMonitor = nil
+        }
+        isRecordingMouseButton = false
     }
 
     // MARK: - Login Item
