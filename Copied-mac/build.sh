@@ -16,11 +16,14 @@ if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
 fi
 
 SOURCES=(
+    CopyGestureEventSequence.swift
+    MouseButtonRecordingStateMachine.swift
     AppLanguage.swift
     ContentKind.swift
     ContentDetection.swift
     RelativeDateDescription.swift
     KeyboardShortcutSettings.swift
+    QuickTriggerModifierKeyPolicy.swift
     QuickTriggerStateMachine.swift
     AppUpdateModels.swift
     AppUpdateService.swift

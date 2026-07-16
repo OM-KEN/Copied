@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 
 private func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
     guard condition() else {
@@ -12,33 +13,101 @@ struct QuickTriggerStateMachineTests {
     static func main() {
         let base = QuickTriggerEventCounters.zero
 
+        var staleFlagPolicy = QuickTriggerModifierKeyPolicy(targetModifier: .control)
+        staleFlagPolicy.appeared(preExisting: false)
+        var staleFlagSingle = KeyboardQuickTriggerStateMachine(mode: .singleTap)
+        staleFlagSingle.appeared(preExisting: false)
         expect(
-            QuickTriggerModifierPolicy.hasInterferingModifier(
-                eventFlags: [.control, .capsLock],
-                triggerFlags: .control
-            ),
-            "Caps Lock cancels a Control quick-trigger sequence"
+            staleFlagPolicy.handleFlagsChanged(
+                keyCode: 59,
+                eventFlags: [.control, .function, .numericPad],
+                sequenceActive: false
+            ) == .targetDown,
+            "Control keyCode wins over stale Function/NumericPad flags"
         )
+        _ = staleFlagSingle.targetChanged(isDown: true, at: 0, counters: base, context: 1)
         expect(
-            !QuickTriggerModifierPolicy.hasInterferingModifier(
-                eventFlags: .control,
-                triggerFlags: .control
-            ),
-            "the configured modifier is not interference"
+            staleFlagPolicy.handleFlagsChanged(
+                keyCode: 59,
+                eventFlags: [.function, .numericPad],
+                sequenceActive: true
+            ) == .targetUp,
+            "Control release ignores stale Function/NumericPad flags"
         )
-        var capsLockCancellation = KeyboardQuickTriggerStateMachine(mode: .singleTap)
-        capsLockCancellation.appeared(preExisting: false)
-        _ = capsLockCancellation.targetChanged(isDown: true, at: 0, counters: base, context: 1)
-        if QuickTriggerModifierPolicy.hasInterferingModifier(
-            eventFlags: [.control, .capsLock],
-            triggerFlags: .control
-        ) {
-            capsLockCancellation.cancel()
+        expect(staleFlagSingle.targetChanged(isDown: false, at: 0.1, counters: base, context: 1), "stale flags still allow single tap")
+
+        var staleDoublePolicy = QuickTriggerModifierKeyPolicy(targetModifier: .control)
+        staleDoublePolicy.appeared(preExisting: false)
+        var staleDouble = KeyboardQuickTriggerStateMachine(mode: .doubleTap)
+        staleDouble.appeared(preExisting: false)
+        for (isDown, time) in [(true, 0.0), (false, 0.1), (true, 0.2)] {
+            let flags: NSEvent.ModifierFlags = isDown
+                ? [.control, .function, .numericPad]
+                : [.function, .numericPad]
+            let decision = staleDoublePolicy.handleFlagsChanged(
+                keyCode: 59,
+                eventFlags: flags,
+                sequenceActive: staleDouble.visualState != .idle
+            )
+            expect(decision == (isDown ? .targetDown : .targetUp), "double-tap target transition")
+            _ = staleDouble.targetChanged(isDown: isDown, at: time, counters: base, context: 1)
         }
         expect(
-            !capsLockCancellation.targetChanged(isDown: false, at: 0.1, counters: base, context: 1),
-            "Caps Lock cancellation prevents release from triggering"
+            staleDoublePolicy.handleFlagsChanged(
+                keyCode: 59,
+                eventFlags: [.function, .numericPad],
+                sequenceActive: true
+            ) == .targetUp,
+            "second stale release"
         )
+        expect(staleDouble.targetChanged(isDown: false, at: 0.3, counters: base, context: 1), "stale flags still allow double tap")
+
+        for otherKeyCode: UInt16 in [55, 58, 56, 57, 63] {
+            var policy = QuickTriggerModifierKeyPolicy(targetModifier: .control)
+            policy.appeared(preExisting: false)
+            expect(policy.handleFlagsChanged(keyCode: 59, eventFlags: .control, sequenceActive: false) == .targetDown, "target starts")
+            expect(
+                policy.handleFlagsChanged(keyCode: otherKeyCode, eventFlags: [], sequenceActive: true)
+                    == .cancelOtherModifier(keyCode: otherKeyCode),
+                "real modifier keyCode \(otherKeyCode) cancels active sequence"
+            )
+        }
+
+        var idleOtherModifier = QuickTriggerModifierKeyPolicy(targetModifier: .control)
+        idleOtherModifier.appeared(preExisting: false)
+        expect(idleOtherModifier.handleFlagsChanged(keyCode: 55, eventFlags: .command, sequenceActive: false) == .ignore, "idle other modifier ignored")
+        expect(!idleOtherModifier.isAnyTargetKeyDown, "idle other modifier does not stick target down")
+
+        var preHeldPolicy = QuickTriggerModifierKeyPolicy(targetModifier: .control)
+        preHeldPolicy.appeared(preExisting: true)
+        var preHeldMachine = KeyboardQuickTriggerStateMachine(mode: .singleTap)
+        preHeldMachine.appeared(preExisting: true)
+        expect(
+            preHeldPolicy.handleFlagsChanged(keyCode: 59, eventFlags: [.function, .numericPad], sequenceActive: false) == .targetUp,
+            "pre-held target release classified"
+        )
+        expect(!preHeldMachine.targetChanged(isDown: false, at: 0.1, counters: base, context: 1), "pre-held target release ignored")
+
+        var preHeldBothSides = QuickTriggerModifierKeyPolicy(targetModifier: .control)
+        preHeldBothSides.appeared(preExisting: true)
+        expect(preHeldBothSides.handleFlagsChanged(keyCode: 62, eventFlags: .control, sequenceActive: false) == .ignore, "pre-held second side is suppressed")
+        expect(preHeldBothSides.handleFlagsChanged(keyCode: 59, eventFlags: .control, sequenceActive: false) == .ignore, "pre-held first side release waits")
+        expect(preHeldBothSides.handleFlagsChanged(keyCode: 62, eventFlags: [], sequenceActive: false) == .targetUp, "pre-held both sides rearm after all release")
+        expect(!preHeldBothSides.isAnyTargetKeyDown, "pre-held both sides cannot stick target state")
+
+        var dualSidePolicy = QuickTriggerModifierKeyPolicy(targetModifier: .control)
+        dualSidePolicy.appeared(preExisting: false)
+        expect(dualSidePolicy.handleFlagsChanged(keyCode: 59, eventFlags: .control, sequenceActive: false) == .targetDown, "left Control down")
+        expect(dualSidePolicy.handleFlagsChanged(keyCode: 62, eventFlags: .control, sequenceActive: true) == .cancelTargetSideConflict, "simultaneous Controls cancel")
+        expect(dualSidePolicy.handleFlagsChanged(keyCode: 59, eventFlags: .control, sequenceActive: false) == .ignore, "first conflict release suppressed")
+        expect(dualSidePolicy.handleFlagsChanged(keyCode: 62, eventFlags: [], sequenceActive: false) == .ignore, "all conflict keys release before rearm")
+        expect(dualSidePolicy.handleFlagsChanged(keyCode: 59, eventFlags: .control, sequenceActive: false) == .targetDown, "rearmed after both release")
+
+        var sideSwitchPolicy = QuickTriggerModifierKeyPolicy(targetModifier: .control)
+        sideSwitchPolicy.appeared(preExisting: false)
+        expect(sideSwitchPolicy.handleFlagsChanged(keyCode: 59, eventFlags: .control, sequenceActive: false) == .targetDown, "left starts sequence")
+        expect(sideSwitchPolicy.handleFlagsChanged(keyCode: 59, eventFlags: [], sequenceActive: true) == .targetUp, "left releases")
+        expect(sideSwitchPolicy.handleFlagsChanged(keyCode: 62, eventFlags: .control, sequenceActive: true) == .cancelTargetSideConflict, "switching target side mid-sequence cancels")
 
         var exactBoundary = KeyboardQuickTriggerStateMachine(mode: .doubleTap)
         exactBoundary.appeared(preExisting: false)

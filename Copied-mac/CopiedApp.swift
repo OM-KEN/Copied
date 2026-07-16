@@ -55,11 +55,10 @@ private struct MenuBarContent: View {
                         Image(systemName: "circle.fill")
                             .foregroundStyle(.green)
                     }
-                    Text("版本")
-                    Text(verbatim: AppVersion.currentString)
-                    if updateService.showsMenuUpdateIndicator {
-                        Text("有新版本")
-                    }
+                    Text(verbatim: MenuVersionTextFormatter.string(
+                        version: AppVersion.currentString,
+                        hasUpdate: updateService.showsMenuUpdateIndicator
+                    ))
                 }
             }
             Divider()

@@ -81,12 +81,13 @@ final class CopyGestureManager {
     }
 
     private func simulateCommandC() {
-        if let event = CGEvent(keyboardEventSource: nil, virtualKey: 0x08, keyDown: true) {
-            event.flags = .maskCommand
-            event.post(tap: .cgSessionEventTap)
-        }
-        if let event = CGEvent(keyboardEventSource: nil, virtualKey: 0x08, keyDown: false) {
-            event.flags = .maskCommand
+        for descriptor in CopyGestureEventSequence.commandC {
+            guard let event = CGEvent(
+                keyboardEventSource: nil,
+                virtualKey: descriptor.virtualKey,
+                keyDown: descriptor.isKeyDown
+            ) else { continue }
+            event.flags = descriptor.flags
             event.post(tap: .cgSessionEventTap)
         }
     }

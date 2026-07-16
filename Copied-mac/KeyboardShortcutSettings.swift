@@ -73,18 +73,3 @@ struct QuickTriggerSettings: Equatable {
         )
     }
 }
-
-enum QuickTriggerModifierPolicy {
-    static let relevantModifiers: NSEvent.ModifierFlags = [
-        .command, .option, .control, .shift, .function, .capsLock
-    ]
-
-    static func hasInterferingModifier(
-        eventFlags: NSEvent.ModifierFlags,
-        triggerFlags: NSEvent.ModifierFlags
-    ) -> Bool {
-        !eventFlags
-            .intersection(relevantModifiers.subtracting(triggerFlags))
-            .isEmpty
-    }
-}

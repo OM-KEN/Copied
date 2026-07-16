@@ -18,8 +18,8 @@ final class ToastWindowController {
     private var localCopyMonitor: Any?      // 展开态 ⌘C 复制全文
     private var mouseEventListenerToken: UUID?
     private var keyboardQuickTrigger = KeyboardQuickTriggerStateMachine(mode: .doubleTap)
+    private var modifierKeyPolicy = QuickTriggerModifierKeyPolicy(targetModifier: .control)
     private var mouseQuickTrigger = MouseQuickTriggerStateMachine()
-    private var keyboardTargetIsDown = false
     private var quickTriggerContextGeneration = 0
     private var quickTriggerTimeout: DispatchWorkItem?
     private var quickTriggerHIDPoll: DispatchWorkItem?
@@ -128,14 +128,16 @@ final class ToastWindowController {
     // MARK: - Quick trigger
 
     private func installQuickTriggerMonitors() {
-        guard quickTriggerAction() != nil else { return }
         let settings = QuickTriggerSettings.current()
+        guard quickTriggerAction() != nil else { return }
         keyboardQuickTrigger = KeyboardQuickTriggerStateMachine(mode: settings.keyboardMode)
+        modifierKeyPolicy = QuickTriggerModifierKeyPolicy(targetModifier: settings.keyboardModifier)
 
         if settings.keyboardModifier != .disabled {
             let triggerFlags = settings.keyboardModifier.nseventFlags
-            keyboardTargetIsDown = NSEvent.modifierFlags.contains(triggerFlags)
-            keyboardQuickTrigger.appeared(preExisting: keyboardTargetIsDown)
+            let targetIsDown = NSEvent.modifierFlags.contains(triggerFlags)
+            modifierKeyPolicy.appeared(preExisting: targetIsDown)
+            keyboardQuickTrigger.appeared(preExisting: targetIsDown)
 
             globalTriggerModifierMonitor = NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged) {
                 [weak self] event in self?.handleModifierFlagsChanged(event)
@@ -150,8 +152,10 @@ final class ToastWindowController {
         localOtherEventMonitor = NSEvent.addLocalMonitorForEvents(
             matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel]
         ) { [weak self] event in
-            self?.cancelKeyboardQuickTrigger()
-            self?.mouseQuickTrigger.cancelPendingTrigger()
+            self?.cancelKeyboardQuickTrigger(
+                reason: "localOtherEvent type=\(event.type.rawValue) keyCode=\(event.keyCode)"
+            )
+            self?.cancelMouseQuickTrigger(reason: "localOtherEvent type=\(event.type.rawValue)")
             return event
         }
 
@@ -163,36 +167,63 @@ final class ToastWindowController {
     }
 
     private func handleModifierFlagsChanged(_ event: NSEvent) {
-        guard let window, window.isVisible, !isDismissing, quickTriggerAction() != nil else {
-            cancelKeyboardQuickTrigger()
-            return
-        }
         let settings = QuickTriggerSettings.current()
+        let countersAtEntry = captureQuickTriggerEventCounters()
+        guard let window else {
+            cancelKeyboardQuickTrigger(reason: "flagsChanged window=nil")
+            return
+        }
+        guard window.isVisible else {
+            cancelKeyboardQuickTrigger(reason: "flagsChanged windowNotVisible")
+            return
+        }
+        guard !isDismissing else {
+            cancelKeyboardQuickTrigger(reason: "flagsChanged isDismissing=true")
+            return
+        }
+        guard quickTriggerAction() != nil else {
+            cancelKeyboardQuickTrigger(reason: "flagsChanged action=nil")
+            return
+        }
         guard settings.keyboardModifier != .disabled else {
-            cancelKeyboardQuickTrigger()
+            cancelKeyboardQuickTrigger(reason: "flagsChanged modifier=disabled")
+            return
+        }
+        guard modifierKeyPolicy.targetModifier == settings.keyboardModifier else {
+            cancelKeyboardQuickTrigger(reason: "flagsChanged configuredModifierChanged")
             return
         }
 
-        let triggerFlags = settings.keyboardModifier.nseventFlags
-        if QuickTriggerModifierPolicy.hasInterferingModifier(
+        let decision = modifierKeyPolicy.handleFlagsChanged(
+            keyCode: event.keyCode,
             eventFlags: event.modifierFlags,
-            triggerFlags: triggerFlags
-        ) {
-            cancelKeyboardQuickTrigger()
-            mouseQuickTrigger.cancelPendingTrigger()
-            return
-        }
+            sequenceActive: keyboardQuickTrigger.visualState != .idle
+        )
 
-        let isDown = event.modifierFlags.contains(triggerFlags)
-        guard isDown != keyboardTargetIsDown else { return }
-        keyboardTargetIsDown = isDown
-        mouseQuickTrigger.cancelPendingTrigger()
+        let isDown: Bool
+        switch decision {
+        case .ignore:
+            return
+        case let .cancelOtherModifier(keyCode):
+            cancelKeyboardQuickTrigger(reason: "realOtherModifier keyCode=\(keyCode)")
+            cancelMouseQuickTrigger(reason: "realOtherModifier keyCode=\(keyCode)")
+            return
+        case .cancelTargetSideConflict:
+            cancelKeyboardQuickTrigger(reason: "targetLeftRightConflict keyCode=\(event.keyCode)")
+            cancelMouseQuickTrigger(reason: "targetLeftRightConflict")
+            return
+        case .targetDown:
+            isDown = true
+        case .targetUp:
+            isDown = false
+        }
+        cancelMouseQuickTrigger(reason: "keyboardModifierTransition isDown=\(isDown)")
 
         if isDown {
             let shouldTrigger = keyboardQuickTrigger.targetChanged(
                 isDown: true,
                 at: event.timestamp,
-                counters: captureQuickTriggerEventCounters(),
+                counters: countersAtEntry,
                 context: quickTriggerContextGeneration
             )
             updateQuickTriggerVisualState()
@@ -201,13 +232,22 @@ final class ToastWindowController {
             let capturedContext = quickTriggerContextGeneration
             let timestamp = event.timestamp
             DispatchQueue.main.async { [weak self] in
-                guard let self,
-                      !self.isDismissing,
-                      capturedContext == self.quickTriggerContextGeneration else { return }
+                guard let self else { return }
+                guard !self.isDismissing else {
+                    self.cancelKeyboardQuickTrigger(reason: "flagsUpAsync isDismissing=true")
+                    return
+                }
+                guard capturedContext == self.quickTriggerContextGeneration else {
+                    self.cancelKeyboardQuickTrigger(
+                        reason: "flagsUpAsync contextChanged captured=\(capturedContext) current=\(self.quickTriggerContextGeneration)"
+                    )
+                    return
+                }
+                let counters = self.captureQuickTriggerEventCounters()
                 let shouldTrigger = self.keyboardQuickTrigger.targetChanged(
                     isDown: false,
                     at: timestamp,
-                    counters: self.captureQuickTriggerEventCounters(),
+                    counters: counters,
                     context: capturedContext
                 )
                 self.updateQuickTriggerVisualState()
@@ -217,13 +257,15 @@ final class ToastWindowController {
     }
 
     private func handleGlobalMouseEvent(type: CGEventType, event: CGEvent) -> Bool {
-        cancelKeyboardQuickTrigger()
+        let button = Int(event.getIntegerValueField(.mouseEventButtonNumber))
+        cancelKeyboardQuickTrigger(
+            reason: "globalMouse type=\(type.rawValue) button=\(button)"
+        )
         let settings = QuickTriggerSettings.current()
         guard let configuredButton = settings.mouseButton else {
-            mouseQuickTrigger.cancelPendingTrigger()
+            cancelMouseQuickTrigger(reason: "globalMouse noConfiguredButton type=\(type.rawValue)")
             return false
         }
-        let button = Int(event.getIntegerValueField(.mouseEventButtonNumber))
         switch type {
         case .otherMouseDown where button == configuredButton:
             let consume = mouseQuickTrigger.mouseDown(
@@ -252,7 +294,7 @@ final class ToastWindowController {
             }
             return result.consume
         default:
-            mouseQuickTrigger.cancelPendingTrigger()
+            cancelMouseQuickTrigger(reason: "globalMouse unmatched type=\(type.rawValue) button=\(button)")
             return false
         }
     }
@@ -306,7 +348,7 @@ final class ToastWindowController {
         DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(20), execute: work)
     }
 
-    private func cancelKeyboardQuickTrigger() {
+    private func cancelKeyboardQuickTrigger(reason _: String) {
         quickTriggerTimeout?.cancel()
         quickTriggerTimeout = nil
         quickTriggerHIDPoll?.cancel()
@@ -315,10 +357,10 @@ final class ToastWindowController {
         viewModel.quickTriggerVisualState = .idle
     }
 
-    private func invalidateQuickTriggerContext() {
+    private func invalidateQuickTriggerContext(reason _: String) {
         quickTriggerContextGeneration += 1
         keyboardQuickTrigger.contextChanged()
-        mouseQuickTrigger.cancelPendingTrigger()
+        cancelMouseQuickTrigger(reason: "contextInvalidated")
         quickTriggerTimeout?.cancel()
         quickTriggerTimeout = nil
         quickTriggerHIDPoll?.cancel()
@@ -334,6 +376,10 @@ final class ToastWindowController {
     private func performQuickTriggerAction() {
         guard let action = quickTriggerAction(), !isDismissing else { return }
         handlePerformAction(action)
+    }
+
+    private func cancelMouseQuickTrigger(reason _: String) {
+        mouseQuickTrigger.cancelPendingTrigger()
     }
 
     // MARK: - Action execution
@@ -537,7 +583,7 @@ final class ToastWindowController {
     private func cancelDismiss() {
         isDismissing = false
         dismissGeneration += 1
-        invalidateQuickTriggerContext()
+        invalidateQuickTriggerContext(reason: "cancelDismiss dismissGeneration=\(dismissGeneration)")
         contentView?.layer?.filters = nil
         contentView?.layer?.removeAnimation(forKey: "dismissBlurAnim")
         window?.alphaValue = 1.0
@@ -652,7 +698,7 @@ final class ToastWindowController {
     func dismissToast(animated: Bool) {
         dismissTimer?.invalidate()
         dismissTimer = nil
-        invalidateQuickTriggerContext()
+        invalidateQuickTriggerContext(reason: "dismissToast animated=\(animated)")
         removeAllMonitors()
         if animated {
             let gen = dismissGeneration
@@ -710,8 +756,8 @@ final class ToastWindowController {
         quickTriggerTimeout = nil
         quickTriggerHIDPoll?.cancel()
         quickTriggerHIDPoll = nil
-        keyboardTargetIsDown = false
         keyboardQuickTrigger.cancel()
+        modifierKeyPolicy.reset()
         mouseQuickTrigger.reset()
         viewModel.quickTriggerVisualState = .idle
     }

@@ -1,5 +1,14 @@
 import Foundation
 
+enum MenuVersionTextFormatter {
+    static func string(version: String, hasUpdate: Bool) -> String {
+        let format = hasUpdate
+            ? String(localized: "版本 %@ · 有新版本")
+            : String(localized: "版本 %@")
+        return String(format: format, version)
+    }
+}
+
 struct SemanticVersion: Comparable, Equatable, CustomStringConvertible {
     let major: Int
     let minor: Int

@@ -8,6 +8,20 @@
         "zh-Hant": { "stringUnit": { "state": "translated", "value": "版本" } }
       }
     },
+    "版本 %@": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Version %@" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "版本 %@" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "版本 %@" } }
+      }
+    },
+    "版本 %@ · 有新版本": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Version %@ · Update Available" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "版本 %@ · 有新版本" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "版本 %@ · 有新版本" } }
+      }
+    },
     "有新版本": {
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Update Available" } },
@@ -55,13 +69,6 @@
         "en": { "stringUnit": { "state": "translated", "value": "Update Notifications" } },
         "zh-Hans": { "stringUnit": { "state": "translated", "value": "更新提醒" } },
         "zh-Hant": { "stringUnit": { "state": "translated", "value": "更新提醒" } }
-      }
-    },
-    "开启后，Copied 每天最多检查一次稳定版本，并在下一次完整复制提醒中提示。": {
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "When enabled, Copied checks for a stable release at most once a day and shows it on the next full copy notification." } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "开启后，Copied 每天最多检查一次稳定版本，并在下一次完整复制提醒中提示。" } },
-        "zh-Hant": { "stringUnit": { "state": "translated", "value": "開啟後，Copied 每天最多檢查一次穩定版本，並在下一次完整複製提醒中提示。" } }
       }
     },
     "尚未检查更新": {
@@ -169,6 +176,13 @@
         "zh-Hant": { "stringUnit": { "state": "translated", "value": "錄製側鍵…" } }
       }
     },
+    "取消录制": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Cancel Recording" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "取消录制" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "取消錄製" } }
+      }
+    },
     "请求辅助功能权限…": {
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Request Accessibility Access…" } },
@@ -181,13 +195,6 @@
         "en": { "stringUnit": { "state": "translated", "value": "Mouse side-button quick trigger requires Accessibility access." } },
         "zh-Hans": { "stringUnit": { "state": "translated", "value": "鼠标侧键快速触发需要辅助功能权限。" } },
         "zh-Hant": { "stringUnit": { "state": "translated", "value": "滑鼠側鍵快速觸發需要輔助使用權限。" } }
-      }
-    },
-    "默认双击 Control；第一次松开后需在 350 毫秒内再次按下。单击模式适合高级用户。": {
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Control is double-tapped by default; press it again within 350 ms after the first release. Single-tap mode is for advanced users." } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "默认双击 Control；第一次松开后需在 350 毫秒内再次按下。单击模式适合高级用户。" } },
-        "zh-Hant": { "stringUnit": { "state": "translated", "value": "預設連按兩下 Control；第一次放開後需在 350 毫秒內再次按下。單擊模式適合進階使用者。" } }
       }
     },
     "双击": {

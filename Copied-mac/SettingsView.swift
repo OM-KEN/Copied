@@ -14,8 +14,8 @@ struct SettingsView: View {
     @AppStorage(QuickTriggerSettings.keyboardModeKey)
     private var keyboardQuickTriggerMode = KeyboardQuickTriggerMode.doubleTap.rawValue
     @State private var mouseQuickTriggerButton: Int? = QuickTriggerSettings.current().mouseButton
-    @State private var isRecordingMouseButton = false
-    @State private var mouseRecordingMonitor: Any?
+    @State private var mouseRecordingState = MouseButtonRecordingStateMachine()
+    @State private var mouseRecordingListenerToken: UUID?
 
     // ── Search Engine ──────────────────────────────────────
     @AppStorage("searchEngine") private var searchEngine = "google"
@@ -107,10 +107,13 @@ struct SettingsView: View {
                                 .foregroundStyle(.secondary)
                             Button("清除") { clearMouseQuickTriggerButton() }
                         } else {
-                            Button(isRecordingMouseButton ? "正在等待侧键…" : "录制侧键…") {
-                                startMouseButtonRecording()
+                            Button(mouseRecordingState.isRecording ? "取消录制" : "录制侧键…") {
+                                if mouseRecordingState.isRecording {
+                                    stopMouseButtonRecording(reason: "userCancelled")
+                                } else {
+                                    startMouseButtonRecording()
+                                }
                             }
-                            .disabled(isRecordingMouseButton)
                         }
                     }
 
@@ -120,10 +123,6 @@ struct SettingsView: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
-
-                    Text("默认双击 Control；第一次松开后需在 350 毫秒内再次按下。单击模式适合高级用户。")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
                 } header: {
                     Text("快速触发")
                 }
@@ -172,7 +171,7 @@ struct SettingsView: View {
             }
         }
         .onDisappear {
-            stopMouseButtonRecording()
+            stopMouseButtonRecording(reason: "settingsDisappeared")
         }
         .onReceive(NotificationCenter.default.publisher(for: SettingsNavigation.showAboutNotification)) { _ in
             selectedTab = "about"
@@ -183,57 +182,56 @@ struct SettingsView: View {
     // MARK: - About
 
     private var aboutTab: some View {
-        Form {
-            Section {
-                HStack(spacing: 16) {
-                    Image(nsImage: NSWorkspace.shared.icon(forFile: Bundle.main.bundlePath))
-                        .resizable()
-                        .frame(width: 64, height: 64)
-                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text("Copied")
-                            .font(.title2.weight(.semibold))
-                        HStack(spacing: 4) {
-                            Text("版本")
-                            Text(verbatim: AppVersion.currentString)
-                        }
-                        .foregroundStyle(.secondary)
+        VStack(spacing: 0) {
+            HStack(spacing: 16) {
+                Image(nsImage: NSWorkspace.shared.icon(forFile: Bundle.main.bundlePath))
+                    .resizable()
+                    .frame(width: 64, height: 64)
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("Copied")
+                        .font(.title2.weight(.semibold))
+                    HStack(spacing: 4) {
+                        Text("版本")
+                        Text(verbatim: AppVersion.currentString)
                     }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-
-            Section("软件更新") {
-                HStack {
-                    Image(systemName: updateStatusSymbol)
-                        .foregroundStyle(updateStatusColor)
-                    Text(updateStatusText)
-                }
-
-                Button(updateService.status == .checking ? "正在检查…" : "检查更新") {
-                    updateService.checkManually()
-                }
-                .disabled(updateService.status == .checking)
-
-                if let release = updateService.availableRelease {
-                    Button("前往 GitHub 更新") {
-                        NSWorkspace.shared.open(release.pageURL)
-                    }
-                }
-
-                Toggle("更新提醒", isOn: Binding(
-                    get: { automaticUpdateRemindersEnabled },
-                    set: { enabled in
-                        automaticUpdateRemindersEnabled = enabled
-                        updateService.setAutomaticRemindersEnabled(enabled)
-                    }
-                ))
-                Text("开启后，Copied 每天最多检查一次稳定版本，并在下一次完整复制提醒中提示。")
-                    .font(.caption)
                     .foregroundStyle(.secondary)
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 24)
+            .padding(.vertical, 20)
+
+            Form {
+                Section("软件更新") {
+                    HStack {
+                        Image(systemName: updateStatusSymbol)
+                            .foregroundStyle(updateStatusColor)
+                        Text(updateStatusText)
+                        Spacer()
+                        Button(updateService.status == .checking ? "正在检查…" : "检查更新") {
+                            updateService.checkManually()
+                        }
+                        .disabled(updateService.status == .checking)
+                    }
+
+                    if let release = updateService.availableRelease {
+                        Button("前往 GitHub 更新") {
+                            NSWorkspace.shared.open(release.pageURL)
+                        }
+                    }
+
+                    Toggle("更新提醒", isOn: Binding(
+                        get: { automaticUpdateRemindersEnabled },
+                        set: { enabled in
+                            automaticUpdateRemindersEnabled = enabled
+                            updateService.setAutomaticRemindersEnabled(enabled)
+                        }
+                    ))
+                }
+            }
+            .formStyle(.grouped)
         }
-        .formStyle(.grouped)
     }
 
     private var updateStatusText: String {
@@ -357,30 +355,47 @@ struct SettingsView: View {
     }
 
     private func startMouseButtonRecording() {
-        stopMouseButtonRecording()
-        isRecordingMouseButton = true
-        mouseRecordingMonitor = NSEvent.addLocalMonitorForEvents(matching: .otherMouseDown) { event in
-            let button = Int(event.buttonNumber)
-            guard button >= 3 else { return event }
-            UserDefaults.standard.set(button, forKey: QuickTriggerSettings.mouseButtonKey)
-            mouseQuickTriggerButton = button
-            stopMouseButtonRecording()
-            return nil
+        let trusted = AXIsProcessTrusted()
+        stopMouseButtonRecording(reason: "restartRecording")
+        guard mouseRecordingState.start(accessibilityTrusted: trusted) else {
+            requestAccessibilityAndRetry()
+            return
+        }
+
+        mouseRecordingListenerToken = GlobalMouseEventCoordinator.shared.addListener(
+            promptForAccessibility: false
+        ) { type, event in
+            let button = Int(event.getIntegerValueField(.mouseEventButtonNumber))
+            guard type == .otherMouseDown else { return false }
+            switch mouseRecordingState.handleOtherMouseDown(button: button) {
+            case .ignore:
+                return false
+            case let .bind(recordedButton):
+                UserDefaults.standard.set(recordedButton, forKey: QuickTriggerSettings.mouseButtonKey)
+                mouseQuickTriggerButton = recordedButton
+                DispatchQueue.main.async {
+                    stopMouseButtonRecording(reason: "bindingCompleted")
+                }
+                return true
+            }
+        }
+        guard mouseRecordingListenerToken != nil else {
+            mouseRecordingState.cancel()
+            requestAccessibilityAndRetry()
+            return
         }
     }
 
     private func clearMouseQuickTriggerButton() {
         UserDefaults.standard.removeObject(forKey: QuickTriggerSettings.mouseButtonKey)
         mouseQuickTriggerButton = nil
-        stopMouseButtonRecording()
+        stopMouseButtonRecording(reason: "bindingCleared")
     }
 
-    private func stopMouseButtonRecording() {
-        if let mouseRecordingMonitor {
-            NSEvent.removeMonitor(mouseRecordingMonitor)
-            self.mouseRecordingMonitor = nil
-        }
-        isRecordingMouseButton = false
+    private func stopMouseButtonRecording(reason _: String) {
+        GlobalMouseEventCoordinator.shared.removeListener(mouseRecordingListenerToken)
+        mouseRecordingListenerToken = nil
+        mouseRecordingState.cancel()
     }
 
     // MARK: - Login Item
