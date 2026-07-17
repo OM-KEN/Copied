@@ -7,6 +7,7 @@ struct ToastView: View {
     let viewModel: ToastViewModel
     let onHoverChanged: (Bool) -> Void
     let onPreviewHoverChanged: (Bool) -> Void
+    let onPrimaryActionHoverChanged: (Bool) -> Void
     let onExpandedActionHoverChanged: (ToastAction, Bool) -> Void
     let onTap: () -> Void
     let onPerformAction: ((any ClipboardAction)?) -> Void
@@ -187,6 +188,7 @@ struct ToastView: View {
                     .animation(.spring(response: 0.2, dampingFraction: 0.6), value: viewModel.quickTriggerVisualState)
                     .animation(.spring(response: 0.2, dampingFraction: 0.6), value: isActionButtonPressed)
                     .onHover { hovering in
+                        onPrimaryActionHoverChanged(hovering)
                         if hovering {
                             hoverDebounceTask?.cancel()
                             isActionButtonHovered = true
@@ -227,6 +229,7 @@ struct ToastView: View {
                     .animation(.spring(response: 0.2, dampingFraction: 0.6), value: viewModel.quickTriggerVisualState)
                     .animation(.spring(response: 0.2, dampingFraction: 0.6), value: isActionButtonPressed)
                     .onHover { hovering in
+                        onPrimaryActionHoverChanged(hovering)
                         if hovering {
                             hoverDebounceTask?.cancel()
                             isActionButtonHovered = true
