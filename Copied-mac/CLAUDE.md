@@ -36,6 +36,7 @@ QuickTriggerModifierKeyPolicy.swift  按实际 keyCode 维护左右修饰键状�
 MouseButtonRecordingStateMachine.swift  侧键录制状态与取消/绑定决策
 AppUpdateService.swift      GitHub Releases 检查、缓存、节流与提醒状态
 ToastWindowController.swift 浮动 NSWindow + NSHostingView + Action + 键盘/侧键快速触发
+CollapsedToastMouseUpPolicy.swift  折叠态鼠标松开分流 + 主 Action 重复回调守卫
 ToastViewModel.swift        @Observable 模型（含 sourceBundleID）
 RelativeDateDescription.swift 日期/时间详情格式化（日历日语义 + 本地化时间）
 ToastView.swift             SwiftUI 卡片 + glassEffect（macOS 26+）/ ultraThinMaterial（降级）+ 展开查看全文（if/else 双态）+ contextMenu
@@ -72,7 +73,7 @@ UserDefaults 键：`searchEngine`, `launchAtLogin`, `isPaused`, `copyGestureEnab
 
 ### 鼠标交互
 
-SwiftUI `.onHover` 将预览行和展开态按钮的命中状态同步给 controller；AppKit 本地监听器在 `.leftMouseUp` 分流：折叠态预览行展开、其他区域关闭，展开态按钮执行对应动作。borderless 浮动 `NSHostingView` 内 `.onTapGesture` 不可靠。`dismissGeneration` 防止过期的动画清理隐藏新 toast。交互状态在 controller 而非 ViewModel。
+SwiftUI `.onHover` 将折叠态主按钮、预览行和展开态按钮的命中状态同步给 controller；AppKit 本地监听器在 `.leftMouseUp` 统一分流：折叠态主按钮执行当前 Action、预览行展开、其他区域关闭，展开态按钮执行对应动作。borderless 非 key 浮动 `NSHostingView` 内 SwiftUI Button / `.onTapGesture` 的 responder chain 不可靠，不能只把事件放行给 SwiftUI。`dismissGeneration` 防止过期的动画清理隐藏新 toast。交互状态在 controller 而非 ViewModel。
 
 **mouseUp 不可吞**：controller 直接路由 SwiftUI Button 后仍必须返回原始 `NSEvent`。返回 `nil` 会让 Button 停在事件跟踪模式，进而饿死 `ClipboardMonitor` 使用的默认 RunLoop Timer。
 
@@ -123,7 +124,7 @@ rebuild 后签名变化会使 macOS 清掉 `SMAppService` 登录项注册记录�
 
 ### 点击处理
 
-NSEvent 本地监听器 + SwiftUI Button 两层协作。折叠态依赖 hover + mouseUp 做展开/关闭分流；展开态按钮也用 hover 命中，但 mouseUp 继续传入 SwiftUI responder chain。异步延迟防 `dismissToast(animated:true)` 与 `cancelDismiss()` 竞争。`cancelDismiss()` 重置 `isDismissing=false`、递增 `dismissGeneration`、恢复 `alphaValue=1.0`。
+NSEvent 本地监听器 + SwiftUI hover 协作，实际鼠标 Action 路由由 controller 负责。折叠态主按钮在 mouseUp 直接执行 `quickTriggerAction()`，`ManualPrimaryActionEventGuard` 仅在同一鼠标事件中抑制一次潜在的 SwiftUI 重复回调，并在下一个主线程 run loop 自动失效；不得影响快速触发、右键菜单或后续 Action。异步延迟防 `dismissToast(animated:true)` 与 `cancelDismiss()` 竞争。`cancelDismiss()` 重置 `isDismissing=false`、递增 `dismissGeneration`、恢复 `alphaValue=1.0`。
 
 ### 快速触发（修饰键）
 

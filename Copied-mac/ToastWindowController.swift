@@ -24,7 +24,9 @@ final class ToastWindowController {
     private var quickTriggerTimeout: DispatchWorkItem?
     private var quickTriggerHIDPoll: DispatchWorkItem?
     private var isPreviewHovered = false
+    private var isPrimaryActionHovered = false
     private var hoveredExpandedAction: ToastAction?
+    private var manualPrimaryActionEventGuard = ManualPrimaryActionEventGuard()
     private let displayDuration: TimeInterval = 3.0
 
     private var isExpandingOrCollapsing = false
@@ -40,6 +42,7 @@ final class ToastWindowController {
         isDismissing = false
         isExpandingOrCollapsing = false
         isPreviewHovered = false
+        isPrimaryActionHovered = false
         hoveredExpandedAction = nil
         dismissGeneration += 1
         quickTriggerContextGeneration += 1
@@ -56,6 +59,9 @@ final class ToastWindowController {
             viewModel: viewModel,
             onHoverChanged: { [weak self] hovering in self?.handleHoverChanged(hovering) },
             onPreviewHoverChanged: { [weak self] hovering in self?.isPreviewHovered = hovering },
+            onPrimaryActionHoverChanged: { [weak self] hovering in
+                self?.isPrimaryActionHovered = hovering
+            },
             onExpandedActionHoverChanged: { [weak self] action, hovering in
                 guard let self else { return }
                 if hovering {
@@ -65,7 +71,7 @@ final class ToastWindowController {
                 }
             },
             onTap: { [weak self] in self?.handleTap() },
-            onPerformAction: { [weak self] action in self?.handlePerformAction(action) },
+            onPerformAction: { [weak self] action in self?.handleViewPerformAction(action) },
             onNeedsLayout: { [weak self] in DispatchQueue.main.async { self?.updateWindowSize() } },
             onAction: { [weak self] action in
                 switch action {
@@ -120,8 +126,19 @@ final class ToastWindowController {
                     // leaves SwiftUI Button tracking active and starves the default
                     // run loop mode used by ClipboardMonitor's timer.
                     return event
-                } else if !self.viewModel.isExpanded, self.isPreviewHovered {
-                    self.handleExpand()
+                } else if !self.viewModel.isExpanded {
+                    switch CollapsedToastMouseUpPolicy.decide(
+                        isPrimaryActionHovered: self.isPrimaryActionHovered,
+                        isPreviewHovered: self.isPreviewHovered
+                    ) {
+                    case .performPrimaryAction:
+                        self.performPrimaryActionFromMouseUp(eventNumber: event.eventNumber)
+                        return event
+                    case .expandPreview:
+                        self.handleExpand()
+                    case .dismiss:
+                        self.handleTap()
+                    }
                 } else {
                     self.handleTap()
                 }
@@ -454,6 +471,25 @@ final class ToastWindowController {
     }
 
     // MARK: - Interaction handlers
+
+    private func performPrimaryActionFromMouseUp(eventNumber: Int) {
+        guard let action = quickTriggerAction() else { return }
+        manualPrimaryActionEventGuard.begin(eventNumber: eventNumber)
+        DispatchQueue.main.async { [weak self] in
+            self?.manualPrimaryActionEventGuard.clear(eventNumber: eventNumber)
+        }
+        handlePerformAction(action)
+    }
+
+    private func handleViewPerformAction(_ action: (any ClipboardAction)?) {
+        if action != nil,
+           manualPrimaryActionEventGuard.consumeIfMatching(
+               eventNumber: NSApp.currentEvent?.eventNumber
+           ) {
+            return
+        }
+        handlePerformAction(action)
+    }
 
     private func handlePerformAction(_ action: (any ClipboardAction)?) {
         guard let action, let content = currentContent else { return }

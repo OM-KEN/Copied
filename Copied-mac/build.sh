@@ -17,6 +17,7 @@ fi
 
 SOURCES=(
     CopyGestureEventSequence.swift
+    CollapsedToastMouseUpPolicy.swift
     MouseButtonRecordingStateMachine.swift
     AppLanguage.swift
     ContentKind.swift
