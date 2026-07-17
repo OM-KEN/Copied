@@ -72,7 +72,9 @@ UserDefaults 键：`searchEngine`, `launchAtLogin`, `isPaused`, `copyGestureEnab
 
 ### 鼠标交互
 
-SwiftUI `.onHover` + AppKit `NSEvent.addLocalMonitorForEvents(.leftMouseDown)`。borderless 浮动 `NSHostingView` 内 `.onTapGesture` 不可靠。`dismissGeneration` 防止过期的动画清理隐藏新 toast。交互状态在 controller 而非 ViewModel。
+SwiftUI `.onHover` 将预览行和展开态按钮的命中状态同步给 controller；AppKit 本地监听器在 `.leftMouseUp` 分流：折叠态预览行展开、其他区域关闭，展开态按钮执行对应动作。borderless 浮动 `NSHostingView` 内 `.onTapGesture` 不可靠。`dismissGeneration` 防止过期的动画清理隐藏新 toast。交互状态在 controller 而非 ViewModel。
+
+**mouseUp 不可吞**：controller 直接路由 SwiftUI Button 后仍必须返回原始 `NSEvent`。返回 `nil` 会让 Button 停在事件跟踪模式，进而饿死 `ClipboardMonitor` 使用的默认 RunLoop Timer。
 
 ### 剪贴板检测
 
@@ -115,17 +117,19 @@ rebuild 后签名变化会使 macOS 清掉 `SMAppService` 登录项注册记录�
 
 `ExpandedTextView` 固定宽 360，文本自然高度、底部留 52pt，ScrollView 最大 300pt，底栏用 `.regularMaterial`；`updateWindowSize` 上限 340pt。所有内容类型均可展开，`expandedText` 优先级为结果覆盖层 > 原文 > 文件名+路径。折叠态预览和结果覆盖层 hover 使用 `Color.primary.opacity(0.1)`。
 
-展开态交互：按钮栏 Spacer 区域由 `handleTap()` 按底部 60pt、横向 42%~78% 判断并异步 dismiss；非 key window 的 ⌘C 由本地 keyDown monitor 找到 `NSTextView` 后复制选区；Escape（keyCode 53）收起；TextEdit 操作写 UUID 临时文件后用 `NSWorkspace` 打开。
+展开态交互：进入展开态时移除键盘/侧键快速触发监听，避免全局/本地鼠标监听干扰文本拖选；收起后重新安装。按钮栏 Spacer 区域由 `handleTap()` 按底部 60pt、横向 42%~78% 判断并异步 dismiss；非 key window 的 ⌘C 由本地 keyDown monitor 找到 `NSTextView` 后复制选区；Escape（keyCode 53）收起；TextEdit 操作写 UUID 临时文件后用 `NSWorkspace` 打开，且动作入口必须防重入。
 
 过渡必须使用全窗口 CIGaussianBlur + alpha 两段式切换，并由 `isExpandingOrCollapsing` 防重入；窗口 resize 不做动画。
 
 ### 点击处理
 
-NSEvent 本地监听器 + SwiftUI Button 两层协作。异步延迟防 `dismissToast(animated:true)` 与 `cancelDismiss()` 竞争。`cancelDismiss()` 重置 `isDismissing=false`、递增 `dismissGeneration`、恢复 `alphaValue=1.0`。
+NSEvent 本地监听器 + SwiftUI Button 两层协作。折叠态依赖 hover + mouseUp 做展开/关闭分流；展开态按钮也用 hover 命中，但 mouseUp 继续传入 SwiftUI responder chain。异步延迟防 `dismissToast(animated:true)` 与 `cancelDismiss()` 竞争。`cancelDismiss()` 重置 `isDismissing=false`、递增 `dismissGeneration`、恢复 `alphaValue=1.0`。
 
 ### 快速触发（修饰键）
 
 Toast 有主操作按钮（或结果覆盖层）时，默认在第一次 Control 松开后的 350ms 内再次按下并松开 Control 触发。设置 → 通用 → 快速触发可改为 Command/Option/Shift、关闭键盘触发，或启用单击（高级）模式；原生鼠标侧键可作为并行触发。按钮 hover 时动态显示对应图标。
+
+普通鼠标输入取消快速触发时，只有视觉状态实际变化才写 `quickTriggerVisualState`，禁止在 idle → idle 时触发 SwiftUI 重绘。展开态没有主操作按钮，因此暂停全部快速触发监听；收起或新 toast 出现时恢复，不改变折叠态的键盘/侧键行为。
 
 **输入边界**：从第一次按下到第二次松开之间，出现普通键、其他修饰键、鼠标点击或滚轮即取消。键盘路径不需要辅助功能权限；侧键录制/触发与左右键复制共享 `GlobalMouseEventCoordinator` 的 CGEventTap，需要辅助功能权限。
 

@@ -23,6 +23,8 @@ final class ToastWindowController {
     private var quickTriggerContextGeneration = 0
     private var quickTriggerTimeout: DispatchWorkItem?
     private var quickTriggerHIDPoll: DispatchWorkItem?
+    private var isPreviewHovered = false
+    private var hoveredExpandedAction: ToastAction?
     private let displayDuration: TimeInterval = 3.0
 
     private var isExpandingOrCollapsing = false
@@ -37,6 +39,8 @@ final class ToastWindowController {
 
         isDismissing = false
         isExpandingOrCollapsing = false
+        isPreviewHovered = false
+        hoveredExpandedAction = nil
         dismissGeneration += 1
         quickTriggerContextGeneration += 1
         contentView?.layer?.filters = nil
@@ -51,6 +55,15 @@ final class ToastWindowController {
         let toastCard = ToastView(
             viewModel: viewModel,
             onHoverChanged: { [weak self] hovering in self?.handleHoverChanged(hovering) },
+            onPreviewHoverChanged: { [weak self] hovering in self?.isPreviewHovered = hovering },
+            onExpandedActionHoverChanged: { [weak self] action, hovering in
+                guard let self else { return }
+                if hovering {
+                    self.hoveredExpandedAction = action
+                } else if self.hoveredExpandedAction == action {
+                    self.hoveredExpandedAction = nil
+                }
+            },
             onTap: { [weak self] in self?.handleTap() },
             onPerformAction: { [weak self] action in self?.handlePerformAction(action) },
             onNeedsLayout: { [weak self] in DispatchQueue.main.async { self?.updateWindowSize() } },
@@ -94,9 +107,24 @@ final class ToastWindowController {
         if isMouseInsideWindow() {} else { startDismissTimer() }
 
         if localMouseMonitor == nil {
-            localMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
+            localMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseUp) { [weak self] event in
                 guard let self, let window = self.window, window.isVisible, !self.isDismissing else { return event }
-                if window.frame.contains(NSEvent.mouseLocation) { self.handleTap() }
+                guard window.frame.contains(NSEvent.mouseLocation) else { return event }
+                if self.viewModel.isExpanded, let action = self.hoveredExpandedAction {
+                    switch action {
+                    case .expand: break
+                    case .collapse: self.handleCollapse()
+                    case .editInTextEdit: self.handleEditInTextEdit()
+                    }
+                    // Keep the original mouseUp in the responder chain. Swallowing it
+                    // leaves SwiftUI Button tracking active and starves the default
+                    // run loop mode used by ClipboardMonitor's timer.
+                    return event
+                } else if !self.viewModel.isExpanded, self.isPreviewHovered {
+                    self.handleExpand()
+                } else {
+                    self.handleTap()
+                }
                 return event
             }
         }
@@ -349,15 +377,19 @@ final class ToastWindowController {
     }
 
     private func cancelKeyboardQuickTrigger(reason _: String) {
+        let needsVisualReset = viewModel.quickTriggerVisualState != .idle
         quickTriggerTimeout?.cancel()
         quickTriggerTimeout = nil
         quickTriggerHIDPoll?.cancel()
         quickTriggerHIDPoll = nil
         keyboardQuickTrigger.cancel()
-        viewModel.quickTriggerVisualState = .idle
+        if needsVisualReset {
+            viewModel.quickTriggerVisualState = .idle
+        }
     }
 
     private func invalidateQuickTriggerContext(reason _: String) {
+        let needsVisualReset = viewModel.quickTriggerVisualState != .idle
         quickTriggerContextGeneration += 1
         keyboardQuickTrigger.contextChanged()
         cancelMouseQuickTrigger(reason: "contextInvalidated")
@@ -365,7 +397,9 @@ final class ToastWindowController {
         quickTriggerTimeout = nil
         quickTriggerHIDPoll?.cancel()
         quickTriggerHIDPoll = nil
-        viewModel.quickTriggerVisualState = .idle
+        if needsVisualReset {
+            viewModel.quickTriggerVisualState = .idle
+        }
     }
 
     private func quickTriggerAction() -> (any ClipboardAction)? {
@@ -441,6 +475,7 @@ final class ToastWindowController {
     private func handleExpand() {
         guard !viewModel.isExpanded, !isExpandingOrCollapsing else { return }
         isExpandingOrCollapsing = true
+        removeQuickTriggerMonitors()
         cancelDismiss()
         pauseDismissTimer()
 
@@ -476,7 +511,9 @@ final class ToastWindowController {
             self.animateWindowAlpha(to: 1, easeIn: false) { [weak self] in
                 self?.removeWindowBlur()
                 self?.isExpandingOrCollapsing = false
+                self?.hoveredExpandedAction = nil
                 if self?.isMouseInsideWindow() == false { self?.startDismissTimer() }
+                self?.installQuickTriggerMonitors()
             }
         }
     }
@@ -527,6 +564,7 @@ final class ToastWindowController {
     }
 
     private func handleEditInTextEdit() {
+        guard !isDismissing, !isExpandingOrCollapsing else { return }
         let text = viewModel.expandedText
         guard !text.isEmpty else { return }
         let url = FileManager.default.temporaryDirectory
@@ -745,11 +783,15 @@ final class ToastWindowController {
 
     private func removeAllMonitors() {
         if let m = localMouseMonitor { NSEvent.removeMonitor(m); localMouseMonitor = nil }
+        removeQuickTriggerMonitors()
+        if let m = localEscapeMonitor  { NSEvent.removeMonitor(m); localEscapeMonitor = nil }
+        if let m = localCopyMonitor    { NSEvent.removeMonitor(m); localCopyMonitor = nil }
+    }
+
+    private func removeQuickTriggerMonitors() {
         if let m = globalTriggerModifierMonitor { NSEvent.removeMonitor(m); globalTriggerModifierMonitor = nil }
         if let m = localTriggerModifierMonitor  { NSEvent.removeMonitor(m); localTriggerModifierMonitor = nil }
         if let m = localOtherEventMonitor { NSEvent.removeMonitor(m); localOtherEventMonitor = nil }
-        if let m = localEscapeMonitor  { NSEvent.removeMonitor(m); localEscapeMonitor = nil }
-        if let m = localCopyMonitor    { NSEvent.removeMonitor(m); localCopyMonitor = nil }
         GlobalMouseEventCoordinator.shared.removeListener(mouseEventListenerToken)
         mouseEventListenerToken = nil
         quickTriggerTimeout?.cancel()

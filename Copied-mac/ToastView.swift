@@ -1,11 +1,13 @@
 import SwiftUI
 
 /// Actions the toast can trigger beyond the existing callbacks.
-enum ToastAction { case expand, collapse, editInTextEdit }
+enum ToastAction: Equatable { case expand, collapse, editInTextEdit }
 
 struct ToastView: View {
     let viewModel: ToastViewModel
     let onHoverChanged: (Bool) -> Void
+    let onPreviewHoverChanged: (Bool) -> Void
+    let onExpandedActionHoverChanged: (ToastAction, Bool) -> Void
     let onTap: () -> Void
     let onPerformAction: ((any ClipboardAction)?) -> Void
     let onNeedsLayout: (() -> Void)?
@@ -39,7 +41,8 @@ struct ToastView: View {
                 ExpandedTextView(
                     rawText: viewModel.expandedText,
                     onEditInTextEdit: { onAction(.editInTextEdit) },
-                    onCollapse: { onAction(.collapse) }
+                    onCollapse: { onAction(.collapse) },
+                    onActionHoverChanged: onExpandedActionHoverChanged
                 )
             } else {
                 HStack(spacing: 12) {
@@ -91,7 +94,10 @@ struct ToastView: View {
                                         .fill(Color.primary.opacity(0.1))
                                 }
                             }
-                            .onHover { isPreviewHovered = $0 }
+                            .onHover { hovering in
+                                isPreviewHovered = hovering
+                                onPreviewHoverChanged(hovering)
+                            }
                             .animation(.easeInOut(duration: 0.15), value: isPreviewHovered)
 
                         if let overlay = viewModel.resultOverlay {
@@ -114,7 +120,10 @@ struct ToastView: View {
                                         .fill(Color.primary.opacity(0.1))
                                 }
                             }
-                            .onHover { isResultHovered = $0 }
+                            .onHover { hovering in
+                                isResultHovered = hovering
+                                onPreviewHoverChanged(hovering)
+                            }
                             .animation(.easeInOut(duration: 0.15), value: isResultHovered)
                             .onTapGesture { onAction(.expand) }
                         }
@@ -370,6 +379,7 @@ private struct ExpandedTextView: View {
     let rawText: String
     let onEditInTextEdit: () -> Void
     let onCollapse: () -> Void
+    let onActionHoverChanged: (ToastAction, Bool) -> Void
 
     private let maxTotalHeight: CGFloat = 300
 
@@ -391,9 +401,11 @@ private struct ExpandedTextView: View {
 
             HStack {
                 Button("在文本编辑中打开") { onEditInTextEdit() }
+                    .onHover { onActionHoverChanged(.editInTextEdit, $0) }
                 Spacer()
                 Button("收起") { onCollapse() }
                     .keyboardShortcut(.escape, modifiers: [])
+                    .onHover { onActionHoverChanged(.collapse, $0) }
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
