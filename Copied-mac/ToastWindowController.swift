@@ -17,16 +17,16 @@ final class ToastWindowController {
 
     private var isDismissing = false
     private var dismissGeneration = 0
-    private var globalTriggerModifierMonitor: Any?
-    private var localTriggerModifierMonitor: Any?
-    private var localOtherEventMonitor: Any?
-    private var mouseEventListenerToken: UUID?
-    private var keyboardQuickTrigger = KeyboardQuickTriggerStateMachine(mode: .doubleTap)
-    private var modifierKeyPolicy = QuickTriggerModifierKeyPolicy(targetModifier: .control)
-    private var mouseQuickTrigger = MouseQuickTriggerStateMachine()
-    private var quickTriggerContextGeneration = 0
-    private var quickTriggerTimeout: DispatchWorkItem?
-    private var quickTriggerHIDPoll: DispatchWorkItem?
+    private lazy var quickTriggerCoordinator: QuickTriggerCoordinator = {
+        let coordinator = QuickTriggerCoordinator()
+        coordinator.onPerformPrimary = { [weak self] in
+            self?.handleCommand(.performPrimary)
+        }
+        coordinator.onVisualStateChanged = { [weak self] state in
+            self?.viewModel.quickTriggerVisualState = state
+        }
+        return coordinator
+    }()
     private let displayDuration: TimeInterval = 3.0
 
     private var isExpandingOrCollapsing = false
@@ -42,7 +42,6 @@ final class ToastWindowController {
         isDismissing = false
         isExpandingOrCollapsing = false
         dismissGeneration += 1
-        quickTriggerContextGeneration += 1
         contentView?.layer?.filters = nil
         // Always recreate window for fresh Space association.
         // Fullscreen Spaces can lose track of reused windows after
@@ -96,270 +95,40 @@ final class ToastWindowController {
 
         if isMouseInsideWindow() {} else { startDismissTimer() }
 
-        installQuickTriggerMonitors()
+        quickTriggerCoordinator.start(context: makeQuickTriggerContext())
     }
 
     // MARK: - Quick trigger
-
-    private func installQuickTriggerMonitors() {
-        let settings = QuickTriggerSettings.current()
-        guard quickTriggerAction() != nil else { return }
-        keyboardQuickTrigger = KeyboardQuickTriggerStateMachine(mode: settings.keyboardMode)
-        modifierKeyPolicy = QuickTriggerModifierKeyPolicy(targetModifier: settings.keyboardModifier)
-
-        if settings.keyboardModifier != .disabled {
-            let triggerFlags = settings.keyboardModifier.nseventFlags
-            let targetIsDown = NSEvent.modifierFlags.contains(triggerFlags)
-            modifierKeyPolicy.appeared(preExisting: targetIsDown)
-            keyboardQuickTrigger.appeared(preExisting: targetIsDown)
-
-            globalTriggerModifierMonitor = NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged) {
-                [weak self] event in self?.handleModifierFlagsChanged(event)
-            }
-            localTriggerModifierMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) {
-                [weak self] event in
-                self?.handleModifierFlagsChanged(event)
-                return event
-            }
-        }
-
-        localOtherEventMonitor = NSEvent.addLocalMonitorForEvents(
-            matching: .keyDown
-        ) { [weak self] event in
-            self?.cancelKeyboardQuickTrigger(
-                reason: "localOtherEvent type=\(event.type.rawValue) keyCode=\(event.keyCode)"
-            )
-            self?.cancelMouseQuickTrigger(reason: "localOtherEvent type=\(event.type.rawValue)")
-            return event
-        }
-
-        mouseEventListenerToken = GlobalMouseEventCoordinator.shared.addListener(
-            promptForAccessibility: false
-        ) { [weak self] type, event in
-            self?.handleGlobalMouseEvent(type: type, event: event) ?? false
-        }
-    }
-
-    private func handleModifierFlagsChanged(_ event: NSEvent) {
-        let settings = QuickTriggerSettings.current()
-        let countersAtEntry = captureQuickTriggerEventCounters()
-        guard let window else {
-            cancelKeyboardQuickTrigger(reason: "flagsChanged window=nil")
-            return
-        }
-        guard window.isVisible else {
-            cancelKeyboardQuickTrigger(reason: "flagsChanged windowNotVisible")
-            return
-        }
-        guard !isDismissing else {
-            cancelKeyboardQuickTrigger(reason: "flagsChanged isDismissing=true")
-            return
-        }
-        guard quickTriggerAction() != nil else {
-            cancelKeyboardQuickTrigger(reason: "flagsChanged action=nil")
-            return
-        }
-        guard settings.keyboardModifier != .disabled else {
-            cancelKeyboardQuickTrigger(reason: "flagsChanged modifier=disabled")
-            return
-        }
-        guard modifierKeyPolicy.targetModifier == settings.keyboardModifier else {
-            cancelKeyboardQuickTrigger(reason: "flagsChanged configuredModifierChanged")
-            return
-        }
-
-        let decision = modifierKeyPolicy.handleFlagsChanged(
-            keyCode: event.keyCode,
-            eventFlags: event.modifierFlags,
-            sequenceActive: keyboardQuickTrigger.visualState != .idle
-        )
-
-        let isDown: Bool
-        switch decision {
-        case .ignore:
-            return
-        case let .cancelOtherModifier(keyCode):
-            cancelKeyboardQuickTrigger(reason: "realOtherModifier keyCode=\(keyCode)")
-            cancelMouseQuickTrigger(reason: "realOtherModifier keyCode=\(keyCode)")
-            return
-        case .cancelTargetSideConflict:
-            cancelKeyboardQuickTrigger(reason: "targetLeftRightConflict keyCode=\(event.keyCode)")
-            cancelMouseQuickTrigger(reason: "targetLeftRightConflict")
-            return
-        case .targetDown:
-            isDown = true
-        case .targetUp:
-            isDown = false
-        }
-        cancelMouseQuickTrigger(reason: "keyboardModifierTransition isDown=\(isDown)")
-
-        if isDown {
-            let shouldTrigger = keyboardQuickTrigger.targetChanged(
-                isDown: true,
-                at: event.timestamp,
-                counters: countersAtEntry,
-                context: quickTriggerContextGeneration
-            )
-            updateQuickTriggerVisualState()
-            if shouldTrigger { performQuickTriggerAction() }
-        } else {
-            let capturedContext = quickTriggerContextGeneration
-            let timestamp = event.timestamp
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                guard !self.isDismissing else {
-                    self.cancelKeyboardQuickTrigger(reason: "flagsUpAsync isDismissing=true")
-                    return
-                }
-                guard capturedContext == self.quickTriggerContextGeneration else {
-                    self.cancelKeyboardQuickTrigger(
-                        reason: "flagsUpAsync contextChanged captured=\(capturedContext) current=\(self.quickTriggerContextGeneration)"
-                    )
-                    return
-                }
-                let counters = self.captureQuickTriggerEventCounters()
-                let shouldTrigger = self.keyboardQuickTrigger.targetChanged(
-                    isDown: false,
-                    at: timestamp,
-                    counters: counters,
-                    context: capturedContext
-                )
-                self.updateQuickTriggerVisualState()
-                if shouldTrigger { self.performQuickTriggerAction() }
-            }
-        }
-    }
-
-    private func handleGlobalMouseEvent(type: CGEventType, event: CGEvent) -> Bool {
-        let button = Int(event.getIntegerValueField(.mouseEventButtonNumber))
-        cancelKeyboardQuickTrigger(
-            reason: "globalMouse type=\(type.rawValue) button=\(button)"
-        )
-        let settings = QuickTriggerSettings.current()
-        guard let configuredButton = settings.mouseButton else {
-            cancelMouseQuickTrigger(reason: "globalMouse noConfiguredButton type=\(type.rawValue)")
-            return false
-        }
-        switch type {
-        case .otherMouseDown where button == configuredButton:
-            let consume = mouseQuickTrigger.mouseDown(
-                button: button,
-                configuredButton: configuredButton,
-                context: quickTriggerContextGeneration,
-                canPerform: window?.isVisible == true && !isDismissing && quickTriggerAction() != nil
-            )
-            if consume {
-                DispatchQueue.main.async { [weak self] in
-                    self?.viewModel.quickTriggerVisualState = .pressed
-                }
-            }
-            return consume
-        case .otherMouseUp where button == configuredButton:
-            let result = mouseQuickTrigger.mouseUp(
-                button: button,
-                context: quickTriggerContextGeneration
-            )
-            if result.consume {
-                DispatchQueue.main.async { [weak self] in
-                    guard let self else { return }
-                    self.viewModel.quickTriggerVisualState = .idle
-                    if result.trigger { self.performQuickTriggerAction() }
-                }
-            }
-            return result.consume
-        default:
-            cancelMouseQuickTrigger(reason: "globalMouse unmatched type=\(type.rawValue) button=\(button)")
-            return false
-        }
-    }
-
-    private func captureQuickTriggerEventCounters() -> QuickTriggerEventCounters {
-        func count(_ type: CGEventType) -> UInt32 {
-            CGEventSource.counterForEventType(.hidSystemState, eventType: type)
-        }
-        return QuickTriggerEventCounters(
-            keyDown: count(.keyDown),
-            leftMouseDown: count(.leftMouseDown),
-            leftMouseUp: count(.leftMouseUp),
-            rightMouseDown: count(.rightMouseDown),
-            rightMouseUp: count(.rightMouseUp),
-            otherMouseDown: count(.otherMouseDown),
-            otherMouseUp: count(.otherMouseUp),
-            scrollWheel: count(.scrollWheel)
-        )
-    }
-
-    private func updateQuickTriggerVisualState() {
-        quickTriggerTimeout?.cancel()
-        viewModel.quickTriggerVisualState = keyboardQuickTrigger.visualState
-        scheduleQuickTriggerHIDValidation()
-        guard keyboardQuickTrigger.visualState == .waitingForSecondTap else { return }
-        let work = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            self.keyboardQuickTrigger.tick(at: ProcessInfo.processInfo.systemUptime)
-            self.viewModel.quickTriggerVisualState = self.keyboardQuickTrigger.visualState
-        }
-        quickTriggerTimeout = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(351), execute: work)
-    }
-
-    private func scheduleQuickTriggerHIDValidation() {
-        quickTriggerHIDPoll?.cancel()
-        quickTriggerHIDPoll = nil
-        guard keyboardQuickTrigger.visualState != .idle else { return }
-        let capturedContext = quickTriggerContextGeneration
-        let work = DispatchWorkItem { [weak self] in
-            guard let self,
-                  capturedContext == self.quickTriggerContextGeneration else { return }
-            let isValid = self.keyboardQuickTrigger.validate(
-                counters: self.captureQuickTriggerEventCounters(),
-                context: capturedContext
-            )
-            self.viewModel.quickTriggerVisualState = self.keyboardQuickTrigger.visualState
-            if isValid { self.scheduleQuickTriggerHIDValidation() }
-        }
-        quickTriggerHIDPoll = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(20), execute: work)
-    }
-
-    private func cancelKeyboardQuickTrigger(reason _: String) {
-        let needsVisualReset = viewModel.quickTriggerVisualState.shouldPublishIdleReset
-        quickTriggerTimeout?.cancel()
-        quickTriggerTimeout = nil
-        quickTriggerHIDPoll?.cancel()
-        quickTriggerHIDPoll = nil
-        keyboardQuickTrigger.cancel()
-        if needsVisualReset {
-            viewModel.quickTriggerVisualState = .idle
-        }
-    }
-
-    private func invalidateQuickTriggerContext(reason _: String) {
-        let needsVisualReset = viewModel.quickTriggerVisualState.shouldPublishIdleReset
-        quickTriggerContextGeneration += 1
-        keyboardQuickTrigger.contextChanged()
-        cancelMouseQuickTrigger(reason: "contextInvalidated")
-        quickTriggerTimeout?.cancel()
-        quickTriggerTimeout = nil
-        quickTriggerHIDPoll?.cancel()
-        quickTriggerHIDPoll = nil
-        if needsVisualReset {
-            viewModel.quickTriggerVisualState = .idle
-        }
-    }
 
     private func quickTriggerAction() -> (any ClipboardAction)? {
         viewModel.resultOverlay.map { CopyTextAction(text: $0.copyText) }
             ?? viewModel.primaryAction
     }
 
-    private func performQuickTriggerAction() {
-        guard quickTriggerAction() != nil, !isDismissing else { return }
-        handleCommand(.performPrimary)
+    private func makeQuickTriggerContext() -> QuickTriggerCoordinator.Context {
+        let generation = dismissGeneration
+        return QuickTriggerCoordinator.Context(
+            id: generation,
+            isValid: { [weak self] in
+                self?.dismissGeneration == generation
+            },
+            canPerform: { [weak self] in
+                guard let self else { return false }
+                return self.window?.isVisible == true
+                    && !self.isDismissing
+                    && !self.isExpandingOrCollapsing
+                    && !self.viewModel.isExpanded
+                    && self.quickTriggerAction() != nil
+            }
+        )
     }
 
-    private func cancelMouseQuickTrigger(reason _: String) {
-        mouseQuickTrigger.cancelPendingTrigger()
+    private func refreshQuickTriggerContextIfEligible() {
+        guard window?.isVisible == true,
+              !isDismissing,
+              !isExpandingOrCollapsing,
+              !viewModel.isExpanded else { return }
+        quickTriggerCoordinator.start(context: makeQuickTriggerContext())
     }
 
     // MARK: - Action execution
@@ -447,7 +216,7 @@ final class ToastWindowController {
     private func handleExpand() {
         guard !viewModel.isExpanded, !isExpandingOrCollapsing else { return }
         isExpandingOrCollapsing = true
-        removeQuickTriggerMonitors()
+        quickTriggerCoordinator.suspend()
         cancelDismiss()
         pauseDismissTimer()
 
@@ -486,7 +255,9 @@ final class ToastWindowController {
                 self?.removeWindowBlur()
                 self?.isExpandingOrCollapsing = false
                 if self?.isMouseInsideWindow() == false { self?.startDismissTimer() }
-                self?.installQuickTriggerMonitors()
+                if let self {
+                    self.quickTriggerCoordinator.resume(context: self.makeQuickTriggerContext())
+                }
             }
         }
     }
@@ -569,11 +340,11 @@ final class ToastWindowController {
     private func cancelDismiss() {
         isDismissing = false
         dismissGeneration += 1
-        invalidateQuickTriggerContext(reason: "cancelDismiss dismissGeneration=\(dismissGeneration)")
         contentView?.layer?.filters = nil
         contentView?.layer?.removeAnimation(forKey: "dismissBlurAnim")
         window?.alphaValue = 1.0
         window?.orderFront(nil)
+        refreshQuickTriggerContextIfEligible()
     }
 
     /// 异步 inline action 的统一入口。处理 dismiss 竞态 + 非动画窗口 resize。
@@ -825,7 +596,6 @@ final class ToastWindowController {
         setExpandedTextSurfaceVisible(false)
         dismissTimer?.invalidate()
         dismissTimer = nil
-        invalidateQuickTriggerContext(reason: "dismissToast animated=\(animated)")
         removeAllMonitors()
         if animated {
             let gen = dismissGeneration
@@ -871,22 +641,6 @@ final class ToastWindowController {
     }
 
     private func removeAllMonitors() {
-        removeQuickTriggerMonitors()
-    }
-
-    private func removeQuickTriggerMonitors() {
-        if let m = globalTriggerModifierMonitor { NSEvent.removeMonitor(m); globalTriggerModifierMonitor = nil }
-        if let m = localTriggerModifierMonitor  { NSEvent.removeMonitor(m); localTriggerModifierMonitor = nil }
-        if let m = localOtherEventMonitor { NSEvent.removeMonitor(m); localOtherEventMonitor = nil }
-        GlobalMouseEventCoordinator.shared.removeListener(mouseEventListenerToken)
-        mouseEventListenerToken = nil
-        quickTriggerTimeout?.cancel()
-        quickTriggerTimeout = nil
-        quickTriggerHIDPoll?.cancel()
-        quickTriggerHIDPoll = nil
-        keyboardQuickTrigger.cancel()
-        modifierKeyPolicy.reset()
-        mouseQuickTrigger.reset()
-        viewModel.quickTriggerVisualState = .idle
+        quickTriggerCoordinator.stop()
     }
 }

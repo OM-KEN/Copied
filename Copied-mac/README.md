@@ -39,7 +39,7 @@ pip3 install 'dmgbuild>=1.6.5'   # 首次需安装
 
 复制任意内容 → 卡片弹出。悬停保持，点击预览行展开全文，点击右侧按钮执行操作，点击图标、来源信息或其他空白区域关闭。默认在第一次 Control 松开后的 350ms 内再次按下并松开 Control，即可触发主操作；设置中也可选择单击模式、其他修饰键或原生鼠标侧键。
 
-侧键录制需要辅助功能权限。Mac Mouse Fix 等鼠标重映射工具可能在事件到达 Copied 前将侧键拦截或改写；此时需在该工具中保留原生侧键事件，或关闭对应映射。
+侧键录制需要辅助功能权限。Mac Mouse Fix 等鼠标重映射工具可能在事件到达 Copied 前拦截或改写原生侧键、“修饰键 + 滚轮”等输入；此时只需在该工具中关闭对应映射或保留原生事件，无需退出整个工具。
 
 右键菜单提供搜索、另存为、类型专属操作，以及一键将当前 App 加入黑名单。设置中可开启左右键手势（按住左键+右键=⌘C）、管理检测类型、管理黑名单、安装插件。
 
@@ -60,12 +60,13 @@ AppFilterSettings.swift     — 应用黑名单过滤 + 持久化
 ClipboardAction.swift       — Action 协议 + 内置 Action + ActionResolver
 KeyboardShortcutSettings.swift — 快速触发修饰键、双击/单击模式和侧键配置
 QuickTriggerModifierKeyPolicy.swift — 按实际键码处理修饰键状态与冲突
+QuickTriggerCoordinator.swift — 键盘/侧键快速触发监听、生命周期与上下文保护
 AppUpdateService.swift      — GitHub Releases 版本检查、缓存与提醒节流
 FilePreviewGenerator.swift  — QLThumbnailGenerator 异步文件缩略图
 SourceAppDetector.swift     — NSWorkspace 前台 App 检测（含 bundleIdentifier）
 ToastPanel.swift            — nonactivating NSPanel + first-mouse hosting / 原生展开文本
 ToastCommand.swift          — 弹窗内部命令与单次分发
-ToastWindowController.swift — ToastPanel、展开文本分层与快速触发管理（标准模式）
+ToastWindowController.swift — ToastPanel、展开文本分层与快速触发命令路由（标准模式）
 LightReminderController.swift — 轻提醒模式浮标（NSWindow + drawOff 反向动画）
 ToastView.swift             — SwiftUI 卡片 + 展开查看全文 + 色块 + 右键菜单
 ToastViewModel.swift        — @Observable 模型（含展开状态管理）

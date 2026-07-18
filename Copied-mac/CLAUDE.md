@@ -33,11 +33,12 @@ BlacklistSourceAppAction.swift  右键"屏蔽此来源" Action
 ClipboardAction.swift       Action 协议 + 内置 Action + ActionResolver
 KeyboardShortcutSettings.swift  快速触发修饰键、双击/单击模式、侧键配置
 QuickTriggerModifierKeyPolicy.swift  按实际 keyCode 维护左右修饰键状态
+QuickTriggerCoordinator.swift  键盘/侧键快速触发监听、生命周期与上下文守卫
 MouseButtonRecordingStateMachine.swift  侧键录制状态与取消/绑定决策
 AppUpdateService.swift      GitHub Releases 检查、缓存、节流与提醒状态
 ToastPanel.swift            nonactivating NSPanel + first-mouse hosting + 原生展开文本
 ToastCommand.swift          弹窗内部命令 + 同步防重入分发
-ToastWindowController.swift ToastPanel + Action + 展开文本分层 + 键盘/侧键快速触发
+ToastWindowController.swift ToastPanel + Action + 展开文本分层 + 快速触发 Context/Command 路由
 ToastViewModel.swift        @Observable 模型（含 sourceBundleID）
 RelativeDateDescription.swift 日期/时间详情格式化（日历日语义 + 本地化时间）
 ToastView.swift             SwiftUI 卡片 + glassEffect（macOS 26+）/ ultraThinMaterial（降级）+ 展开查看全文（if/else 双态）+ contextMenu
@@ -55,11 +56,11 @@ UserDefaults 键：`searchEngine`, `launchAtLogin`, `isPaused`, `copyGestureEnab
 
 **数据流**：`ClipboardMonitor` → `DetectionRegistry.detectAll()` → `SourceAppDetector.detect()` → `AppFilterSettings.shouldShowPopup()` 过滤门 → `ClipboardContent` → 分支：轻提醒模式 → `LightReminderController.show()`，标准模式 → `ToastWindowController.show()` → `ToastViewModel` → `ToastView`
 
-**插件系统**：声明式（JSON + 正则，不执行代码）。插件目录 `~/Library/Application Support/Copied/Plugins/`，通过设置 → 智能识别手动安装。规则支持 `multiline`（默认 false）、`menuOnly`（强制进右键菜单）字段。无默认插件，不自动安装。性能熔断：>100KB 文本仅运行内置语言检测器（跳过插件与实体检测器）、>50ms 单检测器限流 30s、连续 3 次限流自动禁用。
+**插件系统**：声明式 JSON + 正则，不执行代码。目录为 `~/Library/Application Support/Copied/Plugins/`，只从设置手动安装；规则支持 `multiline`、`menuOnly`，无默认插件。性能边界统一由 `DetectionRegistry` 管理。
 
 ### 轻提醒模式（LightReminderController）
 
-菜单栏右键 / 设置页 Toggle 切换。开启后复制只显示鼠标右上方的 24pt `checkmark.app.fill` 浮标，1s 自消。浮标用忽略鼠标的 borderless floating `NSWindow` + `NSHostingView`，每次 `show()` 重建且不跟踪鼠标。
+开启后只显示鼠标右上方的 24pt `checkmark.app.fill` 浮标，1s 自消。使用忽略鼠标的 borderless floating `NSWindow` + `NSHostingView`，每次 `show()` 重建。
 
 **绘制动画陷阱**：Symbol 默认已是完整绘制态，`drawOn(isActive:)` 会反向擦除。必须用 `drawOff(isActive: !show)`：初始 `show=false` 隐藏，`onAppear` 后切为 true 反向播放；palette 使用白勾蓝底。macOS 26 以下改用 `.opacity` 淡入。
 
@@ -67,13 +68,13 @@ UserDefaults 键：`searchEngine`, `launchAtLogin`, `isPaused`, `copyGestureEnab
 
 ### 窗口（glassEffect / 降级）
 
-**macOS 26+**：`.glassEffect(in: .rect(cornerRadius: cardCornerRadius))` — 液态玻璃。**pre-macOS 26**：ZStack 内 `RoundedRectangle.fill(.ultraThinMaterial)` + 0.08s 延迟淡入，避免 WindowServer 材质合成首帧灰色闪烁。统一常量 `cardCornerRadius: CGFloat = 32`。
+macOS 26+ 用 `.glassEffect(in: .rect(cornerRadius: cardCornerRadius))`；旧系统用 `.ultraThinMaterial` + 0.08s 延迟淡入，避免首帧灰闪。圆角统一为 32pt。
 
 标准弹窗必须使用 `ToastPanel`：`NSPanel + .borderless + .nonactivatingPanel`，`canBecomeKey=true`、`canBecomeMain=false`、`becomesKeyOnlyIfNeeded=true`、`isFloatingPanel=true`、`hidesOnDeactivate=false`。普通 SwiftUI 控件位于 `needsPanelToBecomeKey=false` 的 first-mouse hosting 中，点击不得激活 Copied 或让 Panel 成为 key；只有原生展开文本交互可按需成为 key。
 
-非 key 浮动窗口的边缘高光被 WindowServer 抑制 → `.stroke(.primary.opacity(0.15))` 补偿（`.primary` 自适应亮/暗模式）。每次 `show()` 重建窗口（不复用）— 全屏 Space 长时间使用后复用窗口可能导致 `orderFront` 无效、toast 不出现。窗口配置见 `ToastWindowController.createWindow()`，动画参数见 `ToastView.swift`。
+非 key 窗口用 `.stroke(.primary.opacity(0.15))` 补偿边缘高光。每次 `show()` 必须重建窗口；复用窗口在全屏 Space 长时间运行后可能无法 `orderFront`。
 
-退场动画陷阱：`layerUsesCoreImageFilters = true` 必须设（AppKit 默认不启用）、`CIFilter.name` 必须匹配动画 keyPath、清理覆盖三条路径（动画回调 / `cancelDismiss()` / 非动画 dismiss）。
+退场动画必须启用 `layerUsesCoreImageFilters`，让 `CIFilter.name` 匹配 keyPath，并覆盖动画回调、`cancelDismiss()`、非动画 dismiss 三条清理路径。
 
 ### 鼠标交互
 
@@ -96,23 +97,21 @@ SwiftUI `Button` 是鼠标 `ToastCommand` 的唯一来源；禁止恢复窗口�
 
 ### 本地化
 
-`Localizable.xcstrings` 以 `zh-Hans` 为源语言，完整支持 `en` 和 `zh-Hant`。App 完全跟随 macOS 系统语言或单 App 语言设置，不增加语言 UserDefaults 或 App 内切换器。SwiftUI 字面量由 `LocalizedStringKey` 查询；先生成 `String` 的内置文案使用 `String(localized:)`；剪贴板内容、插件作者文案、文件名和 App 名称保持原文。
+`Localizable.xcstrings` 以 `zh-Hans` 为源语言，支持 `en` / `zh-Hant`。App 只跟随系统或单 App 语言，不增加语言 UserDefaults/切换器；生成后的内置文案用 `String(localized:)`，剪贴板内容、插件文案、文件名和 App 名保持原文。
 
-`AppLanguage.isContentKindAvailable(_:)` 是语言相关检测策略的唯一入口：英文界面在检测管道和设置页同时隐藏 `englishPhrase`，且不改写 `disabledContentKinds`；中文界面保留英文单词翻译，所有语言都保留拼音及其他检测。中文年月日会先生成 ISO 候选再交给 `NSDataDetector`，禁止让输入识别结果依赖界面 Locale。
+`AppLanguage.isContentKindAvailable(_:)` 是语言检测策略唯一入口：英文界面同时隐藏并跳过 `englishPhrase`，且不改写 `disabledContentKinds`；其他检测保持可用。输入识别不得依赖界面 Locale，中文年月日先转 ISO 候选再交给 `NSDataDetector`。
 
-日期检测的 `metadata["subtype"]` 必须按原始文本区分 `date` / `dateTime` / `time`，不能从解析后的 `DateComponents` 推断（`NSDataDetector` 会补齐缺失字段并给纯日期分配时刻）。`RelativeDateDescription` 对纯日期和日期时间按 `Calendar.startOfDay` 的日历组件生成“今天/明天/后天”等命名结果，日期时间再附本地化短时间；仅时间保留真实时差。
+日期 `metadata["subtype"]` 必须按原文区分 `date` / `dateTime` / `time`，禁止从会补齐字段的 `DateComponents` 推断。`RelativeDateDescription` 对日期按 `Calendar.startOfDay` 生成日历日描述；日期时间附短时间，仅时间按真实时差。
 
 ### Action 系统
 
-**内联更新模式**（`performsInlineUpdate = true`）：执行后弹窗保持显示，展示**结果覆盖层**（`ResultOverlay { displayText, copyText }`）。右侧按钮变为"复制"（`CopyTextAction`）。覆盖层 `\n` 拆分 VStack，每行 `.lineLimit(1)`，`ScrollView` + `.frame(maxHeight: 200)` 防止超长内容撑爆屏幕。
+**内联更新**（`performsInlineUpdate = true`）：Action 后保留弹窗并显示 `ResultOverlay { displayText, copyText }`，主按钮改为 `CopyTextAction`；结果逐行 `.lineLimit(1)`，滚动区上限 200pt。
 
-**词典查询**（`LookupAction`）：`DCSCopyTextDefinition` 查询 macOS 内置牛津中英词典，零配置。返回格式：行1 = `{word} 英 {pron}`，行2 = 中文释义（≤5 字 CJK，≤8 条）。检测器仅匹配单个 ASCII 单词，词典预查在 `ActionResolver.makeAction()` 中进行：有释义→显示"翻译"按钮，无释义→兜底搜索。**预查不能放检测器**（检测器在主线程有 50ms 超时熔断，词典首次加载会触发）。
+**词典查询**：`LookupAction` 使用 `DCSCopyTextDefinition`。预查只能在 `ActionResolver.makeAction()`，有释义显示翻译、无释义回退搜索；禁止放进受 50ms 熔断约束的检测器。
 
-**优先级**：首个非颜色检测 → 右侧按钮（最多 1 个）。其余 → 右键菜单。无检测 → 默认搜索。纯语言类型（如 swift）不产生按钮。各 Action 触发条件和行为见 `ClipboardAction.swift` 及各 `*Action.swift`。
+**优先级**：首个非颜色检测占右侧唯一按钮，其余进右键菜单；无检测默认搜索，纯语言类型不产生按钮。规则以 `ClipboardAction.swift` 和各 `*Action.swift` 为准。
 
-**按钮背景**：`actionButtonBackground` 双路径——macOS 26+ `.glassEffect(.regular.interactive())` 原生液态玻璃，pre-26 `.fill(.quaternary)` 语义色。不再用 `.white.opacity()` 硬编码（浅色模式不可见）。
-
-**按钮 hover 图标**：用 `ZStack` 叠加两个 SF Symbol + `opacity` 切换，不能用 `Image(systemName: condition ? "A" : "B")`——SF Symbol 宽度不同会导致按钮尺寸变化 → HStack 重排 → 左侧文本截断位置跳动。
+**视觉约束**：按钮背景在 macOS 26+ 用 `.glassEffect(.regular.interactive())`，旧系统用 `.fill(.quaternary)`；禁止硬编码白色。hover 图标必须以 `ZStack` + `opacity` 切换，条件替换不同宽度的 SF Symbol 会触发 HStack 重排和文本跳动。
 
 ### 开机自启
 
@@ -120,11 +119,11 @@ rebuild 后签名变化会使 macOS 清掉 `SMAppService` 登录项注册记录�
 
 ### 展开查看全文（ToastView expand/collapse）
 
-`ExpandedTextView` 固定宽 360、总高最多 300pt，只在主 SwiftUI host 中预留几何空间。controller 在卡片背景上方安装原生 `NSTextView + NSScrollView`，再叠加不接收鼠标的玻璃视觉 host 和独立 SwiftUI 按钮 host；正文因此可在底栏后方滚动，底部圆角由 scroll layer 裁剪。文档高度必须取 `NSLayoutManager.usedRect` 后再额外加 52pt，不能只依赖 `boundingRect` 或在排版前设置 frame，否则 `NSTextView` 会收缩并遮住最后一两行。`updateWindowSize` 上限 340pt。所有内容类型均可展开，`expandedText` 优先级为结果覆盖层 > 原文 > 文件名+路径。
+`ExpandedTextView` 固定宽 360、总高最多 300pt；主 host 只预留几何空间，controller 分层安装原生 `NSTextView/NSScrollView`、无命中玻璃 host 和独立按钮 host。文档高度必须取 `NSLayoutManager.usedRect` 再加 52pt，`updateWindowSize` 上限 340pt；`expandedText` 优先级为结果覆盖层 > 原文 > 文件名+路径。
 
-展开态交互：进入展开态时移除键盘/侧键快速触发监听，收起后重新安装。只有原生文本需要 Panel 成为 key，并直接使用 responder chain 支持拖选、⌘C 和右键菜单；普通底栏按钮仍保持 Panel non-key。按钮栏中间透明 SwiftUI Button 负责关闭，不使用坐标命中。Escape 不提供操作。TextEdit 操作写 UUID 临时文件后用 `NSWorkspace` 打开，且动作入口必须防重入。
+展开期间暂停全部快速触发。只有原生正文按需让 Panel 成为 key，并通过 responder chain 支持拖选、⌘C 和右键菜单；底栏按钮保持 non-key，中间透明 SwiftUI Button 负责关闭，禁止坐标命中，Escape 无操作。TextEdit 使用 UUID 临时文件并防重入。
 
-过渡必须使用全窗口 CIGaussianBlur + alpha 两段式切换，并由 `isExpandingOrCollapsing` 防重入；窗口 resize 不做动画。
+展开/收起必须用全窗口 CIGaussianBlur + alpha 两段式切换，以 `isExpandingOrCollapsing` 防重入；resize 不做动画。
 
 ### 点击处理
 
@@ -132,25 +131,25 @@ rebuild 后签名变化会使 macOS 清掉 `SMAppService` 登录项注册记录�
 
 ### 快速触发（修饰键）
 
-Toast 有主操作按钮（或结果覆盖层）时，默认在第一次 Control 松开后的 350ms 内再次按下并松开 Control 触发。设置 → 通用 → 快速触发可改为 Command/Option/Shift、关闭键盘触发，或启用单击（高级）模式；原生鼠标侧键可作为并行触发。按钮 hover 时动态显示对应图标。
+`QuickTriggerCoordinator` 独占键盘/侧键监听、状态机、350ms timeout、20ms HID poll、设置快照和视觉去重。`ToastWindowController` 只提供以 `dismissGeneration` 为 ID 的有效性/可执行 Context，并把执行回调路由到 `ToastCommand.performPrimary`；禁止把 token、状态机或定时任务放回 controller。
 
-普通鼠标输入取消快速触发时，只有视觉状态实际变化才写 `quickTriggerVisualState`，禁止在 idle → idle 时触发 SwiftUI 重绘。展开态没有主操作按钮，因此暂停全部快速触发监听；收起或新 toast 出现时恢复，不改变折叠态的键盘/侧键行为。
+`start` / `suspend` / `resume` / `stop` 必须幂等：折叠可执行态 start，展开前 suspend，收起完成 resume，关闭或换代 stop。context/monitor epoch 必须使旧 modifier release、mouseUp、timeout 和 poll 永久失效；视觉回调禁止 idle → idle。
 
-**输入边界**：从第一次按下到第二次松开之间，出现普通键、其他修饰键、鼠标点击或滚轮即取消。键盘路径不需要辅助功能权限；侧键录制/触发与左右键复制共享 `GlobalMouseEventCoordinator` 的 CGEventTap，需要辅助功能权限。
+默认在第一次 Control 松开后的 350ms 内再次按下并松开触发；支持其他修饰键、高级单击、禁用键盘和 button number ≥3 的原生侧键。从第一次按下到第二次松开之间出现普通键、其他修饰键、鼠标点击或滚轮即取消。
 
-1. **实际 keyCode 策略** — `QuickTriggerModifierKeyPolicy` 按左右修饰键 keyCode 转换状态；不要用聚合 flags 推断按键，因为 macOS 可能携带残留 Function/NumericPad flags。
-2. **本地事件 + HID 计数器** — 捕获组合键、鼠标与滚轮输入；事件计数变化即中止。
-3. **`dismissGeneration` 守卫** — 防止旧弹窗的延迟释放触发新 toast Action。
+- `QuickTriggerModifierKeyPolicy` 必须按左右真实 keyCode 维护状态，禁止用可能夹带 Function/NumericPad 的聚合 flags 推断。
+- 本地只监听 `.keyDown` / `.flagsChanged`；普通鼠标输入走共享 `GlobalMouseEventCoordinator` + HID 计数，禁止另建 Event Tap 或左键 NSEvent monitor。
+- 键盘路径无需辅助功能权限；侧键录制/触发与左右键复制共享 CGEventTap，需要权限。
 
-**侧键限制**：只绑定 button number ≥3 的原生 `otherMouseDown`。Mac Mouse Fix 等重映射工具可能在 Copied 前拦截或改写事件；此时需关闭对应映射或保留原生侧键。
+**重映射工具限制**：Mac Mouse Fix 等工具可能在 CGEvent/AppKit/HID 计数之前吞掉原生侧键或“修饰键 + 滚轮”。关闭对应映射或保留原生事件即可；不要增加重复监听或 raw IOHID 绕过路径。
 
 ### 版本与更新
 
-`VERSION` 是构建版本单一来源，`build.sh` 同步写入 `CFBundleShortVersionString`。菜单栏显示实际版本并可打开关于页；有更新时显示绿色圆点和“有新版本”。关于页可手动检查，自动提醒最多每天成功检查一次、失败一小时后重试；只读取 GitHub 最新稳定 Release，更新按钮打开 GitHub，不做应用内下载安装。标准 Toast 右上角用 `arrow.up.circle.fill` 提醒，点击进入关于页；轻提醒模式不叠加更新提醒。
+`VERSION` 是构建版本单一来源，`build.sh` 写入 Bundle 版本。只检查 GitHub 最新稳定 Release；成功检查每天最多一次、失败一小时后重试，更新入口打开 GitHub，不做应用内安装。标准 Toast 可显示更新入口，轻提醒不叠加提醒。
 
 ### 菜单栏
 
-`MenuBarExtra` + `Copied.svg` 模板图像。`build.sh` 将 `fill="white"` 替换为 `fill="black"` 做模板遮罩。设置与版本放在同一区域，版本项位于退出上方，点击打开关于页。暂停/恢复直接读 `UserDefaults`。`Info.plist` 设 `LSUIElement = YES`。
+`MenuBarExtra` 使用 `Copied.svg` 模板图；`build.sh` 将白色填充转为黑色模板遮罩。暂停状态直接读 `UserDefaults`，版本项打开关于页；`LSUIElement = YES`。
 
 ### 左右键快捷复制（CopyGestureManager）
 
@@ -175,20 +174,6 @@ Toast 有主操作按钮（或结果覆盖层）时，默认在第一次 Control
 4. **修复后清理日志代码**。
 
 **为什么不用 Console.app**：CGEventTap/NSEvent 每秒数百条，混在全系统日志中无法定位。文件日志只含关心的状态，一行一事。
-
-模板：
-```swift
-private static let logURL = FileManager.default.temporaryDirectory
-    .appendingPathComponent("copied_debug.log")
-private func dlog(_ s: String) {
-    let line = "\(Date().timeIntervalSince1970) \(s)\n"
-    if let d = line.data(using: .utf8) {
-        if let fh = try? FileHandle(forWritingTo: logURL) { fh.seekToEndOfFile(); fh.write(d); try? fh.close() }
-        else { try? d.write(to: logURL, options: .atomic) }
-    }
-}
-// 启动时：try? Data().write(to: logURL, options: .atomic)
-```
 
 ## GitHub 推送规则（硬性）
 

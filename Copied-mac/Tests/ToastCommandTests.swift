@@ -136,9 +136,49 @@ struct ToastCommandTests {
 
     private static func productionWiringUsesOneCommandPath() {
         let controller = try! String(contentsOfFile: "ToastWindowController.swift", encoding: .utf8)
+        let quickTrigger = try! String(
+            contentsOfFile: "QuickTriggerCoordinator.swift",
+            encoding: .utf8
+        )
         let view = try! String(contentsOfFile: "ToastView.swift", encoding: .utf8)
         expect(controller.contains("private func handleCommand("), "controller has one command receiver")
         expect(controller.contains("onCommand:"), "controller injects the command receiver")
+        expect(controller.contains("QuickTriggerCoordinator"), "controller delegates quick trigger ownership")
+        expect(
+            controller.contains("handleCommand(.performPrimary)"),
+            "coordinator intent enters the unified primary command path"
+        )
+        expect(controller.contains("quickTriggerCoordinator.suspend()"), "expand suspends quick trigger")
+        expect(
+            controller.contains("quickTriggerCoordinator.resume(context:"),
+            "collapse completion resumes quick trigger"
+        )
+        expect(controller.contains("quickTriggerCoordinator.stop()"), "dismiss stops quick trigger")
+        for forbiddenDetail in [
+            "globalTriggerModifierMonitor",
+            "localTriggerModifierMonitor",
+            "localOtherEventMonitor",
+            "mouseEventListenerToken",
+            "keyboardQuickTrigger",
+            "modifierKeyPolicy",
+            "mouseQuickTrigger",
+            "quickTriggerTimeout",
+            "quickTriggerHIDPoll",
+            "captureQuickTriggerEventCounters",
+        ] {
+            expect(
+                !controller.contains(forbiddenDetail),
+                "controller no longer owns \(forbiddenDetail)"
+            )
+        }
+        expect(
+            !controller.contains("GlobalMouseEventCoordinator.shared.addListener"),
+            "controller does not register the shared mouse listener"
+        )
+        expect(
+            !quickTrigger.contains("addLocalMonitorForEvents(matching: .leftMouse"),
+            "quick trigger never adds a local left-mouse monitor"
+        )
         expect(!controller.contains("addLocalMonitorForEvents(matching: .leftMouseUp)"), "window mouseUp routing is removed")
         expect(!controller.contains("ManualPrimaryActionEventGuard"), "manual primary guard is removed")
         expect(!controller.contains("CollapsedToastMouseUpPolicy"), "collapsed mouseUp policy is removed")

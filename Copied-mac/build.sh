@@ -25,6 +25,7 @@ SOURCES=(
     KeyboardShortcutSettings.swift
     QuickTriggerModifierKeyPolicy.swift
     QuickTriggerStateMachine.swift
+    QuickTriggerCoordinator.swift
     AppUpdateModels.swift
     AppUpdateService.swift
     PluginActionTemplate.swift
