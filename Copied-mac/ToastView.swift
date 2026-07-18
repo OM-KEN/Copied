@@ -1,19 +1,10 @@
 import SwiftUI
 
-/// Actions the toast can trigger beyond the existing callbacks.
-enum ToastAction: Equatable { case expand, collapse, editInTextEdit }
-
 struct ToastView: View {
     let viewModel: ToastViewModel
     let onHoverChanged: (Bool) -> Void
-    let onPreviewHoverChanged: (Bool) -> Void
-    let onPrimaryActionHoverChanged: (Bool) -> Void
-    let onExpandedActionHoverChanged: (ToastAction, Bool) -> Void
-    let onTap: () -> Void
-    let onPerformAction: ((any ClipboardAction)?) -> Void
+    let onCommand: (ToastCommand<any ClipboardAction>) -> Void
     let onNeedsLayout: (() -> Void)?
-    let onAction: (ToastAction) -> Void
-    let onOpenUpdateAbout: () -> Void
 
     @State private var animateIn = false
     @State private var isActionButtonHovered = false
@@ -33,17 +24,19 @@ struct ToastView: View {
                     .fill(.ultraThinMaterial)
             }
 
-            // Transparent background captures taps outside the button
-            Color.clear
-                .contentShape(Rectangle())
-                .onTapGesture { onTap() }
+            // Explicit background control owns dismissal without coordinate hit-testing.
+            Button {
+                onCommand(.dismiss)
+            } label: {
+                Color.clear
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
 
             if viewModel.isExpanded {
                 ExpandedTextView(
                     rawText: viewModel.expandedText,
-                    onEditInTextEdit: { onAction(.editInTextEdit) },
-                    onCollapse: { onAction(.collapse) },
-                    onActionHoverChanged: onExpandedActionHoverChanged
+                    onCommand: onCommand
                 )
             } else {
                 HStack(spacing: 12) {
@@ -83,57 +76,56 @@ struct ToastView: View {
 
                 VStack(alignment: .leading, spacing: 8) {
                     // ── Preview or Result (crossfade) ──────────
-                    ZStack(alignment: .leading) {
-                        Text(viewModel.previewText)
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundStyle(.primary)
-                            .lineLimit(1)
-                            .opacity(viewModel.resultOverlay == nil ? 1.0 : 0)
-                            .background {
-                                if isPreviewHovered && viewModel.resultOverlay == nil {
-                                    RoundedRectangle(cornerRadius: 4)
-                                        .fill(Color.primary.opacity(0.1))
+                    Button {
+                        onCommand(.expand)
+                    } label: {
+                        ZStack(alignment: .leading) {
+                            Text(viewModel.previewText)
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundStyle(.primary)
+                                .lineLimit(1)
+                                .opacity(viewModel.resultOverlay == nil ? 1.0 : 0)
+                                .background {
+                                    if isPreviewHovered && viewModel.resultOverlay == nil {
+                                        RoundedRectangle(cornerRadius: 4)
+                                            .fill(Color.primary.opacity(0.1))
+                                    }
                                 }
-                            }
-                            .onHover { hovering in
-                                isPreviewHovered = hovering
-                                onPreviewHoverChanged(hovering)
-                            }
-                            .animation(.easeInOut(duration: 0.15), value: isPreviewHovered)
 
-                        if let overlay = viewModel.resultOverlay {
-                            let lines = overlay.displayText.components(separatedBy: "\n")
-                            ScrollView(.vertical) {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    ForEach(lines.indices, id: \.self) { i in
-                                        Text(lines[i])
-                                            .font(.system(size: 14, weight: .medium))
-                                            .foregroundStyle(.primary)
-                                            .lineLimit(1)
+                            if let overlay = viewModel.resultOverlay {
+                                let lines = overlay.displayText.components(separatedBy: "\n")
+                                ScrollView(.vertical) {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        ForEach(lines.indices, id: \.self) { i in
+                                            Text(lines[i])
+                                                .font(.system(size: 14, weight: .medium))
+                                                .foregroundStyle(.primary)
+                                                .lineLimit(1)
+                                        }
+                                    }
+                                }
+                                .frame(maxHeight: 200)
+                                .opacity(viewModel.resultOverlay != nil ? 1.0 : 0)
+                                .background {
+                                    if isResultHovered && viewModel.resultOverlay != nil {
+                                        RoundedRectangle(cornerRadius: 4)
+                                            .fill(Color.primary.opacity(0.1))
                                     }
                                 }
                             }
-                            .frame(maxHeight: 200)
-                            .opacity(viewModel.resultOverlay != nil ? 1.0 : 0)
-                            .background {
-                                if isResultHovered && viewModel.resultOverlay != nil {
-                                    RoundedRectangle(cornerRadius: 4)
-                                        .fill(Color.primary.opacity(0.1))
-                                }
-                            }
-                            .onHover { hovering in
-                                isResultHovered = hovering
-                                onPreviewHoverChanged(hovering)
-                            }
-                            .animation(.easeInOut(duration: 0.15), value: isResultHovered)
-                            .onTapGesture { onAction(.expand) }
                         }
+                        .animation(
+                            .interpolatingSpring(mass: 1.2, stiffness: 120, damping: 14, initialVelocity: 3),
+                            value: viewModel.resultOverlay != nil
+                        )
                     }
-                    .animation(
-                        .interpolatingSpring(mass: 1.2, stiffness: 120, damping: 14, initialVelocity: 3),
-                        value: viewModel.resultOverlay != nil
-                    )
-                    .onTapGesture { onAction(.expand) }
+                    .buttonStyle(.plain)
+                    .onHover { hovering in
+                        isPreviewHovered = hovering
+                        isResultHovered = hovering
+                    }
+                    .animation(.easeInOut(duration: 0.15), value: isPreviewHovered)
+                    .animation(.easeInOut(duration: 0.15), value: isResultHovered)
 
                     VStack(alignment: .leading, spacing: 4) {
                         HStack(spacing: 4) {
@@ -160,10 +152,10 @@ struct ToastView: View {
                 }
 
                 // ── Right: Action Button ──────────────────────────
-                if let overlay = viewModel.resultOverlay {
+                if viewModel.resultOverlay != nil {
                     // Result mode: "复制" button
                     Button {
-                        onPerformAction(CopyTextAction(text: overlay.copyText))
+                        onCommand(.performPrimary)
                     } label: {
                         HStack(spacing: 4) {
                             ZStack {
@@ -188,7 +180,6 @@ struct ToastView: View {
                     .animation(.spring(response: 0.2, dampingFraction: 0.6), value: viewModel.quickTriggerVisualState)
                     .animation(.spring(response: 0.2, dampingFraction: 0.6), value: isActionButtonPressed)
                     .onHover { hovering in
-                        onPrimaryActionHoverChanged(hovering)
                         if hovering {
                             hoverDebounceTask?.cancel()
                             isActionButtonHovered = true
@@ -204,7 +195,7 @@ struct ToastView: View {
                     }
                 } else if let action = viewModel.primaryAction {
                     Button {
-                        onPerformAction(action)
+                        onCommand(.performPrimary)
                     } label: {
                         HStack(spacing: 4) {
                             ZStack {
@@ -229,7 +220,6 @@ struct ToastView: View {
                     .animation(.spring(response: 0.2, dampingFraction: 0.6), value: viewModel.quickTriggerVisualState)
                     .animation(.spring(response: 0.2, dampingFraction: 0.6), value: isActionButtonPressed)
                     .onHover { hovering in
-                        onPrimaryActionHoverChanged(hovering)
                         if hovering {
                             hoverDebounceTask?.cancel()
                             isActionButtonHovered = true
@@ -249,7 +239,9 @@ struct ToastView: View {
             }
 
             if viewModel.showsUpdateReminder, !viewModel.isExpanded {
-                Button(action: onOpenUpdateAbout) {
+                Button {
+                    onCommand(.openUpdateAbout)
+                } label: {
                     Image(systemName: "arrow.up.circle.fill")
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(.green)
@@ -273,7 +265,13 @@ struct ToastView: View {
         .onHover { hovering in
             onHoverChanged(hovering)
         }
-        .contextMenu { ToastContextMenuContent(viewModel: viewModel, onPerformAction: onPerformAction, searchText: searchContextText) }
+        .contextMenu {
+            ToastContextMenuContent(
+                viewModel: viewModel,
+                onCommand: onCommand,
+                searchText: searchContextText
+            )
+        }
         .onChange(of: viewModel.asyncThumbnail) {
             onNeedsLayout?()
         }
@@ -317,11 +315,11 @@ struct ToastView: View {
 
 private struct MenuActionButton: View {
     let action: any ClipboardAction
-    let onPerformAction: ((any ClipboardAction)?) -> Void
+    let onCommand: (ToastCommand<any ClipboardAction>) -> Void
 
     var body: some View {
         Button(action.menuTitle, systemImage: action.systemImage) {
-            onPerformAction(action)
+            onCommand(.performAction(action))
         }
     }
 }
@@ -330,14 +328,14 @@ private struct MenuActionButton: View {
 
 private struct ToastContextMenuContent: View {
     let viewModel: ToastViewModel
-    let onPerformAction: ((any ClipboardAction)?) -> Void
+    let onCommand: (ToastCommand<any ClipboardAction>) -> Void
     let searchText: String
 
     var body: some View {
         // Search — always available for text
         if viewModel.rawContent?.type == .text {
             Button("搜索", systemImage: "magnifyingglass") {
-                onPerformAction(SearchTextAction(text: searchText))
+                onCommand(.performAction(SearchTextAction(text: searchText)))
             }
         } else {
             Button("搜索", systemImage: "magnifyingglass") { }
@@ -348,7 +346,7 @@ private struct ToastContextMenuContent: View {
         // Save — always available for text
         if let rawText = viewModel.rawContent?.rawText, !rawText.isEmpty {
             Button("另存为…", systemImage: "arrow.down.doc") {
-                onPerformAction(SaveFileAction(text: rawText, defaultName: "clipboard.txt"))
+                onCommand(.performAction(SaveFileAction(text: rawText, defaultName: "clipboard.txt")))
             }
         } else {
             Button("另存为…", systemImage: "arrow.down.doc") { }
@@ -359,7 +357,7 @@ private struct ToastContextMenuContent: View {
         if !viewModel.menuActions.isEmpty {
             Divider()
             ForEach(viewModel.menuActions, id: \.id) { action in
-                MenuActionButton(action: action, onPerformAction: onPerformAction)
+                MenuActionButton(action: action, onCommand: onCommand)
             }
         }
 
@@ -367,7 +365,7 @@ private struct ToastContextMenuContent: View {
         if let action = viewModel.blacklistAction {
             Divider()
             Button(action.menuTitle, systemImage: action.systemImage) {
-                onPerformAction(action)
+                onCommand(.performAction(action))
             }
         }
     }
@@ -380,9 +378,7 @@ private struct ToastContextMenuContent: View {
 /// long text is capped and scrolls within the ScrollView.
 private struct ExpandedTextView: View {
     let rawText: String
-    let onEditInTextEdit: () -> Void
-    let onCollapse: () -> Void
-    let onActionHoverChanged: (ToastAction, Bool) -> Void
+    let onCommand: (ToastCommand<any ClipboardAction>) -> Void
 
     private let maxTotalHeight: CGFloat = 300
 
@@ -403,12 +399,17 @@ private struct ExpandedTextView: View {
             .frame(maxHeight: maxTotalHeight)
 
             HStack {
-                Button("在文本编辑中打开") { onEditInTextEdit() }
-                    .onHover { onActionHoverChanged(.editInTextEdit, $0) }
-                Spacer()
-                Button("收起") { onCollapse() }
+                Button("在文本编辑中打开") { onCommand(.editInTextEdit) }
+                Button {
+                    onCommand(.dismiss)
+                } label: {
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+                .buttonStyle(.plain)
+                Button("收起") { onCommand(.collapse) }
                     .keyboardShortcut(.escape, modifiers: [])
-                    .onHover { onActionHoverChanged(.collapse, $0) }
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 10)

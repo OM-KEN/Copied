@@ -26,6 +26,8 @@ enum QuickTriggerVisualState: Equatable {
     case idle
     case waitingForSecondTap
     case pressed
+
+    var shouldPublishIdleReset: Bool { self != .idle }
 }
 
 struct KeyboardQuickTriggerStateMachine {

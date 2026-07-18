@@ -13,6 +13,13 @@ struct QuickTriggerStateMachineTests {
     static func main() {
         let base = QuickTriggerEventCounters.zero
 
+        expect(!QuickTriggerVisualState.idle.shouldPublishIdleReset, "idle does not publish an idle reset")
+        expect(QuickTriggerVisualState.pressed.shouldPublishIdleReset, "pressed publishes an idle reset")
+        expect(
+            QuickTriggerVisualState.waitingForSecondTap.shouldPublishIdleReset,
+            "waiting publishes an idle reset"
+        )
+
         var staleFlagPolicy = QuickTriggerModifierKeyPolicy(targetModifier: .control)
         staleFlagPolicy.appeared(preExisting: false)
         var staleFlagSingle = KeyboardQuickTriggerStateMachine(mode: .singleTap)

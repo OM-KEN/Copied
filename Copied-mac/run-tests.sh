@@ -1,0 +1,51 @@
+#!/bin/bash
+set -euo pipefail
+
+TEST_BUILD_DIR=".build/tests"
+mkdir -p "$TEST_BUILD_DIR"
+
+swift Tests/AppFilterTests.swift
+swift Tests/DateTimeTests.swift
+swift Tests/MathExpressionTests.swift
+
+swiftc -parse-as-library \
+    KeyboardShortcutSettings.swift \
+    QuickTriggerModifierKeyPolicy.swift \
+    QuickTriggerStateMachine.swift \
+    Tests/QuickTriggerStateMachineTests.swift \
+    -framework AppKit \
+    -o "$TEST_BUILD_DIR/QuickTriggerStateMachineTests"
+"$TEST_BUILD_DIR/QuickTriggerStateMachineTests"
+
+swiftc -parse-as-library \
+    AppUpdateModels.swift \
+    Tests/AppUpdateModelsTests.swift \
+    -o "$TEST_BUILD_DIR/AppUpdateModelsTests"
+"$TEST_BUILD_DIR/AppUpdateModelsTests"
+
+swiftc -parse-as-library \
+    AppUpdateModels.swift \
+    AppUpdateService.swift \
+    Tests/AppUpdateServiceTests.swift \
+    -o "$TEST_BUILD_DIR/AppUpdateServiceTests"
+"$TEST_BUILD_DIR/AppUpdateServiceTests"
+
+swiftc -parse-as-library \
+    CopyGestureEventSequence.swift \
+    MouseButtonRecordingStateMachine.swift \
+    AppUpdateModels.swift \
+    Tests/InteractionWiringTests.swift \
+    -framework CoreGraphics \
+    -o "$TEST_BUILD_DIR/InteractionWiringTests"
+"$TEST_BUILD_DIR/InteractionWiringTests"
+
+swiftc -parse-as-library \
+    ToastCommand.swift \
+    ToastPanel.swift \
+    Tests/ToastCommandTests.swift \
+    -framework AppKit \
+    -framework SwiftUI \
+    -o "$TEST_BUILD_DIR/ToastCommandTests"
+"$TEST_BUILD_DIR/ToastCommandTests"
+
+echo "All tests passed"
