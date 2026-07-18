@@ -18,6 +18,18 @@ swiftc -parse-as-library \
 "$TEST_BUILD_DIR/QuickTriggerStateMachineTests"
 
 swiftc -parse-as-library \
+    KeyboardShortcutSettings.swift \
+    QuickTriggerModifierKeyPolicy.swift \
+    QuickTriggerStateMachine.swift \
+    GlobalMouseEventCoordinator.swift \
+    QuickTriggerCoordinator.swift \
+    Tests/QuickTriggerCoordinatorTests.swift \
+    -framework AppKit \
+    -framework CoreGraphics \
+    -o "$TEST_BUILD_DIR/QuickTriggerCoordinatorTests"
+"$TEST_BUILD_DIR/QuickTriggerCoordinatorTests"
+
+swiftc -parse-as-library \
     AppUpdateModels.swift \
     Tests/AppUpdateModelsTests.swift \
     -o "$TEST_BUILD_DIR/AppUpdateModelsTests"

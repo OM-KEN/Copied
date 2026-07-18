@@ -3,6 +3,7 @@
 docs/
 Tests/*
 !Tests/QuickTriggerStateMachineTests.swift
+!Tests/QuickTriggerCoordinatorTests.swift
 !Tests/AppUpdateModelsTests.swift
 !Tests/AppUpdateServiceTests.swift
 !Tests/InteractionWiringTests.swift
