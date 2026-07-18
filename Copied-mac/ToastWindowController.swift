@@ -2,20 +2,24 @@ import SwiftUI
 import AppKit
 
 final class ToastWindowController {
-    private var window: NSWindow?
+    private var window: ToastPanel?
     private var contentView: NSView?
     private var hostingView: NSHostingView<AnyView>?
+    private var expandedTextScrollView: ToastExpandedTextScrollView?
+    private var expandedTextView: ToastExpandedTextView?
+    private var expandedBottomBarGlassHostingView: ToastVisualHostingView?
+    private var expandedBottomBarControlsHostingView: ToastHostingView?
+    private var expandedTextFrameInHosting: CGRect?
+    private var expandedTextSurfaceRequestedVisible = false
     private var dismissTimer: Timer?
     private let viewModel = ToastViewModel()
+    private let commandDispatcher = ToastCommandDispatcher<any ClipboardAction>()
 
     private var isDismissing = false
     private var dismissGeneration = 0
-    private var localMouseMonitor: Any?
     private var globalTriggerModifierMonitor: Any?
     private var localTriggerModifierMonitor: Any?
     private var localOtherEventMonitor: Any?
-    private var localEscapeMonitor: Any?     // 展开态 Escape 收起
-    private var localCopyMonitor: Any?      // 展开态 ⌘C 复制全文
     private var mouseEventListenerToken: UUID?
     private var keyboardQuickTrigger = KeyboardQuickTriggerStateMachine(mode: .doubleTap)
     private var modifierKeyPolicy = QuickTriggerModifierKeyPolicy(targetModifier: .control)
@@ -23,10 +27,6 @@ final class ToastWindowController {
     private var quickTriggerContextGeneration = 0
     private var quickTriggerTimeout: DispatchWorkItem?
     private var quickTriggerHIDPoll: DispatchWorkItem?
-    private var isPreviewHovered = false
-    private var isPrimaryActionHovered = false
-    private var hoveredExpandedAction: ToastAction?
-    private var manualPrimaryActionEventGuard = ManualPrimaryActionEventGuard()
     private let displayDuration: TimeInterval = 3.0
 
     private var isExpandingOrCollapsing = false
@@ -41,9 +41,6 @@ final class ToastWindowController {
 
         isDismissing = false
         isExpandingOrCollapsing = false
-        isPreviewHovered = false
-        isPrimaryActionHovered = false
-        hoveredExpandedAction = nil
         dismissGeneration += 1
         quickTriggerContextGeneration += 1
         contentView?.layer?.filters = nil
@@ -53,39 +50,25 @@ final class ToastWindowController {
         window?.orderOut(nil)
         window = nil
         contentView = nil
+        expandedTextScrollView = nil
+        expandedTextView = nil
+        expandedBottomBarGlassHostingView = nil
+        expandedBottomBarControlsHostingView = nil
+        expandedTextFrameInHosting = nil
+        expandedTextSurfaceRequestedVisible = false
         createWindow()
 
         let toastCard = ToastView(
             viewModel: viewModel,
             onHoverChanged: { [weak self] hovering in self?.handleHoverChanged(hovering) },
-            onPreviewHoverChanged: { [weak self] hovering in self?.isPreviewHovered = hovering },
-            onPrimaryActionHoverChanged: { [weak self] hovering in
-                self?.isPrimaryActionHovered = hovering
+            onCommand: { [weak self] command in self?.handleCommand(command) },
+            onExpandedTextFrameChanged: { [weak self] frame in
+                DispatchQueue.main.async { self?.updateExpandedTextFrame(frame) }
             },
-            onExpandedActionHoverChanged: { [weak self] action, hovering in
-                guard let self else { return }
-                if hovering {
-                    self.hoveredExpandedAction = action
-                } else if self.hoveredExpandedAction == action {
-                    self.hoveredExpandedAction = nil
-                }
-            },
-            onTap: { [weak self] in self?.handleTap() },
-            onPerformAction: { [weak self] action in self?.handleViewPerformAction(action) },
             onNeedsLayout: { [weak self] in DispatchQueue.main.async { self?.updateWindowSize() } },
-            onAction: { [weak self] action in
-                switch action {
-                case .expand: self?.handleExpand()
-                case .collapse: self?.handleCollapse()
-                case .editInTextEdit: self?.handleEditInTextEdit()
-                }
-            },
-            onOpenUpdateAbout: {
-                SettingsNavigation.openAboutFromToast()
-            }
         )
 
-        let newHosting = NSHostingView(rootView: AnyView(toastCard))
+        let newHosting = ToastHostingView(rootView: AnyView(toastCard))
         newHosting.wantsLayer = true
         newHosting.layer?.backgroundColor = NSColor.clear.cgColor
         newHosting.translatesAutoresizingMaskIntoConstraints = false
@@ -93,6 +76,7 @@ final class ToastWindowController {
         hostingView?.removeFromSuperview()
         hostingView = newHosting
         contentView?.addSubview(newHosting)
+        installExpandedTextSurface()
         newHosting.layoutSubtreeIfNeeded()
 
         guard let screen = NSScreen.main else {
@@ -112,62 +96,7 @@ final class ToastWindowController {
 
         if isMouseInsideWindow() {} else { startDismissTimer() }
 
-        if localMouseMonitor == nil {
-            localMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseUp) { [weak self] event in
-                guard let self, let window = self.window, window.isVisible, !self.isDismissing else { return event }
-                guard window.frame.contains(NSEvent.mouseLocation) else { return event }
-                if self.viewModel.isExpanded, let action = self.hoveredExpandedAction {
-                    switch action {
-                    case .expand: break
-                    case .collapse: self.handleCollapse()
-                    case .editInTextEdit: self.handleEditInTextEdit()
-                    }
-                    // Keep the original mouseUp in the responder chain. Swallowing it
-                    // leaves SwiftUI Button tracking active and starves the default
-                    // run loop mode used by ClipboardMonitor's timer.
-                    return event
-                } else if !self.viewModel.isExpanded {
-                    switch CollapsedToastMouseUpPolicy.decide(
-                        isPrimaryActionHovered: self.isPrimaryActionHovered,
-                        isPreviewHovered: self.isPreviewHovered
-                    ) {
-                    case .performPrimaryAction:
-                        self.performPrimaryActionFromMouseUp(eventNumber: event.eventNumber)
-                        return event
-                    case .expandPreview:
-                        self.handleExpand()
-                    case .dismiss:
-                        self.handleTap()
-                    }
-                } else {
-                    self.handleTap()
-                }
-                return event
-            }
-        }
-
         installQuickTriggerMonitors()
-
-        if localEscapeMonitor == nil {
-            localEscapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-                guard let self, self.viewModel.isExpanded, event.keyCode == 53 else { return event }
-                self.handleCollapse()
-                return nil
-            }
-        }
-        if localCopyMonitor == nil {
-            localCopyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-                guard let self,
-                      self.viewModel.isExpanded,
-                      event.modifierFlags.contains(.command),
-                      event.charactersIgnoringModifiers == "c" else { return event }
-                if let textView = self.findTextView(in: self.window?.contentView) {
-                    textView.copy(nil)
-                    return nil
-                }
-                return event
-            }
-        }
     }
 
     // MARK: - Quick trigger
@@ -195,7 +124,7 @@ final class ToastWindowController {
         }
 
         localOtherEventMonitor = NSEvent.addLocalMonitorForEvents(
-            matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel]
+            matching: .keyDown
         ) { [weak self] event in
             self?.cancelKeyboardQuickTrigger(
                 reason: "localOtherEvent type=\(event.type.rawValue) keyCode=\(event.keyCode)"
@@ -394,7 +323,7 @@ final class ToastWindowController {
     }
 
     private func cancelKeyboardQuickTrigger(reason _: String) {
-        let needsVisualReset = viewModel.quickTriggerVisualState != .idle
+        let needsVisualReset = viewModel.quickTriggerVisualState.shouldPublishIdleReset
         quickTriggerTimeout?.cancel()
         quickTriggerTimeout = nil
         quickTriggerHIDPoll?.cancel()
@@ -406,7 +335,7 @@ final class ToastWindowController {
     }
 
     private func invalidateQuickTriggerContext(reason _: String) {
-        let needsVisualReset = viewModel.quickTriggerVisualState != .idle
+        let needsVisualReset = viewModel.quickTriggerVisualState.shouldPublishIdleReset
         quickTriggerContextGeneration += 1
         keyboardQuickTrigger.contextChanged()
         cancelMouseQuickTrigger(reason: "contextInvalidated")
@@ -425,8 +354,8 @@ final class ToastWindowController {
     }
 
     private func performQuickTriggerAction() {
-        guard let action = quickTriggerAction(), !isDismissing else { return }
-        handlePerformAction(action)
+        guard quickTriggerAction() != nil, !isDismissing else { return }
+        handleCommand(.performPrimary)
     }
 
     private func cancelMouseQuickTrigger(reason _: String) {
@@ -472,34 +401,41 @@ final class ToastWindowController {
 
     // MARK: - Interaction handlers
 
-    private func performPrimaryActionFromMouseUp(eventNumber: Int) {
-        guard let action = quickTriggerAction() else { return }
-        manualPrimaryActionEventGuard.begin(eventNumber: eventNumber)
-        DispatchQueue.main.async { [weak self] in
-            self?.manualPrimaryActionEventGuard.clear(eventNumber: eventNumber)
+    private func handleCommand(_ command: ToastCommand<any ClipboardAction>) {
+        commandDispatcher.dispatch(command) { [weak self] command in
+            self?.executeCommand(command)
         }
-        handlePerformAction(action)
     }
 
-    private func handleViewPerformAction(_ action: (any ClipboardAction)?) {
-        if action != nil,
-           manualPrimaryActionEventGuard.consumeIfMatching(
-               eventNumber: NSApp.currentEvent?.eventNumber
-           ) {
-            return
+    private func executeCommand(_ command: ToastCommand<any ClipboardAction>) {
+        switch command {
+        case .performPrimary:
+            handlePerformAction(quickTriggerAction())
+        case let .performAction(action):
+            handlePerformAction(action)
+        case .expand:
+            handleExpand()
+        case .collapse:
+            handleCollapse()
+        case .dismiss:
+            handleDismiss()
+        case .editInTextEdit:
+            handleEditInTextEdit()
+        case .openUpdateAbout:
+            SettingsNavigation.openAboutFromToast()
         }
-        handlePerformAction(action)
     }
 
     private func handlePerformAction(_ action: (any ClipboardAction)?) {
         guard let action, let content = currentContent else { return }
-        if action.performsInlineUpdate {
+        action.perform(content: content, controller: self)
+        switch ToastActionDisposition(performsInlineUpdate: action.performsInlineUpdate) {
+        case .keepPresented:
             // Inline-update actions (Calculate, Pinyin, Plugin transform):
             // perform updates popup content in-place, do not dismiss.
-            action.perform(content: content, controller: self)
-        } else {
+            break
+        case .dismiss:
             // Regular actions: perform then dismiss.
-            action.perform(content: content, controller: self)
             if !isDismissing {
                 isDismissing = true
                 viewModel.cancelAsyncThumbnail()
@@ -522,6 +458,7 @@ final class ToastWindowController {
             // Switch content while invisible
             self.viewModel.isExpanded = true
             self.updateWindowSize(animated: false)
+            self.setExpandedTextSurfaceVisible(true)
 
             // Phase 2: deblur + fade in (reverse of dismissToast)
             self.animateWindowAlpha(to: 1, easeIn: false) { [weak self] in
@@ -540,6 +477,7 @@ final class ToastWindowController {
         animateWindowAlpha(to: 0, easeIn: true) { [weak self] in
             guard let self else { return }
             // Switch content while invisible
+            self.setExpandedTextSurfaceVisible(false)
             self.viewModel.isExpanded = false
             self.updateWindowSize(animated: false)
 
@@ -547,7 +485,6 @@ final class ToastWindowController {
             self.animateWindowAlpha(to: 1, easeIn: false) { [weak self] in
                 self?.removeWindowBlur()
                 self?.isExpandingOrCollapsing = false
-                self?.hoveredExpandedAction = nil
                 if self?.isMouseInsideWindow() == false { self?.startDismissTimer() }
                 self?.installQuickTriggerMonitors()
             }
@@ -620,36 +557,11 @@ final class ToastWindowController {
         if hovering { pauseDismissTimer() } else { startDismissTimer() }
     }
 
-    private func handleTap() {
+    private func handleDismiss() {
         guard !isDismissing, !isExpandingOrCollapsing else { return }
-        if isUpdateReminderHitRegion() { return }
-        if viewModel.isExpanded {
-            // Tap on button-bar blank area (between the two buttons) → dismiss.
-            // Taps on the actual buttons are handled by SwiftUI (collapse / edit).
-            if let w = window {
-                let distFromBottom = NSEvent.mouseLocation.y - w.frame.minY
-                let xInWindow = NSEvent.mouseLocation.x - w.frame.minX
-                let isInSpacerArea = xInWindow > w.frame.width * 0.42
-                                  && xInWindow < w.frame.width * 0.78
-                if distFromBottom < 60 && isInSpacerArea {
-                    DispatchQueue.main.async { [weak self] in
-                        guard let self, !self.isDismissing else { return }
-                        self.isDismissing = true
-                        self.viewModel.cancelAsyncThumbnail()
-                        self.dismissToast(animated: true)
-                    }
-                }
-            }
-            return
-        }
         isDismissing = true
         viewModel.cancelAsyncThumbnail()
-        // Defer dismiss to next run loop — gives button handler a chance
-        // to call cancelDismiss() for inline-update actions (Calculate / Pinyin).
-        DispatchQueue.main.async { [weak self] in
-            guard let self, self.isDismissing else { return }
-            self.dismissToast(animated: true)
-        }
+        dismissToast(animated: true)
     }
 
     // MARK: - Dismiss
@@ -673,7 +585,7 @@ final class ToastWindowController {
         if !isMouseInsideWindow() { startDismissTimer() }
     }
 
-    /// 异步操作开始前调用：阻止按钮点击触发的 handleTap 异步关闭。
+    /// 异步操作开始前调用：阻止自动关闭并保持结果展示。
     func prepareForAsyncInlineAction() {
         cancelDismiss()
         pauseDismissTimer()
@@ -694,39 +606,176 @@ final class ToastWindowController {
         dismissTimer = nil
     }
 
-    /// Recursively search the view hierarchy for an NSTextView so we can copy its selection.
-    private func findTextView(in view: NSView?) -> NSTextView? {
-        guard let view else { return nil }
-        if let tv = view as? NSTextView { return tv }
-        for sub in view.subviews {
-            if let found = findTextView(in: sub) { return found }
-        }
-        return nil
-    }
-
     private func isMouseInsideWindow() -> Bool {
         guard let windowFrame = window?.frame else { return false }
         return windowFrame.contains(NSEvent.mouseLocation)
     }
 
-    private func isUpdateReminderHitRegion() -> Bool {
-        guard viewModel.showsUpdateReminder,
-              !viewModel.isExpanded,
-              let window else { return false }
-        let point = NSEvent.mouseLocation
-        guard window.frame.contains(point) else { return false }
-        let x = point.x - window.frame.minX
-        let y = point.y - window.frame.minY
-        return x >= window.frame.width - 56 && y >= window.frame.height - 56
-    }
-
     // MARK: - Window
 
-    private func createWindow() {
-        let w = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 360, height: 80),
-            styleMask: [.borderless], backing: .buffered, defer: false
+    private func installExpandedTextSurface() {
+        guard let contentView else { return }
+
+        let scrollView = ToastExpandedTextScrollView(frame: .zero)
+        scrollView.translatesAutoresizingMaskIntoConstraints = true
+        scrollView.borderType = .noBorder
+        scrollView.drawsBackground = false
+        scrollView.contentView.drawsBackground = false
+        scrollView.hasHorizontalScroller = false
+        scrollView.hasVerticalScroller = false
+        scrollView.autohidesScrollers = true
+        scrollView.scrollerStyle = .overlay
+        scrollView.isHidden = true
+        scrollView.wantsLayer = true
+        scrollView.layer?.masksToBounds = true
+        scrollView.onHoverChanged = { [weak self] hovering in
+            self?.handleHoverChanged(hovering)
+        }
+
+        let textView = ToastExpandedTextView(frame: .zero)
+        textView.isEditable = false
+        textView.isSelectable = true
+        textView.isRichText = false
+        textView.drawsBackground = false
+        textView.textContainerInset = .zero
+        textView.textContainer?.lineFragmentPadding = 0
+        textView.isHorizontallyResizable = false
+        textView.isVerticallyResizable = true
+        textView.autoresizingMask = [.width]
+        textView.minSize = .zero
+        textView.maxSize = NSSize(
+            width: CGFloat.greatestFiniteMagnitude,
+            height: CGFloat.greatestFiniteMagnitude
         )
+        scrollView.documentView = textView
+
+        let bottomBarGlass = ExpandedBottomBarGlassView()
+        let bottomBarGlassHosting = ToastVisualHostingView(rootView: AnyView(bottomBarGlass))
+        bottomBarGlassHosting.wantsLayer = true
+        bottomBarGlassHosting.layer?.backgroundColor = NSColor.clear.cgColor
+        bottomBarGlassHosting.translatesAutoresizingMaskIntoConstraints = true
+        bottomBarGlassHosting.isHidden = true
+
+        let bottomBarControls = ExpandedBottomBarControlsView(
+            onHoverChanged: { [weak self] hovering in
+                self?.handleHoverChanged(hovering)
+            },
+            onCommand: { [weak self] command in
+                self?.handleCommand(command)
+            }
+        )
+        let bottomBarControlsHosting = ToastHostingView(rootView: AnyView(bottomBarControls))
+        bottomBarControlsHosting.wantsLayer = true
+        bottomBarControlsHosting.layer?.backgroundColor = NSColor.clear.cgColor
+        bottomBarControlsHosting.translatesAutoresizingMaskIntoConstraints = true
+        bottomBarControlsHosting.isHidden = true
+
+        contentView.addSubview(scrollView, positioned: .above, relativeTo: hostingView)
+        contentView.addSubview(bottomBarGlassHosting, positioned: .above, relativeTo: scrollView)
+        contentView.addSubview(
+            bottomBarControlsHosting,
+            positioned: .above,
+            relativeTo: bottomBarGlassHosting
+        )
+
+        expandedTextScrollView = scrollView
+        expandedTextView = textView
+        expandedBottomBarGlassHostingView = bottomBarGlassHosting
+        expandedBottomBarControlsHostingView = bottomBarControlsHosting
+    }
+
+    private func layoutExpandedTextSurface() {
+        guard viewModel.isExpanded,
+              let contentView,
+              let hostingView,
+              let frameInHosting = expandedTextFrameInHosting,
+              let scrollView = expandedTextScrollView,
+              let textView = expandedTextView,
+              let bottomBarGlassHosting = expandedBottomBarGlassHostingView,
+              let bottomBarControlsHosting = expandedBottomBarControlsHostingView else { return }
+
+        textView.textStorage?.setAttributedString(
+            ExpandedTextLayoutMetrics.attributedText(viewModel.expandedText)
+        )
+        scrollView.frame = hostingView.convert(frameInHosting, to: contentView).integral
+        let cardTop = frameInHosting.minY - ExpandedTextLayoutMetrics.topInset
+        let bottomBarFrameInHosting = CGRect(
+            x: frameInHosting.minX - ExpandedTextLayoutMetrics.horizontalInset,
+            y: cardTop + ExpandedTextLayoutMetrics.totalHeight(for: viewModel.expandedText)
+                - ExpandedTextLayoutMetrics.bottomBarVisualHeight,
+            width: ExpandedTextLayoutMetrics.cardWidth,
+            height: ExpandedTextLayoutMetrics.bottomBarVisualHeight
+        )
+        let bottomBarFrame = hostingView.convert(bottomBarFrameInHosting, to: contentView).integral
+        bottomBarControlsHosting.frame = bottomBarFrame
+        bottomBarGlassHosting.layoutSubtreeIfNeeded()
+        let glassSize = bottomBarGlassHosting.fittingSize
+        let glassOutsetX = max(0, (glassSize.width - bottomBarFrame.width) / 2)
+        let glassOutsetY = max(0, (glassSize.height - bottomBarFrame.height) / 2)
+        bottomBarGlassHosting.frame = bottomBarFrame.insetBy(
+            dx: -glassOutsetX,
+            dy: -glassOutsetY
+        )
+        let innerCornerRadius = max(
+            0,
+            ToastView.cardCornerRadius - ExpandedTextLayoutMetrics.horizontalInset
+        )
+        scrollView.layer?.cornerRadius = innerCornerRadius
+        scrollView.layer?.maskedCorners = scrollView.isFlipped
+            ? [.layerMinXMaxYCorner, .layerMaxXMaxYCorner]
+            : [.layerMinXMinYCorner, .layerMaxXMinYCorner]
+
+        let viewportSize = scrollView.contentSize
+        textView.setFrameSize(NSSize(width: viewportSize.width, height: viewportSize.height))
+        if let textContainer = textView.textContainer {
+            textContainer.containerSize = NSSize(
+                width: viewportSize.width,
+                height: CGFloat.greatestFiniteMagnitude
+            )
+            textContainer.widthTracksTextView = true
+            textView.layoutManager?.ensureLayout(for: textContainer)
+        }
+        let usedTextRect = textView.textContainer.flatMap {
+            textView.layoutManager?.usedRect(for: $0)
+        } ?? .zero
+        let documentHeight = ExpandedTextLayoutMetrics.documentHeight(
+            viewportHeight: viewportSize.height,
+            usedTextMaxY: usedTextRect.maxY
+        )
+        textView.setFrameSize(NSSize(width: viewportSize.width, height: documentHeight))
+        scrollView.hasVerticalScroller = documentHeight > viewportSize.height + 0.5
+        scrollView.contentView.scroll(to: .zero)
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+    }
+
+    private func updateExpandedTextFrame(_ frame: CGRect?) {
+        expandedTextFrameInHosting = frame
+        guard frame != nil else {
+            expandedTextScrollView?.isHidden = true
+            expandedBottomBarGlassHostingView?.isHidden = true
+            expandedBottomBarControlsHostingView?.isHidden = true
+            return
+        }
+        if expandedTextSurfaceRequestedVisible && viewModel.isExpanded {
+            layoutExpandedTextSurface()
+            expandedTextScrollView?.isHidden = false
+            expandedBottomBarGlassHostingView?.isHidden = false
+            expandedBottomBarControlsHostingView?.isHidden = false
+        }
+    }
+
+    private func setExpandedTextSurfaceVisible(_ visible: Bool) {
+        expandedTextSurfaceRequestedVisible = visible
+        if visible {
+            layoutExpandedTextSurface()
+        }
+        expandedTextScrollView?.isHidden = !visible || expandedTextFrameInHosting == nil
+        expandedBottomBarGlassHostingView?.isHidden = !visible || expandedTextFrameInHosting == nil
+        expandedBottomBarControlsHostingView?.isHidden = !visible || expandedTextFrameInHosting == nil
+    }
+
+    private func createWindow() {
+        let w = ToastPanel(contentRect: NSRect(x: 0, y: 0, width: 360, height: 80))
         w.level = .floating
         w.isOpaque = false
         w.backgroundColor = .clear
@@ -767,9 +816,13 @@ final class ToastWindowController {
         } else {
             window?.setFrame(rect, display: true, animate: false)
         }
+        if viewModel.isExpanded {
+            layoutExpandedTextSurface()
+        }
     }
 
     func dismissToast(animated: Bool) {
+        setExpandedTextSurfaceVisible(false)
         dismissTimer?.invalidate()
         dismissTimer = nil
         invalidateQuickTriggerContext(reason: "dismissToast animated=\(animated)")
@@ -818,10 +871,7 @@ final class ToastWindowController {
     }
 
     private func removeAllMonitors() {
-        if let m = localMouseMonitor { NSEvent.removeMonitor(m); localMouseMonitor = nil }
         removeQuickTriggerMonitors()
-        if let m = localEscapeMonitor  { NSEvent.removeMonitor(m); localEscapeMonitor = nil }
-        if let m = localCopyMonitor    { NSEvent.removeMonitor(m); localCopyMonitor = nil }
     }
 
     private func removeQuickTriggerMonitors() {

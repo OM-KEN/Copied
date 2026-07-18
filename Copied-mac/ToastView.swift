@@ -1,19 +1,11 @@
 import SwiftUI
 
-/// Actions the toast can trigger beyond the existing callbacks.
-enum ToastAction: Equatable { case expand, collapse, editInTextEdit }
-
 struct ToastView: View {
     let viewModel: ToastViewModel
     let onHoverChanged: (Bool) -> Void
-    let onPreviewHoverChanged: (Bool) -> Void
-    let onPrimaryActionHoverChanged: (Bool) -> Void
-    let onExpandedActionHoverChanged: (ToastAction, Bool) -> Void
-    let onTap: () -> Void
-    let onPerformAction: ((any ClipboardAction)?) -> Void
+    let onCommand: (ToastCommand<any ClipboardAction>) -> Void
+    let onExpandedTextFrameChanged: (CGRect?) -> Void
     let onNeedsLayout: (() -> Void)?
-    let onAction: (ToastAction) -> Void
-    let onOpenUpdateAbout: () -> Void
 
     @State private var animateIn = false
     @State private var isActionButtonHovered = false
@@ -23,7 +15,7 @@ struct ToastView: View {
     @State private var isResultHovered = false
     @State private var fallbackMaterialReady = false
 
-    private static let cardCornerRadius: CGFloat = 32
+    static let cardCornerRadius: CGFloat = 32
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
@@ -33,107 +25,111 @@ struct ToastView: View {
                     .fill(.ultraThinMaterial)
             }
 
-            // Transparent background captures taps outside the button
-            Color.clear
-                .contentShape(Rectangle())
-                .onTapGesture { onTap() }
+            // Explicit background control owns dismissal without coordinate hit-testing.
+            Button {
+                onCommand(.dismiss)
+            } label: {
+                Color.clear
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
 
             if viewModel.isExpanded {
                 ExpandedTextView(
                     rawText: viewModel.expandedText,
-                    onEditInTextEdit: { onAction(.editInTextEdit) },
-                    onCollapse: { onAction(.collapse) },
-                    onActionHoverChanged: onExpandedActionHoverChanged
+                    onTextFrameChanged: onExpandedTextFrameChanged
                 )
             } else {
                 HStack(spacing: 12) {
                 // ── Left: Icon or Color Swatch ──────────────────
-                if let color = viewModel.detectedColor {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(Color(nsColor: color))
-                        .frame(width: 32, height: 32)
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .stroke(.white.opacity(0.2), lineWidth: 0.5)
-                        }
-                        .shadow(color: Color(nsColor: color).opacity(0.3), radius: 4, y: 1)
-                } else if let thumbnail = viewModel.thumbnailImage {
-                    Image(nsImage: thumbnail)
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                        .frame(width: 64, height: 64)
-                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                } else if let asyncThumb = viewModel.asyncThumbnail {
-                    Image(nsImage: asyncThumb)
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                        .frame(width: 64, height: 64)
-                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                        .transition(.opacity)
-                } else if viewModel.iconSymbolName == "textformat" {
-                    Image(systemName: viewModel.iconSymbolName)
-                        .font(.system(size: 32, weight: .medium))
-                        .foregroundStyle(.secondary)
-                        .environment(\.locale, Locale(identifier: "en"))
-                } else {
-                    Image(systemName: viewModel.iconSymbolName)
-                        .font(.system(size: 32, weight: .medium))
-                        .foregroundStyle(.secondary)
+                Group {
+                    if let color = viewModel.detectedColor {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(Color(nsColor: color))
+                            .frame(width: 32, height: 32)
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                    .stroke(.white.opacity(0.2), lineWidth: 0.5)
+                            }
+                            .shadow(color: Color(nsColor: color).opacity(0.3), radius: 4, y: 1)
+                    } else if let thumbnail = viewModel.thumbnailImage {
+                        Image(nsImage: thumbnail)
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .frame(width: 64, height: 64)
+                            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    } else if let asyncThumb = viewModel.asyncThumbnail {
+                        Image(nsImage: asyncThumb)
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .frame(width: 64, height: 64)
+                            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                            .transition(.opacity)
+                    } else if viewModel.iconSymbolName == "textformat" {
+                        Image(systemName: viewModel.iconSymbolName)
+                            .font(.system(size: 32, weight: .medium))
+                            .foregroundStyle(.secondary)
+                            .environment(\.locale, Locale(identifier: "en"))
+                    } else {
+                        Image(systemName: viewModel.iconSymbolName)
+                            .font(.system(size: 32, weight: .medium))
+                            .foregroundStyle(.secondary)
+                    }
                 }
+                .allowsHitTesting(false)
 
                 VStack(alignment: .leading, spacing: 8) {
                     // ── Preview or Result (crossfade) ──────────
-                    ZStack(alignment: .leading) {
-                        Text(viewModel.previewText)
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundStyle(.primary)
-                            .lineLimit(1)
-                            .opacity(viewModel.resultOverlay == nil ? 1.0 : 0)
-                            .background {
-                                if isPreviewHovered && viewModel.resultOverlay == nil {
-                                    RoundedRectangle(cornerRadius: 4)
-                                        .fill(Color.primary.opacity(0.1))
+                    Button {
+                        onCommand(.expand)
+                    } label: {
+                        ZStack(alignment: .leading) {
+                            Text(viewModel.previewText)
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundStyle(.primary)
+                                .lineLimit(1)
+                                .opacity(viewModel.resultOverlay == nil ? 1.0 : 0)
+                                .background {
+                                    if isPreviewHovered && viewModel.resultOverlay == nil {
+                                        RoundedRectangle(cornerRadius: 4)
+                                            .fill(Color.primary.opacity(0.1))
+                                    }
                                 }
-                            }
-                            .onHover { hovering in
-                                isPreviewHovered = hovering
-                                onPreviewHoverChanged(hovering)
-                            }
-                            .animation(.easeInOut(duration: 0.15), value: isPreviewHovered)
 
-                        if let overlay = viewModel.resultOverlay {
-                            let lines = overlay.displayText.components(separatedBy: "\n")
-                            ScrollView(.vertical) {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    ForEach(lines.indices, id: \.self) { i in
-                                        Text(lines[i])
-                                            .font(.system(size: 14, weight: .medium))
-                                            .foregroundStyle(.primary)
-                                            .lineLimit(1)
+                            if let overlay = viewModel.resultOverlay {
+                                let lines = overlay.displayText.components(separatedBy: "\n")
+                                ScrollView(.vertical) {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        ForEach(lines.indices, id: \.self) { i in
+                                            Text(lines[i])
+                                                .font(.system(size: 14, weight: .medium))
+                                                .foregroundStyle(.primary)
+                                                .lineLimit(1)
+                                        }
+                                    }
+                                }
+                                .frame(maxHeight: 200)
+                                .opacity(viewModel.resultOverlay != nil ? 1.0 : 0)
+                                .background {
+                                    if isResultHovered && viewModel.resultOverlay != nil {
+                                        RoundedRectangle(cornerRadius: 4)
+                                            .fill(Color.primary.opacity(0.1))
                                     }
                                 }
                             }
-                            .frame(maxHeight: 200)
-                            .opacity(viewModel.resultOverlay != nil ? 1.0 : 0)
-                            .background {
-                                if isResultHovered && viewModel.resultOverlay != nil {
-                                    RoundedRectangle(cornerRadius: 4)
-                                        .fill(Color.primary.opacity(0.1))
-                                }
-                            }
-                            .onHover { hovering in
-                                isResultHovered = hovering
-                                onPreviewHoverChanged(hovering)
-                            }
-                            .animation(.easeInOut(duration: 0.15), value: isResultHovered)
-                            .onTapGesture { onAction(.expand) }
                         }
+                        .animation(
+                            .interpolatingSpring(mass: 1.2, stiffness: 120, damping: 14, initialVelocity: 3),
+                            value: viewModel.resultOverlay != nil
+                        )
                     }
-                    .animation(
-                        .interpolatingSpring(mass: 1.2, stiffness: 120, damping: 14, initialVelocity: 3),
-                        value: viewModel.resultOverlay != nil
-                    )
-                    .onTapGesture { onAction(.expand) }
+                    .buttonStyle(.plain)
+                    .onHover { hovering in
+                        isPreviewHovered = hovering
+                        isResultHovered = hovering
+                    }
+                    .animation(.easeInOut(duration: 0.15), value: isPreviewHovered)
+                    .animation(.easeInOut(duration: 0.15), value: isResultHovered)
 
                     VStack(alignment: .leading, spacing: 4) {
                         HStack(spacing: 4) {
@@ -157,13 +153,14 @@ struct ToastView: View {
                                 .foregroundStyle(.secondary)
                         }
                     }
+                    .allowsHitTesting(false)
                 }
 
                 // ── Right: Action Button ──────────────────────────
-                if let overlay = viewModel.resultOverlay {
+                if viewModel.resultOverlay != nil {
                     // Result mode: "复制" button
                     Button {
-                        onPerformAction(CopyTextAction(text: overlay.copyText))
+                        onCommand(.performPrimary)
                     } label: {
                         HStack(spacing: 4) {
                             ZStack {
@@ -180,6 +177,7 @@ struct ToastView: View {
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)
                         .background(actionButtonBackground)
+                        .contentShape(Rectangle())
                     }
                     .buttonStyle(PressTrackingButtonStyle(isPressed: $isActionButtonPressed))
                     .overlay(quickTriggerWaitingHighlight)
@@ -188,7 +186,6 @@ struct ToastView: View {
                     .animation(.spring(response: 0.2, dampingFraction: 0.6), value: viewModel.quickTriggerVisualState)
                     .animation(.spring(response: 0.2, dampingFraction: 0.6), value: isActionButtonPressed)
                     .onHover { hovering in
-                        onPrimaryActionHoverChanged(hovering)
                         if hovering {
                             hoverDebounceTask?.cancel()
                             isActionButtonHovered = true
@@ -204,7 +201,7 @@ struct ToastView: View {
                     }
                 } else if let action = viewModel.primaryAction {
                     Button {
-                        onPerformAction(action)
+                        onCommand(.performPrimary)
                     } label: {
                         HStack(spacing: 4) {
                             ZStack {
@@ -221,6 +218,7 @@ struct ToastView: View {
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)
                         .background(actionButtonBackground)
+                        .contentShape(Rectangle())
                     }
                     .buttonStyle(PressTrackingButtonStyle(isPressed: $isActionButtonPressed))
                     .overlay(quickTriggerWaitingHighlight)
@@ -229,7 +227,6 @@ struct ToastView: View {
                     .animation(.spring(response: 0.2, dampingFraction: 0.6), value: viewModel.quickTriggerVisualState)
                     .animation(.spring(response: 0.2, dampingFraction: 0.6), value: isActionButtonPressed)
                     .onHover { hovering in
-                        onPrimaryActionHoverChanged(hovering)
                         if hovering {
                             hoverDebounceTask?.cancel()
                             isActionButtonHovered = true
@@ -249,7 +246,9 @@ struct ToastView: View {
             }
 
             if viewModel.showsUpdateReminder, !viewModel.isExpanded {
-                Button(action: onOpenUpdateAbout) {
+                Button {
+                    onCommand(.openUpdateAbout)
+                } label: {
                     Image(systemName: "arrow.up.circle.fill")
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(.green)
@@ -273,7 +272,14 @@ struct ToastView: View {
         .onHover { hovering in
             onHoverChanged(hovering)
         }
-        .contextMenu { ToastContextMenuContent(viewModel: viewModel, onPerformAction: onPerformAction, searchText: searchContextText) }
+        .coordinateSpace(name: "ToastRoot")
+        .contextMenu {
+            ToastContextMenuContent(
+                viewModel: viewModel,
+                onCommand: onCommand,
+                searchText: searchContextText
+            )
+        }
         .onChange(of: viewModel.asyncThumbnail) {
             onNeedsLayout?()
         }
@@ -317,11 +323,11 @@ struct ToastView: View {
 
 private struct MenuActionButton: View {
     let action: any ClipboardAction
-    let onPerformAction: ((any ClipboardAction)?) -> Void
+    let onCommand: (ToastCommand<any ClipboardAction>) -> Void
 
     var body: some View {
         Button(action.menuTitle, systemImage: action.systemImage) {
-            onPerformAction(action)
+            onCommand(.performAction(action))
         }
     }
 }
@@ -330,14 +336,14 @@ private struct MenuActionButton: View {
 
 private struct ToastContextMenuContent: View {
     let viewModel: ToastViewModel
-    let onPerformAction: ((any ClipboardAction)?) -> Void
+    let onCommand: (ToastCommand<any ClipboardAction>) -> Void
     let searchText: String
 
     var body: some View {
         // Search — always available for text
         if viewModel.rawContent?.type == .text {
             Button("搜索", systemImage: "magnifyingglass") {
-                onPerformAction(SearchTextAction(text: searchText))
+                onCommand(.performAction(SearchTextAction(text: searchText)))
             }
         } else {
             Button("搜索", systemImage: "magnifyingglass") { }
@@ -348,7 +354,7 @@ private struct ToastContextMenuContent: View {
         // Save — always available for text
         if let rawText = viewModel.rawContent?.rawText, !rawText.isEmpty {
             Button("另存为…", systemImage: "arrow.down.doc") {
-                onPerformAction(SaveFileAction(text: rawText, defaultName: "clipboard.txt"))
+                onCommand(.performAction(SaveFileAction(text: rawText, defaultName: "clipboard.txt")))
             }
         } else {
             Button("另存为…", systemImage: "arrow.down.doc") { }
@@ -359,7 +365,7 @@ private struct ToastContextMenuContent: View {
         if !viewModel.menuActions.isEmpty {
             Divider()
             ForEach(viewModel.menuActions, id: \.id) { action in
-                MenuActionButton(action: action, onPerformAction: onPerformAction)
+                MenuActionButton(action: action, onCommand: onCommand)
             }
         }
 
@@ -367,7 +373,7 @@ private struct ToastContextMenuContent: View {
         if let action = viewModel.blacklistAction {
             Divider()
             Button(action.menuTitle, systemImage: action.systemImage) {
-                onPerformAction(action)
+                onCommand(.performAction(action))
             }
         }
     }
@@ -375,46 +381,90 @@ private struct ToastContextMenuContent: View {
 
 // MARK: - Expanded Text View
 
-/// Expanded text area. Uses a unified layout: VStack with a height-capped ScrollView
-/// on top and the button bar below. Short text fills its natural height (no scroll);
-/// long text is capped and scrolls within the ScrollView.
+/// Expanded controls remain SwiftUI-owned. The transparent body reserves the
+/// exact layout used by the sibling AppKit text surface in ToastWindowController.
 private struct ExpandedTextView: View {
     let rawText: String
-    let onEditInTextEdit: () -> Void
-    let onCollapse: () -> Void
-    let onActionHoverChanged: (ToastAction, Bool) -> Void
-
-    private let maxTotalHeight: CGFloat = 300
+    let onTextFrameChanged: (CGRect?) -> Void
 
     var body: some View {
-        ZStack(alignment: .bottom) {
-            ScrollView(.vertical) {
-                Text(rawText)
-                    .font(.system(size: 14))
-                    .foregroundStyle(.primary)
-                    .lineSpacing(4)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, 16)
-                    .padding(.top, 12)
-                    .padding(.bottom, 52)
+        Color.clear
+            .frame(
+                width: ExpandedTextLayoutMetrics.cardWidth,
+                height: ExpandedTextLayoutMetrics.totalHeight(for: rawText)
+            )
+            .overlay {
+                GeometryReader { proxy in
+                    let cardFrame = proxy.frame(in: .named("ToastRoot"))
+                    let frame = CGRect(
+                        x: cardFrame.midX - ExpandedTextLayoutMetrics.textWidth / 2,
+                        y: cardFrame.minY + ExpandedTextLayoutMetrics.topInset,
+                        width: ExpandedTextLayoutMetrics.textWidth,
+                        height: ExpandedTextLayoutMetrics.viewportHeight(for: rawText)
+                    )
+                    Color.clear
+                        .onAppear { onTextFrameChanged(frame) }
+                        .onChange(of: frame) { _, newFrame in
+                            onTextFrameChanged(newFrame)
+                        }
+                        .onDisappear { onTextFrameChanged(nil) }
+                }
             }
-            .frame(maxHeight: maxTotalHeight)
+    }
+}
 
-            HStack {
-                Button("在文本编辑中打开") { onEditInTextEdit() }
-                    .onHover { onActionHoverChanged(.editInTextEdit, $0) }
-                Spacer()
-                Button("收起") { onCollapse() }
-                    .keyboardShortcut(.escape, modifiers: [])
-                    .onHover { onActionHoverChanged(.collapse, $0) }
+struct ExpandedBottomBarControlsView: View {
+    let onHoverChanged: (Bool) -> Void
+    let onCommand: (ToastCommand<any ClipboardAction>) -> Void
+
+    var body: some View {
+        HStack {
+            Button("在文本编辑中打开") { onCommand(.editInTextEdit) }
+            Button {
+                onCommand(.dismiss)
+            } label: {
+                Color.clear
+                    .contentShape(Rectangle())
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
-            .background(.regularMaterial)
+            .buttonStyle(.plain)
+            Button("收起") { onCommand(.collapse) }
         }
-        .frame(width: 360)
+        .padding(.horizontal, 16)
+        .frame(
+            width: ExpandedTextLayoutMetrics.cardWidth,
+            height: ExpandedTextLayoutMetrics.bottomBarVisualHeight
+        )
+        .onHover(perform: onHoverChanged)
+    }
+}
+
+struct ExpandedBottomBarGlassView: View {
+    private var barShape: UnevenRoundedRectangle {
+        UnevenRoundedRectangle(
+            bottomLeadingRadius: ToastView.cardCornerRadius,
+            bottomTrailingRadius: ToastView.cardCornerRadius,
+            style: .continuous
+        )
+    }
+
+    @ViewBuilder
+    var body: some View {
+        if #available(macOS 26, *) {
+            Color.clear
+                .frame(
+                    width: ExpandedTextLayoutMetrics.cardWidth,
+                    height: ExpandedTextLayoutMetrics.bottomBarVisualHeight
+                )
+                .glassEffect(.regular, in: barShape)
+        } else {
+            barShape
+                .fill(.regularMaterial)
+                .frame(
+                    width: ExpandedTextLayoutMetrics.cardWidth,
+                    height: ExpandedTextLayoutMetrics.bottomBarVisualHeight
+                )
+        }
     }
 }
 

@@ -17,7 +17,6 @@ fi
 
 SOURCES=(
     CopyGestureEventSequence.swift
-    CollapsedToastMouseUpPolicy.swift
     MouseButtonRecordingStateMachine.swift
     AppLanguage.swift
     ContentKind.swift
@@ -62,6 +61,8 @@ SOURCES=(
     LookupAction.swift
     AppFilterView.swift
     SettingsView.swift
+    ToastCommand.swift
+    ToastPanel.swift
     ToastView.swift
     ToastViewModel.swift
     ToastWindowController.swift

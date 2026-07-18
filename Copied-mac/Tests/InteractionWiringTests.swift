@@ -33,53 +33,6 @@ struct InteractionWiringTests {
         expect(MenuVersionTextFormatter.string(version: "2.9.1", hasUpdate: false) == "版本 2.9.1", "single menu version string")
         expect(MenuVersionTextFormatter.string(version: "2.9.1", hasUpdate: true) == "版本 2.9.1 · 有新版本", "single update menu string")
 
-        expect(
-            CollapsedToastMouseUpPolicy.decide(
-                isPrimaryActionHovered: true,
-                isPreviewHovered: false
-            ) == .performPrimaryAction,
-            "primary action mouseUp is routed by the controller"
-        )
-        expect(
-            CollapsedToastMouseUpPolicy.decide(
-                isPrimaryActionHovered: false,
-                isPreviewHovered: true
-            ) == .expandPreview,
-            "preview mouseUp expands the toast"
-        )
-        expect(
-            CollapsedToastMouseUpPolicy.decide(
-                isPrimaryActionHovered: false,
-                isPreviewHovered: false
-            ) == .dismiss,
-            "background mouseUp dismisses the toast"
-        )
-
-        var manualActionGuard = ManualPrimaryActionEventGuard()
-        manualActionGuard.begin(eventNumber: 42)
-        expect(
-            !manualActionGuard.consumeIfMatching(eventNumber: nil),
-            "callbacks without the manual mouse event are never suppressed"
-        )
-        expect(
-            !manualActionGuard.consumeIfMatching(eventNumber: 43),
-            "different event is never suppressed"
-        )
-        expect(
-            manualActionGuard.consumeIfMatching(eventNumber: 42),
-            "matching SwiftUI callback is suppressed once"
-        )
-        expect(
-            !manualActionGuard.consumeIfMatching(eventNumber: 42),
-            "matching callback cannot be suppressed twice"
-        )
-        manualActionGuard.begin(eventNumber: 44)
-        manualActionGuard.clear(eventNumber: 44)
-        expect(
-            !manualActionGuard.consumeIfMatching(eventNumber: 44),
-            "guard expires when the event run loop completes"
-        )
-
         print("InteractionWiringTests: PASS")
     }
 }
