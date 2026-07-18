@@ -1,6 +1,55 @@
 import AppKit
 import SwiftUI
 
+enum ExpandedTextLayoutMetrics {
+    static let cardWidth: CGFloat = 360
+    static let horizontalInset: CGFloat = 16
+    static let topInset: CGFloat = 12
+    static let bottomReservedHeight: CGFloat = 52
+    static let bottomBarVisualHeight: CGFloat = 42
+    static let maxTotalHeight: CGFloat = 300
+    static let font = NSFont.systemFont(ofSize: 14)
+    static let lineSpacing: CGFloat = 4
+
+    static var textWidth: CGFloat { cardWidth - horizontalInset * 2 }
+
+    static func textHeight(for text: String) -> CGFloat {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineSpacing = lineSpacing
+        let bounds = (text as NSString).boundingRect(
+            with: NSSize(width: textWidth, height: CGFloat.greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: [.font: font, .paragraphStyle: paragraph]
+        )
+        return max(ceil(bounds.height), ceil(font.ascender - font.descender))
+    }
+
+    static func totalHeight(for text: String) -> CGFloat {
+        min(textHeight(for: text) + topInset + bottomReservedHeight, maxTotalHeight)
+    }
+
+    static func viewportHeight(for text: String) -> CGFloat {
+        max(1, totalHeight(for: text) - topInset)
+    }
+
+    static func documentHeight(viewportHeight: CGFloat, usedTextMaxY: CGFloat) -> CGFloat {
+        max(viewportHeight, ceil(usedTextMaxY) + bottomReservedHeight)
+    }
+
+    static func attributedText(_ text: String) -> NSAttributedString {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineSpacing = lineSpacing
+        return NSAttributedString(
+            string: text,
+            attributes: [
+                .font: font,
+                .foregroundColor: NSColor.labelColor,
+                .paragraphStyle: paragraph,
+            ]
+        )
+    }
+}
+
 final class ToastPanel: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
@@ -19,5 +68,49 @@ final class ToastPanel: NSPanel {
 }
 
 final class ToastHostingView: NSHostingView<AnyView> {
+    override var needsPanelToBecomeKey: Bool { false }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+}
+
+final class ToastVisualHostingView: NSHostingView<AnyView> {
+    override var needsPanelToBecomeKey: Bool { false }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
+final class ToastExpandedTextView: NSTextView {
+    override var needsPanelToBecomeKey: Bool { true }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+}
+
+final class ToastExpandedTextScrollView: NSScrollView {
+    var onHoverChanged: ((Bool) -> Void)?
+    private var hoverTrackingArea: NSTrackingArea?
+
+    override var needsPanelToBecomeKey: Bool { false }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let hoverTrackingArea {
+            removeTrackingArea(hoverTrackingArea)
+        }
+        let area = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(area)
+        hoverTrackingArea = area
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        onHoverChanged?(true)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        onHoverChanged?(false)
+    }
 }

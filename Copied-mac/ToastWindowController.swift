@@ -5,6 +5,12 @@ final class ToastWindowController {
     private var window: ToastPanel?
     private var contentView: NSView?
     private var hostingView: NSHostingView<AnyView>?
+    private var expandedTextScrollView: ToastExpandedTextScrollView?
+    private var expandedTextView: ToastExpandedTextView?
+    private var expandedBottomBarGlassHostingView: ToastVisualHostingView?
+    private var expandedBottomBarControlsHostingView: ToastHostingView?
+    private var expandedTextFrameInHosting: CGRect?
+    private var expandedTextSurfaceRequestedVisible = false
     private var dismissTimer: Timer?
     private let viewModel = ToastViewModel()
     private let commandDispatcher = ToastCommandDispatcher<any ClipboardAction>()
@@ -44,12 +50,21 @@ final class ToastWindowController {
         window?.orderOut(nil)
         window = nil
         contentView = nil
+        expandedTextScrollView = nil
+        expandedTextView = nil
+        expandedBottomBarGlassHostingView = nil
+        expandedBottomBarControlsHostingView = nil
+        expandedTextFrameInHosting = nil
+        expandedTextSurfaceRequestedVisible = false
         createWindow()
 
         let toastCard = ToastView(
             viewModel: viewModel,
             onHoverChanged: { [weak self] hovering in self?.handleHoverChanged(hovering) },
             onCommand: { [weak self] command in self?.handleCommand(command) },
+            onExpandedTextFrameChanged: { [weak self] frame in
+                DispatchQueue.main.async { self?.updateExpandedTextFrame(frame) }
+            },
             onNeedsLayout: { [weak self] in DispatchQueue.main.async { self?.updateWindowSize() } },
         )
 
@@ -61,6 +76,7 @@ final class ToastWindowController {
         hostingView?.removeFromSuperview()
         hostingView = newHosting
         contentView?.addSubview(newHosting)
+        installExpandedTextSurface()
         newHosting.layoutSubtreeIfNeeded()
 
         guard let screen = NSScreen.main else {
@@ -442,6 +458,7 @@ final class ToastWindowController {
             // Switch content while invisible
             self.viewModel.isExpanded = true
             self.updateWindowSize(animated: false)
+            self.setExpandedTextSurfaceVisible(true)
 
             // Phase 2: deblur + fade in (reverse of dismissToast)
             self.animateWindowAlpha(to: 1, easeIn: false) { [weak self] in
@@ -460,6 +477,7 @@ final class ToastWindowController {
         animateWindowAlpha(to: 0, easeIn: true) { [weak self] in
             guard let self else { return }
             // Switch content while invisible
+            self.setExpandedTextSurfaceVisible(false)
             self.viewModel.isExpanded = false
             self.updateWindowSize(animated: false)
 
@@ -595,6 +613,167 @@ final class ToastWindowController {
 
     // MARK: - Window
 
+    private func installExpandedTextSurface() {
+        guard let contentView else { return }
+
+        let scrollView = ToastExpandedTextScrollView(frame: .zero)
+        scrollView.translatesAutoresizingMaskIntoConstraints = true
+        scrollView.borderType = .noBorder
+        scrollView.drawsBackground = false
+        scrollView.contentView.drawsBackground = false
+        scrollView.hasHorizontalScroller = false
+        scrollView.hasVerticalScroller = false
+        scrollView.autohidesScrollers = true
+        scrollView.scrollerStyle = .overlay
+        scrollView.isHidden = true
+        scrollView.wantsLayer = true
+        scrollView.layer?.masksToBounds = true
+        scrollView.onHoverChanged = { [weak self] hovering in
+            self?.handleHoverChanged(hovering)
+        }
+
+        let textView = ToastExpandedTextView(frame: .zero)
+        textView.isEditable = false
+        textView.isSelectable = true
+        textView.isRichText = false
+        textView.drawsBackground = false
+        textView.textContainerInset = .zero
+        textView.textContainer?.lineFragmentPadding = 0
+        textView.isHorizontallyResizable = false
+        textView.isVerticallyResizable = true
+        textView.autoresizingMask = [.width]
+        textView.minSize = .zero
+        textView.maxSize = NSSize(
+            width: CGFloat.greatestFiniteMagnitude,
+            height: CGFloat.greatestFiniteMagnitude
+        )
+        scrollView.documentView = textView
+
+        let bottomBarGlass = ExpandedBottomBarGlassView()
+        let bottomBarGlassHosting = ToastVisualHostingView(rootView: AnyView(bottomBarGlass))
+        bottomBarGlassHosting.wantsLayer = true
+        bottomBarGlassHosting.layer?.backgroundColor = NSColor.clear.cgColor
+        bottomBarGlassHosting.translatesAutoresizingMaskIntoConstraints = true
+        bottomBarGlassHosting.isHidden = true
+
+        let bottomBarControls = ExpandedBottomBarControlsView(
+            onHoverChanged: { [weak self] hovering in
+                self?.handleHoverChanged(hovering)
+            },
+            onCommand: { [weak self] command in
+                self?.handleCommand(command)
+            }
+        )
+        let bottomBarControlsHosting = ToastHostingView(rootView: AnyView(bottomBarControls))
+        bottomBarControlsHosting.wantsLayer = true
+        bottomBarControlsHosting.layer?.backgroundColor = NSColor.clear.cgColor
+        bottomBarControlsHosting.translatesAutoresizingMaskIntoConstraints = true
+        bottomBarControlsHosting.isHidden = true
+
+        contentView.addSubview(scrollView, positioned: .above, relativeTo: hostingView)
+        contentView.addSubview(bottomBarGlassHosting, positioned: .above, relativeTo: scrollView)
+        contentView.addSubview(
+            bottomBarControlsHosting,
+            positioned: .above,
+            relativeTo: bottomBarGlassHosting
+        )
+
+        expandedTextScrollView = scrollView
+        expandedTextView = textView
+        expandedBottomBarGlassHostingView = bottomBarGlassHosting
+        expandedBottomBarControlsHostingView = bottomBarControlsHosting
+    }
+
+    private func layoutExpandedTextSurface() {
+        guard viewModel.isExpanded,
+              let contentView,
+              let hostingView,
+              let frameInHosting = expandedTextFrameInHosting,
+              let scrollView = expandedTextScrollView,
+              let textView = expandedTextView,
+              let bottomBarGlassHosting = expandedBottomBarGlassHostingView,
+              let bottomBarControlsHosting = expandedBottomBarControlsHostingView else { return }
+
+        textView.textStorage?.setAttributedString(
+            ExpandedTextLayoutMetrics.attributedText(viewModel.expandedText)
+        )
+        scrollView.frame = hostingView.convert(frameInHosting, to: contentView).integral
+        let cardTop = frameInHosting.minY - ExpandedTextLayoutMetrics.topInset
+        let bottomBarFrameInHosting = CGRect(
+            x: frameInHosting.minX - ExpandedTextLayoutMetrics.horizontalInset,
+            y: cardTop + ExpandedTextLayoutMetrics.totalHeight(for: viewModel.expandedText)
+                - ExpandedTextLayoutMetrics.bottomBarVisualHeight,
+            width: ExpandedTextLayoutMetrics.cardWidth,
+            height: ExpandedTextLayoutMetrics.bottomBarVisualHeight
+        )
+        let bottomBarFrame = hostingView.convert(bottomBarFrameInHosting, to: contentView).integral
+        bottomBarControlsHosting.frame = bottomBarFrame
+        bottomBarGlassHosting.layoutSubtreeIfNeeded()
+        let glassSize = bottomBarGlassHosting.fittingSize
+        let glassOutsetX = max(0, (glassSize.width - bottomBarFrame.width) / 2)
+        let glassOutsetY = max(0, (glassSize.height - bottomBarFrame.height) / 2)
+        bottomBarGlassHosting.frame = bottomBarFrame.insetBy(
+            dx: -glassOutsetX,
+            dy: -glassOutsetY
+        )
+        let innerCornerRadius = max(
+            0,
+            ToastView.cardCornerRadius - ExpandedTextLayoutMetrics.horizontalInset
+        )
+        scrollView.layer?.cornerRadius = innerCornerRadius
+        scrollView.layer?.maskedCorners = scrollView.isFlipped
+            ? [.layerMinXMaxYCorner, .layerMaxXMaxYCorner]
+            : [.layerMinXMinYCorner, .layerMaxXMinYCorner]
+
+        let viewportSize = scrollView.contentSize
+        textView.setFrameSize(NSSize(width: viewportSize.width, height: viewportSize.height))
+        if let textContainer = textView.textContainer {
+            textContainer.containerSize = NSSize(
+                width: viewportSize.width,
+                height: CGFloat.greatestFiniteMagnitude
+            )
+            textContainer.widthTracksTextView = true
+            textView.layoutManager?.ensureLayout(for: textContainer)
+        }
+        let usedTextRect = textView.textContainer.flatMap {
+            textView.layoutManager?.usedRect(for: $0)
+        } ?? .zero
+        let documentHeight = ExpandedTextLayoutMetrics.documentHeight(
+            viewportHeight: viewportSize.height,
+            usedTextMaxY: usedTextRect.maxY
+        )
+        textView.setFrameSize(NSSize(width: viewportSize.width, height: documentHeight))
+        scrollView.hasVerticalScroller = documentHeight > viewportSize.height + 0.5
+        scrollView.contentView.scroll(to: .zero)
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+    }
+
+    private func updateExpandedTextFrame(_ frame: CGRect?) {
+        expandedTextFrameInHosting = frame
+        guard frame != nil else {
+            expandedTextScrollView?.isHidden = true
+            expandedBottomBarGlassHostingView?.isHidden = true
+            expandedBottomBarControlsHostingView?.isHidden = true
+            return
+        }
+        if expandedTextSurfaceRequestedVisible && viewModel.isExpanded {
+            layoutExpandedTextSurface()
+            expandedTextScrollView?.isHidden = false
+            expandedBottomBarGlassHostingView?.isHidden = false
+            expandedBottomBarControlsHostingView?.isHidden = false
+        }
+    }
+
+    private func setExpandedTextSurfaceVisible(_ visible: Bool) {
+        expandedTextSurfaceRequestedVisible = visible
+        if visible {
+            layoutExpandedTextSurface()
+        }
+        expandedTextScrollView?.isHidden = !visible || expandedTextFrameInHosting == nil
+        expandedBottomBarGlassHostingView?.isHidden = !visible || expandedTextFrameInHosting == nil
+        expandedBottomBarControlsHostingView?.isHidden = !visible || expandedTextFrameInHosting == nil
+    }
+
     private func createWindow() {
         let w = ToastPanel(contentRect: NSRect(x: 0, y: 0, width: 360, height: 80))
         w.level = .floating
@@ -637,9 +816,13 @@ final class ToastWindowController {
         } else {
             window?.setFrame(rect, display: true, animate: false)
         }
+        if viewModel.isExpanded {
+            layoutExpandedTextSurface()
+        }
     }
 
     func dismissToast(animated: Bool) {
+        setExpandedTextSurfaceVisible(false)
         dismissTimer?.invalidate()
         dismissTimer = nil
         invalidateQuickTriggerContext(reason: "dismissToast animated=\(animated)")
