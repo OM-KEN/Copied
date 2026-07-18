@@ -108,7 +108,7 @@ final class ToastWindowController {
         }
 
         localOtherEventMonitor = NSEvent.addLocalMonitorForEvents(
-            matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel]
+            matching: .keyDown
         ) { [weak self] event in
             self?.cancelKeyboardQuickTrigger(
                 reason: "localOtherEvent type=\(event.type.rawValue) keyCode=\(event.keyCode)"
