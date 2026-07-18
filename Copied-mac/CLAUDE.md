@@ -35,8 +35,9 @@ KeyboardShortcutSettings.swift  快速触发修饰键、双击/单击模式、�
 QuickTriggerModifierKeyPolicy.swift  按实际 keyCode 维护左右修饰键状态
 MouseButtonRecordingStateMachine.swift  侧键录制状态与取消/绑定决策
 AppUpdateService.swift      GitHub Releases 检查、缓存、节流与提醒状态
-ToastWindowController.swift 浮动 NSWindow + NSHostingView + Action + 键盘/侧键快速触发
-CollapsedToastMouseUpPolicy.swift  折叠态鼠标松开分流 + 主 Action 重复回调守卫
+ToastPanel.swift            nonactivating NSPanel + first-mouse hosting + 原生展开文本
+ToastCommand.swift          弹窗内部命令 + 同步防重入分发
+ToastWindowController.swift ToastPanel + Action + 展开文本分层 + 键盘/侧键快速触发
 ToastViewModel.swift        @Observable 模型（含 sourceBundleID）
 RelativeDateDescription.swift 日期/时间详情格式化（日历日语义 + 本地化时间）
 ToastView.swift             SwiftUI 卡片 + glassEffect（macOS 26+）/ ultraThinMaterial（降级）+ 展开查看全文（if/else 双态）+ contextMenu
@@ -47,6 +48,7 @@ FilePreviewGenerator.swift  QLThumbnailGenerator 异步缩略图
 SourceAppDetector.swift     NSWorkspace.frontmostApplication（含 bundleIdentifier）
 Localizable.xcstrings       String Catalog（zh-Hans 源语言 + en / zh-Hant）
 build.sh                    swiftc + xcstringstool + actool + codesign
+run-tests.sh                统一运行现有与弹窗交互测试
 ```
 
 UserDefaults 键：`searchEngine`, `launchAtLogin`, `isPaused`, `copyGestureEnabled`, `lightReminderEnabled`, `keyboardQuickTriggerModifier`, `keyboardQuickTriggerMode`, `mouseQuickTriggerButton`, `automaticUpdateRemindersEnabled`, `contentKindPriorities`, `disabledContentKinds`, `installedPlugins`, `popupFilterBlockedApps`。
@@ -67,15 +69,17 @@ UserDefaults 键：`searchEngine`, `launchAtLogin`, `isPaused`, `copyGestureEnab
 
 **macOS 26+**：`.glassEffect(in: .rect(cornerRadius: cardCornerRadius))` — 液态玻璃。**pre-macOS 26**：ZStack 内 `RoundedRectangle.fill(.ultraThinMaterial)` + 0.08s 延迟淡入，避免 WindowServer 材质合成首帧灰色闪烁。统一常量 `cardCornerRadius: CGFloat = 32`。
 
+标准弹窗必须使用 `ToastPanel`：`NSPanel + .borderless + .nonactivatingPanel`，`canBecomeKey=true`、`canBecomeMain=false`、`becomesKeyOnlyIfNeeded=true`、`isFloatingPanel=true`、`hidesOnDeactivate=false`。普通 SwiftUI 控件位于 `needsPanelToBecomeKey=false` 的 first-mouse hosting 中，点击不得激活 Copied 或让 Panel 成为 key；只有原生展开文本交互可按需成为 key。
+
 非 key 浮动窗口的边缘高光被 WindowServer 抑制 → `.stroke(.primary.opacity(0.15))` 补偿（`.primary` 自适应亮/暗模式）。每次 `show()` 重建窗口（不复用）— 全屏 Space 长时间使用后复用窗口可能导致 `orderFront` 无效、toast 不出现。窗口配置见 `ToastWindowController.createWindow()`，动画参数见 `ToastView.swift`。
 
 退场动画陷阱：`layerUsesCoreImageFilters = true` 必须设（AppKit 默认不启用）、`CIFilter.name` 必须匹配动画 keyPath、清理覆盖三条路径（动画回调 / `cancelDismiss()` / 非动画 dismiss）。
 
 ### 鼠标交互
 
-SwiftUI `.onHover` 将折叠态主按钮、预览行和展开态按钮的命中状态同步给 controller；AppKit 本地监听器在 `.leftMouseUp` 统一分流：折叠态主按钮执行当前 Action、预览行展开、其他区域关闭，展开态按钮执行对应动作。borderless 非 key 浮动 `NSHostingView` 内 SwiftUI Button / `.onTapGesture` 的 responder chain 不可靠，不能只把事件放行给 SwiftUI。`dismissGeneration` 防止过期的动画清理隐藏新 toast。交互状态在 controller 而非 ViewModel。
+SwiftUI `Button` 是鼠标 `ToastCommand` 的唯一来源；禁止恢复窗口级左右键 monitor、hover 业务命中、手写矩形或百分比坐标分流。预览按钮发送 `.expand`，右侧按钮发送 `.performPrimary`，整卡背景按钮发送 `.dismiss`；图标和来源信息用 `allowsHitTesting(false)` 穿透到背景关闭，右侧按钮 label 必须用矩形 `contentShape` 覆盖完整视觉区域。hover 只负责视觉状态和暂停自动关闭。
 
-**mouseUp 不可吞**：controller 直接路由 SwiftUI Button 后仍必须返回原始 `NSEvent`。返回 `nil` 会让 Button 停在事件跟踪模式，进而饿死 `ClipboardMonitor` 使用的默认 RunLoop Timer。
+本地 NSEvent monitor 只保留快速触发所需的 `.keyDown` / `.flagsChanged`；订阅 `.leftMouseDown` 会让 nonactivating Panel 只收到 mouseUp，破坏 SwiftUI 原生点击链。`dismissGeneration` 继续防止过期动画清理隐藏新 toast。
 
 ### 剪贴板检测
 
@@ -116,15 +120,15 @@ rebuild 后签名变化会使 macOS 清掉 `SMAppService` 登录项注册记录�
 
 ### 展开查看全文（ToastView expand/collapse）
 
-`ExpandedTextView` 固定宽 360，文本自然高度、底部留 52pt，ScrollView 最大 300pt，底栏用 `.regularMaterial`；`updateWindowSize` 上限 340pt。所有内容类型均可展开，`expandedText` 优先级为结果覆盖层 > 原文 > 文件名+路径。折叠态预览和结果覆盖层 hover 使用 `Color.primary.opacity(0.1)`。
+`ExpandedTextView` 固定宽 360、总高最多 300pt，只在主 SwiftUI host 中预留几何空间。controller 在卡片背景上方安装原生 `NSTextView + NSScrollView`，再叠加不接收鼠标的玻璃视觉 host 和独立 SwiftUI 按钮 host；正文因此可在底栏后方滚动，底部圆角由 scroll layer 裁剪。文档高度必须取 `NSLayoutManager.usedRect` 后再额外加 52pt，不能只依赖 `boundingRect` 或在排版前设置 frame，否则 `NSTextView` 会收缩并遮住最后一两行。`updateWindowSize` 上限 340pt。所有内容类型均可展开，`expandedText` 优先级为结果覆盖层 > 原文 > 文件名+路径。
 
-展开态交互：进入展开态时移除键盘/侧键快速触发监听，避免全局/本地鼠标监听干扰文本拖选；收起后重新安装。按钮栏 Spacer 区域由 `handleTap()` 按底部 60pt、横向 42%~78% 判断并异步 dismiss；非 key window 的 ⌘C 由本地 keyDown monitor 找到 `NSTextView` 后复制选区；Escape（keyCode 53）收起；TextEdit 操作写 UUID 临时文件后用 `NSWorkspace` 打开，且动作入口必须防重入。
+展开态交互：进入展开态时移除键盘/侧键快速触发监听，收起后重新安装。只有原生文本需要 Panel 成为 key，并直接使用 responder chain 支持拖选、⌘C 和右键菜单；普通底栏按钮仍保持 Panel non-key。按钮栏中间透明 SwiftUI Button 负责关闭，不使用坐标命中。Escape 不提供操作。TextEdit 操作写 UUID 临时文件后用 `NSWorkspace` 打开，且动作入口必须防重入。
 
 过渡必须使用全窗口 CIGaussianBlur + alpha 两段式切换，并由 `isExpandingOrCollapsing` 防重入；窗口 resize 不做动画。
 
 ### 点击处理
 
-NSEvent 本地监听器 + SwiftUI hover 协作，实际鼠标 Action 路由由 controller 负责。折叠态主按钮在 mouseUp 直接执行 `quickTriggerAction()`，`ManualPrimaryActionEventGuard` 仅在同一鼠标事件中抑制一次潜在的 SwiftUI 重复回调，并在下一个主线程 run loop 自动失效；不得影响快速触发、右键菜单或后续 Action。异步延迟防 `dismissToast(animated:true)` 与 `cancelDismiss()` 竞争。`cancelDismiss()` 重置 `isDismissing=false`、递增 `dismissGeneration`、恢复 `alphaValue=1.0`。
+所有入口统一发送 `ToastCommand`（主 Action、具体 Action、展开、收起、关闭、TextEdit、更新页），由 `ToastCommandDispatcher` 同步防重入并交给 controller 执行。不得恢复主 Action 手动 mouseUp、`ManualPrimaryActionEventGuard`、`CollapsedToastMouseUpPolicy` 或 hover/坐标命中。`cancelDismiss()` 仍需重置 `isDismissing=false`、递增 `dismissGeneration`、恢复 `alphaValue=1.0`。
 
 ### 快速触发（修饰键）
 

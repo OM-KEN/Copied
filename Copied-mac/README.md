@@ -37,7 +37,7 @@ pip3 install 'dmgbuild>=1.6.5'   # 首次需安装
 
 ## 使用
 
-复制任意内容 → 卡片弹出。悬停保持，点击预览行展开全文，点击其他区域关闭。默认在第一次 Control 松开后的 350ms 内再次按下并松开 Control，即可触发主操作；设置中也可选择单击模式、其他修饰键或原生鼠标侧键。
+复制任意内容 → 卡片弹出。悬停保持，点击预览行展开全文，点击右侧按钮执行操作，点击图标、来源信息或其他空白区域关闭。默认在第一次 Control 松开后的 350ms 内再次按下并松开 Control，即可触发主操作；设置中也可选择单击模式、其他修饰键或原生鼠标侧键。
 
 侧键录制需要辅助功能权限。Mac Mouse Fix 等鼠标重映射工具可能在事件到达 Copied 前将侧键拦截或改写；此时需在该工具中保留原生侧键事件，或关闭对应映射。
 
@@ -63,7 +63,9 @@ QuickTriggerModifierKeyPolicy.swift — 按实际键码处理修饰键状态与�
 AppUpdateService.swift      — GitHub Releases 版本检查、缓存与提醒节流
 FilePreviewGenerator.swift  — QLThumbnailGenerator 异步文件缩略图
 SourceAppDetector.swift     — NSWorkspace 前台 App 检测（含 bundleIdentifier）
-ToastWindowController.swift — NSWindow + NSHostingView 管理（标准模式）
+ToastPanel.swift            — nonactivating NSPanel + first-mouse hosting / 原生展开文本
+ToastCommand.swift          — 弹窗内部命令与单次分发
+ToastWindowController.swift — ToastPanel、展开文本分层与快速触发管理（标准模式）
 LightReminderController.swift — 轻提醒模式浮标（NSWindow + drawOff 反向动画）
 ToastView.swift             — SwiftUI 卡片 + 展开查看全文 + 色块 + 右键菜单
 ToastViewModel.swift        — @Observable 模型（含展开状态管理）
@@ -73,5 +75,6 @@ Copied.icon                 — Liquid Glass 分层图标
 Copied.svg                  — 菜单栏 template 图标
 Localizable.xcstrings       — 简中、繁中、英文 String Catalog
 build.sh                    — swiftc + xcstringstool + actool + codesign 一键构建
+run-tests.sh                — 统一运行全部自动测试
 create-dmg.sh               — DMG 安装包生成
 ```
