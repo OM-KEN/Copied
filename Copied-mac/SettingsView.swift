@@ -6,6 +6,8 @@ struct SettingsView: View {
     // ── Launch at Login ────────────────────────────────────
     @AppStorage("launchAtLogin") private var launchAtLogin = false
     @AppStorage("lightReminderEnabled") private var lightReminderEnabled = false
+    @AppStorage(CopySoundFeedback.defaultsKey)
+    private var copyFeedbackSound = CopySoundFeedback.defaultSoundName
     @State private var loginItemError: String? = nil
 
     // ── Quick Trigger ─────────────────────────────────────
@@ -47,6 +49,20 @@ struct SettingsView: View {
                     Text("开启后，复制时仅在鼠标旁短暂出现图标，不弹出完整窗口。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+
+                    Picker("声音", selection: Binding(
+                        get: { CopySoundFeedback.resolvedSelection(copyFeedbackSound) },
+                        set: { selection in
+                            copyFeedbackSound = selection
+                            CopySoundFeedback.play(selection: selection)
+                        }
+                    )) {
+                        Text("无").tag(CopySoundFeedback.disabledValue)
+                        ForEach(CopySoundFeedback.availableSoundNames, id: \.self) { soundName in
+                            Text(verbatim: soundName).tag(soundName)
+                        }
+                    }
+                    .pickerStyle(.menu)
                 } header: {
                     Text("复制反馈")
                 }

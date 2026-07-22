@@ -50,14 +50,18 @@ private struct MenuBarContent: View {
                 SettingsNavigation.requestAboutTab()
                 openSettings()
             } label: {
-                HStack(spacing: 4) {
-                    if updateService.showsMenuUpdateIndicator {
-                        Image(systemName: "circle.fill")
-                            .foregroundStyle(.green)
-                    }
+                if updateService.showsMenuUpdateIndicator {
                     Text(verbatim: MenuVersionTextFormatter.string(
                         version: AppVersion.currentString,
-                        hasUpdate: updateService.showsMenuUpdateIndicator
+                        hasUpdate: true
+                    ))
+                    + Text(" ")
+                    + Text(Image(systemName: "arrow.up.circle.fill"))
+                        .foregroundColor(.green)
+                } else {
+                    Text(verbatim: MenuVersionTextFormatter.string(
+                        version: AppVersion.currentString,
+                        hasUpdate: false
                     ))
                 }
             }

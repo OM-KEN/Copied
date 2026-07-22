@@ -9,6 +9,7 @@ Tests/*
 !Tests/InteractionWiringTests.swift
 !Tests/CopyGesturePermissionPolicyTests.swift
 !Tests/ToastCommandTests.swift
+!Tests/CopySoundFeedbackTests.swift
 .DS_Store
 *.dmg
 *.zip

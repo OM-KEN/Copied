@@ -54,6 +54,7 @@ SOURCES=(
     CopiedApp.swift
     AppFilterSettings.swift
     ClipboardTextPolicy.swift
+    CopySoundFeedback.swift
     ClipboardMonitor.swift
     SourceAppDetector.swift
     BlacklistSourceAppAction.swift

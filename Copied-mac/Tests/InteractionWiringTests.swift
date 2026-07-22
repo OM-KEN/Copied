@@ -62,6 +62,16 @@ struct InteractionWiringTests {
         expect(MenuVersionTextFormatter.string(version: "2.9.1", hasUpdate: false) == "版本 2.9.1", "single menu version string")
         expect(MenuVersionTextFormatter.string(version: "2.9.1", hasUpdate: true) == "版本 2.9.1 · 有新版本", "single update menu string")
 
+        let appSource = try! String(contentsOfFile: "CopiedApp.swift", encoding: .utf8)
+        expect(
+            appSource.contains("Text(Image(systemName: \"arrow.up.circle.fill\"))"),
+            "menu update indicator embeds the trailing symbol in text"
+        )
+        expect(
+            !appSource.contains("Image(systemName: \"circle.fill\")"),
+            "menu update indicator does not use the leading dot"
+        )
+
         print("InteractionWiringTests: PASS")
     }
 }

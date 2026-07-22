@@ -19,6 +19,13 @@ swift Tests/AppFilterTests.swift
 swift Tests/DateTimeTests.swift
 
 swiftc -parse-as-library \
+    CopySoundFeedback.swift \
+    Tests/CopySoundFeedbackTests.swift \
+    -framework AppKit \
+    -o "$TEST_BUILD_DIR/CopySoundFeedbackTests"
+"$TEST_BUILD_DIR/CopySoundFeedbackTests"
+
+swiftc -parse-as-library \
     KeyboardShortcutSettings.swift \
     QuickTriggerModifierKeyPolicy.swift \
     QuickTriggerStateMachine.swift \

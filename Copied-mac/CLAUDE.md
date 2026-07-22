@@ -18,6 +18,7 @@ DMG 背景图：放 `.build/dmg_background.png`（440×240），由 `dmg_setting
 CopiedApp.swift             MenuBarExtra + AppDelegate + Settings
 ClipboardMonitor.swift      每 0.15s 轮询 NSPasteboard.changeCount（含黑名单过滤门）
 ClipboardTextPolicy.swift   长文本阈值与纯文本主操作策略
+CopySoundFeedback.swift     复制系统声音选择、默认值与播放
 GlobalMouseEventCoordinator.swift  共享 CGEventTap + 权限失效保护
 CopyGestureManager.swift    左+右 → ⌘C 手势（双路径 + R_UP 兜底）
 DetectionRegistry.swift     全局检测器注册中心 + 优先级管道 + 限流
@@ -55,9 +56,11 @@ build.sh                    swiftc + xcstringstool + actool + codesign
 run-tests.sh                统一运行现有与弹窗交互测试
 ```
 
-UserDefaults 键：`searchEngine`, `launchAtLogin`, `isPaused`, `copyGestureEnabled`, `lightReminderEnabled`, `keyboardQuickTriggerModifier`, `keyboardQuickTriggerMode`, `mouseQuickTriggerButton`, `automaticUpdateRemindersEnabled`, `contentKindPriorities`, `disabledContentKinds`, `installedPlugins`, `popupFilterBlockedApps`。
+UserDefaults 键：`searchEngine`, `launchAtLogin`, `isPaused`, `copyGestureEnabled`, `lightReminderEnabled`, `copyFeedbackSound`, `keyboardQuickTriggerModifier`, `keyboardQuickTriggerMode`, `mouseQuickTriggerButton`, `automaticUpdateRemindersEnabled`, `contentKindPriorities`, `disabledContentKinds`, `installedPlugins`, `popupFilterBlockedApps`。
 
-**数据流**：`ClipboardMonitor` → `DetectionRegistry.detectAll()` → `SourceAppDetector.detect()` → `AppFilterSettings.shouldShowPopup()` 过滤门 → `ClipboardContent` → 分支：轻提醒模式 → `LightReminderController.show()`，标准模式 → `ToastWindowController.show()` → `ToastViewModel` → `ToastView`
+**数据流**：`ClipboardMonitor` → `DetectionRegistry.detectAll()` → `SourceAppDetector.detect()` → `AppFilterSettings.shouldShowPopup()` 过滤门 → `CopySoundFeedback` → 视觉去重 → 分支：轻提醒模式 → `LightReminderController.show()`，标准模式 → `ToastWindowController.show()` → `ToastViewModel` → `ToastView`
+
+复制声音默认 Frog，固定使用 `NSSound` 的 0.5 音量；设置试听与实际复制共用同一播放路径，可选择其他系统声音或 `none`。声音在来源过滤后、视觉去重前播放，因此 500ms 内重复复制相同内容仍会逐次发声；暂停、不可读内容和黑名单来源无声。
 
 **插件系统**：声明式 JSON + 正则，不执行代码。目录为 `~/Library/Application Support/Copied/Plugins/`，只从设置手动安装；规则支持 `multiline`、`menuOnly`，无默认插件。性能边界统一由 `DetectionRegistry` 管理。
 
@@ -161,7 +164,7 @@ rebuild 后签名变化会使 macOS 清掉 `SMAppService` 登录项注册记录�
 
 ### 菜单栏
 
-`MenuBarExtra` 使用 `Copied.svg` 模板图；`build.sh` 将白色填充转为黑色模板遮罩。暂停状态直接读 `UserDefaults`，版本项打开关于页；`LSUIElement = YES`。
+`MenuBarExtra` 使用 `Copied.svg` 模板图；`build.sh` 将白色填充转为黑色模板遮罩。暂停状态直接读 `UserDefaults`，版本项打开关于页；`LSUIElement = YES`。有新版本时，绿色 `arrow.up.circle.fill` 必须用 `Text(Image(...))` 内嵌在版本文字末尾；独立 `Image` 会被 `NSMenu` 强制提升到菜单项左侧并推移文字。
 
 ### 左右键快捷复制（CopyGestureManager）
 

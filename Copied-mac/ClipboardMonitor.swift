@@ -75,16 +75,15 @@ final class ClipboardMonitor {
         }
 
         let now = Date()
-        if content.hashValue == lastHash,
-           now.timeIntervalSince(lastShowTime) < dedupWindow {
-            NSLog("Copied: dedup skip (hash=\(content.hashValue), elapsed=\(String(format: "%.3f", now.timeIntervalSince(lastShowTime)))s)")
-            return
+        let elapsedSinceLastShow = now.timeIntervalSince(lastShowTime)
+        let isVisualDuplicate = content.hashValue == lastHash
+            && elapsedSinceLastShow < dedupWindow
+        if !isVisualDuplicate {
+            lastHash = content.hashValue
+            lastShowTime = now
         }
-        lastHash = content.hashValue
-        lastShowTime = now
 
         let source = SourceAppDetector.detect(for: content)
-        NSLog("Copied: dispatching show (type=\(content.type), preview=\(content.preview.prefix(50)))")
 
         // Popup filter gate — check against blacklist/whitelist
         if !AppFilterSettings.shared.shouldShowPopup(for: source.bundleIdentifier) {
@@ -93,6 +92,14 @@ final class ClipboardMonitor {
         }
 
         DispatchQueue.main.async { [weak self] in
+            CopySoundFeedback.playConfiguredSound()
+
+            if isVisualDuplicate {
+                NSLog("Copied: visual dedup skip (hash=\(content.hashValue), elapsed=\(String(format: "%.3f", elapsedSinceLastShow))s)")
+                return
+            }
+
+            NSLog("Copied: dispatching show (type=\(content.type), preview=\(content.preview.prefix(50)))")
             if LightReminderController.shared.isEnabled {
                 LightReminderController.shared.show()
             } else {
