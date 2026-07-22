@@ -5,8 +5,8 @@ enum ExpandedTextLayoutMetrics {
     static let cardWidth: CGFloat = 360
     static let horizontalInset: CGFloat = 16
     static let topInset: CGFloat = 12
-    static let bottomReservedHeight: CGFloat = 52
-    static let bottomBarVisualHeight: CGFloat = 42
+    static let bottomReservedHeight: CGFloat = 64
+    static let bottomBarVisualHeight: CGFloat = 54
     static let maxTotalHeight: CGFloat = 300
     static let font = NSFont.systemFont(ofSize: 14)
     static let lineSpacing: CGFloat = 4
@@ -47,6 +47,25 @@ enum ExpandedTextLayoutMetrics {
                 .paragraphStyle: paragraph,
             ]
         )
+    }
+}
+
+enum ExpandedWindowLayoutMetrics {
+    static let shadowOutset: CGFloat = 16
+
+    static func windowSize(for contentSize: NSSize, isExpanded: Bool) -> NSSize {
+        guard isExpanded else { return contentSize }
+        return NSSize(
+            width: contentSize.width + shadowOutset * 2,
+            height: contentSize.height + shadowOutset * 2
+        )
+    }
+
+    static func hostingFrame(for contentSize: NSSize, isExpanded: Bool) -> NSRect {
+        let origin = isExpanded
+            ? NSPoint(x: shadowOutset, y: shadowOutset)
+            : .zero
+        return NSRect(origin: origin, size: contentSize)
     }
 }
 

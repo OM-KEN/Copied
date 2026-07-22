@@ -17,6 +17,7 @@ DMG 背景图：放 `.build/dmg_background.png`（440×240），由 `dmg_setting
 ```
 CopiedApp.swift             MenuBarExtra + AppDelegate + Settings
 ClipboardMonitor.swift      每 0.15s 轮询 NSPasteboard.changeCount（含黑名单过滤门）
+ClipboardTextPolicy.swift   长文本阈值与纯文本主操作策略
 GlobalMouseEventCoordinator.swift  共享 CGEventTap + 权限失效保护
 CopyGestureManager.swift    左+右 → ⌘C 手势（双路径 + R_UP 兜底）
 DetectionRegistry.swift     全局检测器注册中心 + 优先级管道 + 限流
@@ -115,7 +116,7 @@ SwiftUI `Button` 是鼠标 `ToastCommand` 的唯一来源；禁止恢复窗口�
 
 **词典查询**：`LookupAction` 使用 `DCSCopyTextDefinition`。预查只能在 `ActionResolver.makeAction()`，有释义显示翻译、无释义回退搜索；禁止放进受 50ms 熔断约束的检测器。
 
-**优先级**：首个非颜色检测占右侧唯一按钮，其余进右键菜单；无检测默认搜索，纯语言类型不产生按钮。规则以 `ClipboardAction.swift` 和各 `*Action.swift` 为准。
+**优先级**：首个非颜色检测占右侧唯一按钮，其余进右键菜单；无检测时短文本默认搜索、长文本默认另存为，纯语言类型不产生按钮。规则以 `ClipboardAction.swift` 和各 `*Action.swift` 为准。
 
 **视觉约束**：按钮背景在 macOS 26+ 用 `.glassEffect(.regular.interactive())`，旧系统用 `.fill(.quaternary)`；禁止硬编码白色。hover 图标必须以 `ZStack` + `opacity` 切换，条件替换不同宽度的 SF Symbol 会触发 HStack 重排和文本跳动。
 
@@ -125,11 +126,15 @@ rebuild 后签名变化会使 macOS 清掉 `SMAppService` 登录项注册记录�
 
 ### 展开查看全文（ToastView expand/collapse）
 
-`ExpandedTextView` 固定宽 360、总高最多 300pt；主 host 只预留几何空间，controller 分层安装原生 `NSTextView/NSScrollView`、无命中玻璃 host 和独立按钮 host。文档高度必须取 `NSLayoutManager.usedRect` 再加 52pt，`updateWindowSize` 上限 340pt；`expandedText` 优先级为结果覆盖层 > 原文 > 文件名+路径。
+`ExpandedTextView` 固定宽 360、总高最多 300pt；主 host 只预留几何空间，controller 分层安装原生 `NSTextView/NSScrollView`、无命中玻璃 host 和独立按钮 host。文档高度必须取 `NSLayoutManager.usedRect` 再加 64pt，底栏高 54pt、左右内边距 16pt，两端按钮圆角 8pt，`updateWindowSize` 上限 340pt；`expandedText` 优先级为结果覆盖层 > 原文 > 文件名+路径。
+
+展开态在 `NSPanel` 四周额外保留 16pt 透明阴影边界；SwiftUI hosting 保持原尺寸并整体内移，原生正文与底栏继续通过 hosting 坐标换算同步定位，禁止在 SwiftUI 根视图上加 padding 代替窗口边界。
 
 展开期间暂停全部快速触发。只有原生正文按需让 Panel 成为 key，并通过 responder chain 支持拖选、⌘C 和右键菜单；底栏按钮保持 non-key，中间透明 SwiftUI Button 负责关闭，禁止坐标命中，Escape 无操作。TextEdit 使用 UUID 临时文件并防重入。
 
-展开/收起必须用全窗口 CIGaussianBlur + alpha 两段式切换，以 `isExpandingOrCollapsing` 防重入；resize 不做动画。
+展开期间不得启动自动关闭计时器；鼠标移出后保持展开，只有手动关闭、收起或打开 TextEdit 才结束展开态。收起后恢复折叠态原有的自动关闭行为。
+
+展开/收起必须用全窗口 CIGaussianBlur + alpha 两段式切换，以 `isExpandingOrCollapsing` 防重入；resize 不做动画。展开态直接关闭时，原生正文与底栏必须保持可见直到模糊淡出完成，禁止在启动退场动画前隐藏分层 surface。
 
 ### 点击处理
 

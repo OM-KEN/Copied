@@ -422,6 +422,7 @@ struct ExpandedBottomBarControlsView: View {
     var body: some View {
         HStack {
             Button("在文本编辑中打开") { onCommand(.editInTextEdit) }
+                .buttonBorderShape(.roundedRectangle(radius: 8))
             Button {
                 onCommand(.dismiss)
             } label: {
@@ -431,6 +432,7 @@ struct ExpandedBottomBarControlsView: View {
             }
             .buttonStyle(.plain)
             Button("收起") { onCommand(.collapse) }
+                .buttonBorderShape(.roundedRectangle(radius: 8))
         }
         .padding(.horizontal, 16)
         .frame(

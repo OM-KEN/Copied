@@ -70,7 +70,7 @@ final class ToastWindowController {
         let newHosting = ToastHostingView(rootView: AnyView(toastCard))
         newHosting.wantsLayer = true
         newHosting.layer?.backgroundColor = NSColor.clear.cgColor
-        newHosting.translatesAutoresizingMaskIntoConstraints = false
+        newHosting.translatesAutoresizingMaskIntoConstraints = true
 
         hostingView?.removeFromSuperview()
         hostingView = newHosting
@@ -83,10 +83,18 @@ final class ToastWindowController {
             return
         }
         let panelSize = newHosting.fittingSize
-        let x = screen.visibleFrame.midX - panelSize.width / 2
-        let y = screen.frame.maxY - panelSize.height + 20
+        let windowSize = ExpandedWindowLayoutMetrics.windowSize(
+            for: panelSize,
+            isExpanded: false
+        )
+        let x = screen.visibleFrame.midX - windowSize.width / 2
+        let y = screen.frame.maxY - windowSize.height + 20
         NSLog("Copied: positioning — screen.frame=\(screen.frame), visibleFrame=\(screen.visibleFrame), panelSize=\(panelSize), target=(\(x), \(y))")
-        window?.setFrame(NSRect(x: x, y: y, width: panelSize.width, height: panelSize.height), display: true, animate: false)
+        window?.setFrame(NSRect(origin: NSPoint(x: x, y: y), size: windowSize), display: true, animate: false)
+        newHosting.frame = ExpandedWindowLayoutMetrics.hostingFrame(
+            for: panelSize,
+            isExpanded: false
+        )
         window?.alphaValue = 1.0
         window?.orderFront(nil)
         if viewModel.showsUpdateReminder {
@@ -370,6 +378,10 @@ final class ToastWindowController {
 
     func startDismissTimer() {
         dismissTimer?.invalidate()
+        guard !viewModel.isExpanded else {
+            dismissTimer = nil
+            return
+        }
         dismissTimer = Timer.scheduledTimer(withTimeInterval: displayDuration, repeats: false) { [weak self] _ in
             guard let self, !self.isDismissing else { return }
             self.isDismissing = true
@@ -580,9 +592,14 @@ final class ToastWindowController {
             let maxH: CGFloat = 340
             if h > maxH { h = maxH }
         }
-        let x = screen.visibleFrame.midX - panelSize.width / 2
-        let y = screen.frame.maxY - h + 20
-        let rect = NSRect(x: x, y: y, width: panelSize.width, height: h)
+        let contentSize = NSSize(width: panelSize.width, height: h)
+        let windowSize = ExpandedWindowLayoutMetrics.windowSize(
+            for: contentSize,
+            isExpanded: viewModel.isExpanded
+        )
+        let x = screen.visibleFrame.midX - windowSize.width / 2
+        let y = screen.frame.maxY - windowSize.height + 20
+        let rect = NSRect(origin: NSPoint(x: x, y: y), size: windowSize)
         if animated {
             NSAnimationContext.runAnimationGroup { ctx in
                 ctx.duration = 0.3
@@ -593,13 +610,24 @@ final class ToastWindowController {
         } else {
             window?.setFrame(rect, display: true, animate: false)
         }
+        hosting.frame = ExpandedWindowLayoutMetrics.hostingFrame(
+            for: contentSize,
+            isExpanded: viewModel.isExpanded
+        )
+        hosting.layoutSubtreeIfNeeded()
         if viewModel.isExpanded {
             layoutExpandedTextSurface()
         }
     }
 
     func dismissToast(animated: Bool) {
-        setExpandedTextSurfaceVisible(false)
+        let shouldHideSurfaceImmediately = ToastDismissSurfacePolicy.shouldHideImmediately(
+            animated: animated,
+            isExpanded: viewModel.isExpanded
+        )
+        if shouldHideSurfaceImmediately {
+            setExpandedTextSurfaceVisible(false)
+        }
         dismissTimer?.invalidate()
         dismissTimer = nil
         removeAllMonitors()
@@ -632,6 +660,7 @@ final class ToastWindowController {
             // 避免长时间运行后回调丢失导致窗口残留 alpha=0
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
                 guard let self, self.dismissGeneration == gen else { return }
+                self.setExpandedTextSurfaceVisible(false)
                 self.contentView?.layer?.filters = nil
                 self.contentView?.layer?.removeAnimation(forKey: "dismissBlurAnim")
                 self.window?.orderOut(nil)

@@ -20,10 +20,13 @@ struct ToastCommandTests {
         commandKindsAreDistinct()
         dispatcherExecutesOnceAndRejectsReentry()
         actionDispositionMatchesPresentationBehavior()
+        clipboardTextPolicySelectsFallbackAction()
+        dismissSurfaceVisibilityMatchesAnimationBehavior()
         panelConfigurationSupportsNonactivatingFirstMouse()
         expandedTextSurfaceScopesKeyBehavior()
         expandedTextMetricsAreBounded()
         expandedTextDocumentReservesBottomBarClearance()
+        expandedWindowReservesShadowOutsetWithoutChangingContentSize()
         productionWiringUsesOneCommandPath()
         print("ToastCommandTests: PASS")
     }
@@ -67,6 +70,41 @@ struct ToastCommandTests {
         expect(
             ToastActionDisposition(performsInlineUpdate: false) == .dismiss,
             "regular action dismisses the toast"
+        )
+    }
+
+    private static func clipboardTextPolicySelectsFallbackAction() {
+        expect(
+            ClipboardTextPolicy.fallback(for: String(repeating: "字", count: 49)) == .search,
+            "49 characters stay searchable"
+        )
+        expect(
+            ClipboardTextPolicy.fallback(for: String(repeating: "字", count: 50)) == .saveAs,
+            "50 characters prefer Save As"
+        )
+    }
+
+    private static func dismissSurfaceVisibilityMatchesAnimationBehavior() {
+        expect(
+            !ToastDismissSurfacePolicy.shouldHideImmediately(
+                animated: true,
+                isExpanded: true
+            ),
+            "animated expanded dismissal keeps native layers visible during blur"
+        )
+        expect(
+            ToastDismissSurfacePolicy.shouldHideImmediately(
+                animated: true,
+                isExpanded: false
+            ),
+            "animated collapsed dismissal has no expanded layers to preserve"
+        )
+        expect(
+            ToastDismissSurfacePolicy.shouldHideImmediately(
+                animated: false,
+                isExpanded: true
+            ),
+            "non-animated dismissal hides expanded layers immediately"
         )
     }
 
@@ -117,7 +155,7 @@ struct ToastCommandTests {
             usedTextMaxY: usedTextMaxY
         )
         expect(
-            documentHeight == 657,
+            documentHeight == 669,
             "native text layout keeps the full bottom clearance"
         )
         expect(
@@ -134,6 +172,33 @@ struct ToastCommandTests {
         )
     }
 
+    private static func expandedWindowReservesShadowOutsetWithoutChangingContentSize() {
+        let contentSize = NSSize(width: 396, height: 197)
+        expect(
+            ExpandedWindowLayoutMetrics.windowSize(
+                for: contentSize,
+                isExpanded: false
+            ) == contentSize,
+            "collapsed window keeps its original bounds"
+        )
+        let expandedSize = ExpandedWindowLayoutMetrics.windowSize(
+            for: contentSize,
+            isExpanded: true
+        )
+        expect(
+            expandedSize == NSSize(width: 428, height: 229),
+            "expanded window adds transparent room for the shadow"
+        )
+        let hostingFrame = ExpandedWindowLayoutMetrics.hostingFrame(
+            for: contentSize,
+            isExpanded: true
+        )
+        expect(
+            hostingFrame == NSRect(x: 16, y: 16, width: 396, height: 197),
+            "expanded content keeps its size and moves inward as one surface"
+        )
+    }
+
     private static func productionWiringUsesOneCommandPath() {
         let controller = try! String(contentsOfFile: "ToastWindowController.swift", encoding: .utf8)
         let quickTrigger = try! String(
@@ -147,6 +212,10 @@ struct ToastCommandTests {
         expect(
             controller.contains("handleCommand(.performPrimary)"),
             "coordinator intent enters the unified primary command path"
+        )
+        expect(
+            controller.contains("guard !viewModel.isExpanded else"),
+            "expanded text never starts the automatic dismiss timer"
         )
         expect(controller.contains("quickTriggerCoordinator.suspend()"), "expand suspends quick trigger")
         expect(

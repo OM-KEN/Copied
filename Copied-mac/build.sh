@@ -53,6 +53,7 @@ SOURCES=(
     TypeSettingsView.swift
     CopiedApp.swift
     AppFilterSettings.swift
+    ClipboardTextPolicy.swift
     ClipboardMonitor.swift
     SourceAppDetector.swift
     BlacklistSourceAppAction.swift

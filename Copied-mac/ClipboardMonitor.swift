@@ -35,7 +35,6 @@ final class ClipboardMonitor {
     private var lastShowTime: Date = .distantPast
     private let dedupWindow: TimeInterval = 0.5
     private let pollInterval: TimeInterval = 0.15
-    private let longTextThreshold = 50
 
     weak var toastController: ToastWindowController?
 
@@ -206,7 +205,7 @@ final class ClipboardMonitor {
                         : text
                     let lines = truncated.components(separatedBy: .newlines)
                     let preview = lines.prefix(3).joined(separator: "\n")
-                    let detail = text.count >= longTextThreshold
+                    let detail = ClipboardTextPolicy.isLong(text)
                         ? String(localized: "\(text.count)字符")
                         : ""
                     let detections = DetectionRegistry.shared.detectAll(in: text)

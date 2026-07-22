@@ -39,6 +39,12 @@ enum ToastActionDisposition: Equatable {
     }
 }
 
+enum ToastDismissSurfacePolicy {
+    static func shouldHideImmediately(animated: Bool, isExpanded: Bool) -> Bool {
+        !animated || !isExpanded
+    }
+}
+
 /// Serializes the synchronous command receiver and rejects reentrant dispatch.
 /// A SwiftUI control owns one command callback, so one callback can execute at most once.
 final class ToastCommandDispatcher<Action> {

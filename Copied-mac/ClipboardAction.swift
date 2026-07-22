@@ -297,11 +297,16 @@ enum ActionResolver {
             }
         }
 
-        // If no detection produced a primary action but we have plain text, offer "搜索"
+        // If no detection produced a primary action, save long text and search short text.
         if primary == nil, content.type == .text, !content.preview.isEmpty {
             let text = content.rawText ?? content.preview
             if !text.isEmpty {
-                primary = SearchTextAction(text: String(text.prefix(100)))
+                switch ClipboardTextPolicy.fallback(for: text) {
+                case .saveAs:
+                    primary = SaveFileAction(text: text, defaultName: "clipboard.txt")
+                case .search:
+                    primary = SearchTextAction(text: String(text.prefix(100)))
+                }
             }
         }
 

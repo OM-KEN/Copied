@@ -70,6 +70,7 @@ swiftc -parse-as-library \
 "$TEST_BUILD_DIR/CopyGesturePermissionPolicyTests"
 
 swiftc -parse-as-library \
+    ClipboardTextPolicy.swift \
     ToastCommand.swift \
     ToastPanel.swift \
     Tests/ToastCommandTests.swift \
