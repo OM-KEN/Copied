@@ -33,6 +33,7 @@ SOURCES=(
     PluginAction.swift
     PluginLoader.swift
     DetectionRegistry.swift
+    MathExpressionEvaluator.swift
     Detectors/ColorDetector.swift
     Detectors/URLDetector.swift
     Detectors/PhoneNumberDetector.swift

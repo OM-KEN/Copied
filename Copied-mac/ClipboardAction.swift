@@ -56,111 +56,36 @@ struct CalculateAction: ClipboardAction {
     var performsInlineUpdate: Bool { true }
 
     func perform(content: ClipboardContent, controller: ToastWindowController?) {
-        // Clean: remove trailing =, replace operators, trim whitespace
-        let cleaned = expression
-            .replacingOccurrences(of: "=", with: "")
-            .replacingOccurrences(of: "×", with: "*")
-            .replacingOccurrences(of: "÷", with: "/")
-            .replacingOccurrences(of: "^", with: "**")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-
-        let isIntegerExpr = cleaned.rangeOfCharacter(from: CharacterSet(charactersIn: ".")) == nil
-
-        // ── Pre-checks for integer expressions ──────────────────
-        if isIntegerExpr {
-            // Integer division by zero → NSExpression returns inf.
-            // Catch early for a clearer error message.
-            if cleaned.range(of: #"/\s*0(?![.\d])"#, options: .regularExpression) != nil {
-                let displayText = "\(expression)\n\(String(localized: "无法计算"))"
-                controller?.showResultOverlay(displayText: displayText, copyText: "")
+        switch MathExpressionEvaluator.evaluate(expression) {
+        case let .success(value):
+            guard let formatted = MathExpressionEvaluator.format(value) else {
+                controller?.showResultOverlay(
+                    displayText: "\(expression)\n\(String(localized: "无法计算"))",
+                    copyText: nil
+                )
                 return
             }
-
-            // Precision guard: operands with ≥19 digits would lose precision
-            // when converted to Double for evaluation (53-bit mantissa ≈ 15–16
-            // significant decimal digits). Reject early rather than silently
-            // returning an imprecise result.
-            let numbers = cleaned
-                .components(separatedBy: CharacterSet(charactersIn: "+-*/^").union(.whitespaces))
-                .filter { !$0.isEmpty }
-            let digitCounts = numbers.map { $0.count }.sorted(by: >)
-            let maxDigits = digitCounts.first ?? 0
-            let topTwoSum = digitCounts.prefix(2).reduce(0, +)
-            let overflowRisk: Bool
-            if cleaned.contains("*") {
-                overflowRisk = topTwoSum >= 19  // product of two N-digit nums can have 2N digits
-            } else {
-                overflowRisk = maxDigits >= 19  // addition needs 19-digit operand to overflow
-            }
-            if overflowRisk {
-                let displayText = "\(expression)\n\(String(localized: "数字过大"))"
-                controller?.showResultOverlay(displayText: displayText, copyText: "")
-                return
-            }
-        }
-
-        // ── Evaluate with NSExpression ──────────────────────────
-        // NSExpression inherits C integer arithmetic semantics:
-        // integer literals trigger integer division (e.g. 3/2 → 1).
-        // Convert integer-only expressions to double form so ALL
-        // operations use real-number arithmetic — not just division.
-        // The \b word-boundary regex preserves scientific notation (2e5).
-        let evalStr: String
-        if isIntegerExpr {
-            evalStr = cleaned.replacingOccurrences(
-                of: #"\b(\d+)\b"#,
-                with: "$1.0",
-                options: .regularExpression
+            let relation = formatted.isApproximate ? "≈" : "="
+            let displayText = "\(expression)\n\(relation)\(formatted.displayText)"
+            controller?.showResultOverlay(
+                displayText: displayText,
+                copyText: formatted.copyText
             )
-        } else {
-            evalStr = cleaned
+
+        case let .failure(error):
+            let message: String
+            switch error {
+            case .numberTooLarge, .tooComplex:
+                message = String(localized: "数字过大")
+            case .invalidSyntax, .divisionByZero, .noRealResult,
+                 .unsupportedOperation, .unstableApproximation:
+                message = String(localized: "无法计算")
+            }
+            controller?.showResultOverlay(
+                displayText: "\(expression)\n\(message)",
+                copyText: nil
+            )
         }
-        let expr = NSExpression(format: evalStr)
-        guard let rawResult = expr.expressionValue(with: nil, context: nil) else { return }
-
-        // Extract numeric result. Integer expressions are converted to
-        // double form above, so NSExpression always returns Double.
-        let number: Double
-        if let d = rawResult as? Double {
-            number = d
-        } else if let ns = rawResult as? NSNumber {
-            number = ns.doubleValue
-        } else {
-            let displayText = "\(expression)\n=\(rawResult)"
-            controller?.showResultOverlay(displayText: displayText, copyText: "\(rawResult)")
-            return
-        }
-
-        // Handle non-finite floating result (e.g. 1.0/0.0 → inf)
-        guard number.isFinite else {
-            let displayText = "\(expression)\n\(String(localized: "无法计算"))"
-            controller?.showResultOverlay(displayText: displayText, copyText: "")
-            return
-        }
-
-        // Guard against precision loss for results beyond Double's
-        // exact integer range (2^53 ≈ 9×10¹⁵). Numbers this large also
-        // produce unwieldy display strings (20+ chars) that overflow the toast.
-        let safeIntegerLimit: Double = 9_007_199_254_740_992.0
-        if isIntegerExpr && abs(number) > safeIntegerLimit {
-            let displayText = "\(expression)\n\(String(localized: "数字过大"))"
-            controller?.showResultOverlay(displayText: displayText, copyText: "")
-            return
-        }
-
-        // NumberFormatter handles rounding and stripping trailing zeros.
-        // Pre-rounding with (n * 1e12).rounded() / 1e12 is avoided here
-        // because for large integers (e.g. 890123456790), multiplying by
-        // 1e12 pushes the value beyond Double's exact integer range (2^53),
-        // introducing rounding noise.
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        formatter.maximumFractionDigits = 12
-        formatter.minimumFractionDigits = 0
-        let displayResult = formatter.string(from: NSNumber(value: number)) ?? "\(number)"
-
-        let displayText = "\(expression)\n=\(displayResult)"
-        controller?.showResultOverlay(displayText: displayText, copyText: displayResult)
     }
 }
 

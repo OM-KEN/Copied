@@ -101,8 +101,11 @@ final class ToastWindowController {
     // MARK: - Quick trigger
 
     private func quickTriggerAction() -> (any ClipboardAction)? {
-        viewModel.resultOverlay.map { CopyTextAction(text: $0.copyText) }
-            ?? viewModel.primaryAction
+        if let overlay = viewModel.resultOverlay {
+            guard let copyText = overlay.copyText else { return nil }
+            return CopyTextAction(text: copyText)
+        }
+        return viewModel.primaryAction
     }
 
     private func makeQuickTriggerContext() -> QuickTriggerCoordinator.Context {
@@ -135,15 +138,17 @@ final class ToastWindowController {
 
     /// 替换已有 overlay 的文本，不调整窗口大小。
     /// 用于异步操作的结果替换。窗口大小由首次 showResultOverlay 确定。
-    func updateResultText(displayText: String, copyText: String) {
+    func updateResultText(displayText: String, copyText: String?) {
         cancelDismiss()
         viewModel.resultOverlay = ResultOverlay(displayText: displayText, copyText: copyText)
+        refreshQuickTriggerContextIfEligible()
         if !isMouseInsideWindow() { startDismissTimer() }
     }
 
-    func showResultOverlay(displayText: String, copyText: String, keepAlive: Bool = false) {
+    func showResultOverlay(displayText: String, copyText: String?, keepAlive: Bool = false) {
         cancelDismiss()
         viewModel.resultOverlay = ResultOverlay(displayText: displayText, copyText: copyText)
+        refreshQuickTriggerContextIfEligible()
 
         if !isDismissing, let hosting = hostingView, let screen = NSScreen.main {
             hosting.layoutSubtreeIfNeeded()
@@ -349,9 +354,10 @@ final class ToastWindowController {
 
     /// 异步 inline action 的统一入口。处理 dismiss 竞态 + 非动画窗口 resize。
     /// 公式（同步）和翻译（异步）都走这个方法展示结果。
-    func showInlineResult(displayText: String, copyText: String) {
+    func showInlineResult(displayText: String, copyText: String?) {
         cancelDismiss()
         viewModel.resultOverlay = ResultOverlay(displayText: displayText, copyText: copyText)
+        refreshQuickTriggerContextIfEligible()
         updateWindowSize()
         if !isMouseInsideWindow() { startDismissTimer() }
     }

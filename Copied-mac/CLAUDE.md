@@ -19,6 +19,7 @@ CopiedApp.swift             MenuBarExtra + AppDelegate + Settings
 ClipboardMonitor.swift      每 0.15s 轮询 NSPasteboard.changeCount（含黑名单过滤门）
 CopyGestureManager.swift    共享 CGEventTap 左+右 → ⌘C 手势（双路径 + R_UP 兜底）
 DetectionRegistry.swift     全局检测器注册中心 + 优先级管道 + 限流
+MathExpressionEvaluator.swift  公式统一词法/解析 + Decimal 求值 + 精确/近似格式化
 ContentKind.swift           统一类型标识（struct + 静态常量）
 AppLanguage.swift           当前 Bundle 界面语言策略（英文环境过滤英文单词检测）
 Detectors/                  15 个内置检测器（详见目录）
@@ -95,6 +96,10 @@ SwiftUI `Button` 是鼠标 `ToastCommand` 的唯一来源；禁止恢复窗口�
 - **50ms 单检测器超时**：累计 >50ms → 限流 30s
 - **3 次限流自动禁用**：连续 ≥3 次 → 永久禁用 + 系统通知
 
+### 公式计算
+
+`MathExpressionDetector` 与 `CalculateAction` 必须共用 `MathExpressionEvaluator`，禁止恢复 `NSExpression` 或检测/执行两套解析路径。求值使用有复杂度边界的严格解析器和 `Decimal`：精确加减乘先计算十进制系数并验证 `Decimal` 无损往返；循环小数除法携带绝对误差界，只有整个误差区间得到相同的最终显示值时才以 `≈` 返回。分数指数以及近似值继续参与乘、除、幂会被拒绝，禁止用无误差界的 `Double` 回退。界面值与复制值必须来自同一次舍入，复制文本固定使用 POSIX 小数点且不含分组符；无效表达式、除零、超界或不稳定结果不提供复制按钮和快速触发。
+
 ### 本地化
 
 `Localizable.xcstrings` 以 `zh-Hans` 为源语言，支持 `en` / `zh-Hant`。App 只跟随系统或单 App 语言，不增加语言 UserDefaults/切换器；生成后的内置文案用 `String(localized:)`，剪贴板内容、插件文案、文件名和 App 名保持原文。
@@ -105,7 +110,7 @@ SwiftUI `Button` 是鼠标 `ToastCommand` 的唯一来源；禁止恢复窗口�
 
 ### Action 系统
 
-**内联更新**（`performsInlineUpdate = true`）：Action 后保留弹窗并显示 `ResultOverlay { displayText, copyText }`，主按钮改为 `CopyTextAction`；结果逐行 `.lineLimit(1)`，滚动区上限 200pt。
+**内联更新**（`performsInlineUpdate = true`）：Action 后保留弹窗并显示 `ResultOverlay { displayText, copyText? }`；只有 `copyText` 非空时主按钮和快速触发才改为 `CopyTextAction`，错误结果不提供复制入口。结果逐行 `.lineLimit(1)`，滚动区上限 200pt。
 
 **词典查询**：`LookupAction` 使用 `DCSCopyTextDefinition`。预查只能在 `ActionResolver.makeAction()`，有释义显示翻译、无释义回退搜索；禁止放进受 50ms 熔断约束的检测器。
 

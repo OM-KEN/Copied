@@ -1,260 +1,315 @@
-#!/usr/bin/env swift
-
 import Foundation
 
-// ── Color helpers ──────────────────────────────────────────────
-let G = "\u{001B}[32m", R = "\u{001B}[31m", B = "\u{001B}[34m", X = "\u{001B}[0m"
-func pass(_ msg: String) { print("\(G)  ✓ \(msg)\(X)") }
-func fail(_ msg: String) { print("\(R)  ✗ \(msg)\(X)") }
-func info(_ msg: String) { print("\(B)  ℹ \(msg)\(X)") }
-
-var total = 0, passed = 0
-
-// ── Clean & Evaluate ──────────────────────────────────────────
-
-func clean(_ text: String) -> String {
-    text.replacingOccurrences(of: "=", with: "")
-        .replacingOccurrences(of: "×", with: "*")
-        .replacingOccurrences(of: "÷", with: "/")
-        .replacingOccurrences(of: "^", with: "**")
-        .trimmingCharacters(in: .whitespacesAndNewlines)
+// Minimal protocol surface needed to compile the production detector without
+// pulling the global registry and every unrelated detector into this test.
+protocol ContentDetectorProtocol {
+    var kind: ContentKind { get }
+    var priority: Int { get }
+    func detect(in text: String) -> ContentDetection?
 }
 
-func isIntegerExpr(_ s: String) -> Bool {
-    s.rangeOfCharacter(from: CharacterSet(charactersIn: ".")) == nil
-}
+@main
+enum MathExpressionTests {
+    private static let englishLocale = Locale(identifier: "en_US")
+    private static var total = 0
+    private static var failures = 0
 
-/// First-principles fix: NSExpression inherits C integer semantics.
-/// "3/2" → Int/Int → integer division → 1.0 (truncated before we see it).
-/// Solution: ALWAYS convert integer literals to double form, so NSExpression
-/// uses floating-point arithmetic for all operations.
-/// `\b(\d+)\b` uses word boundaries → safe for scientific notation (2e5).
-func toDoubleExpr(_ s: String) -> String {
-    guard isIntegerExpr(s) else { return s }
-    return s.replacingOccurrences(
-        of: #"\b(\d+)\b"#,
-        with: "$1.0",
-        options: .regularExpression
-    )
-}
+    static func main() {
+        testReportedRegression()
+        testExactDecimalArithmetic()
+        testDivisionAndScientificNotation()
+        testPowerSemantics()
+        testSyntaxValidation()
+        testPrecisionAndComplexityBounds()
+        testDetectorIntegration()
+        testValidationEvaluationAgreement()
 
-func evaluate(_ s: String) -> Any? {
-    NSExpression(format: s).expressionValue(with: nil, context: nil)
-}
-
-func extractNumber(_ raw: Any?) -> (Double, Int64?)? {
-    guard let raw else { return nil }
-    if let d = raw as? Double { return (d, nil) }
-    if let ns = raw as? NSNumber {
-        let t = String(cString: ns.objCType)
-        let exact: Int64? = ["q","Q","l","L","i","I","s","S"].contains(t) ? ns.int64Value : nil
-        return (ns.doubleValue, exact)
+        print("MathExpressionTests: \(total - failures)/\(total) passed")
+        guard failures == 0 else { exit(1) }
     }
-    return nil
-}
 
-func fmt(_ n: Double) -> String {
-    let f = NumberFormatter()
-    f.numberStyle = .decimal
-    f.maximumFractionDigits = 12
-    f.minimumFractionDigits = 0
-    return f.string(from: NSNumber(value: n)) ?? "\(n)"
-}
+    private static func testReportedRegression() {
+        let expression = "8000-((152.45+88/12+19+88+45+19+148/12+200/12+99/12+30/12+60)+814+(2380+711)+(150+100)+125+28*22+60*8)"
+        let value = expectSuccess(expression)
+        let formatted = expectFormat(value, context: "reported formula")
+        expectEqual(formatted.displayText, "2,193.466666666667", "reported formula display")
+        expectEqual(formatted.copyText, "2193.466666666667", "reported formula canonical copy")
+        expect(formatted.isApproximate, "repeating divisions are marked approximate")
+    }
 
-/// Current broken pipeline
-func calcCurrent(_ text: String) -> String? {
-    let c = clean(text)
-    guard let raw = evaluate(c), let num = extractNumber(raw), num.0.isFinite else { return nil }
-    if let exact = num.1, isIntegerExpr(c) { return "\(exact)" }
-    return fmt(num.0)
-}
+    private static func testExactDecimalArithmetic() {
+        expectFormatted("1.5+3/2", display: "3", copy: "3", approximate: false)
+        expectFormatted("0.1+0.2", display: "0.3", copy: "0.3", approximate: false)
+        expectFormatted(
+            "1000000000000000.1+0.2",
+            display: "1,000,000,000,000,000.3",
+            copy: "1000000000000000.3",
+            approximate: false
+        )
+        expectFormatted(
+            "9007199254740993+0",
+            display: "9,007,199,254,740,993",
+            copy: "9007199254740993",
+            approximate: false
+        )
+        expectFormatted("(2+3)*4", display: "20", copy: "20", approximate: false)
+        expectFormatted("5.+.5", display: "5.5", copy: "5.5", approximate: false)
+        expectFormatted(" 1 + 2 = ", display: "3", copy: "3", approximate: false)
+    }
 
-/// Fixed pipeline: always evaluate in double mode for integer expressions
-func calcFixed(_ text: String) -> String? {
-    let c = clean(text)
-    let evalStr = toDoubleExpr(c)
-    guard let raw = evaluate(evalStr), let num = extractNumber(raw), num.0.isFinite else { return nil }
-    // Mirror the safeIntegerLimit guard from the real code
-    let safeIntegerLimit = 9_007_199_254_740_992.0
-    if isIntegerExpr(c) && abs(num.0) > safeIntegerLimit { return nil }
-    return fmt(num.0)
-}
+    private static func testDivisionAndScientificNotation() {
+        expectFormatted("1/8", display: "0.125", copy: "0.125", approximate: false)
+        expectFormatted("1/3", display: "0.333333333333", copy: "0.333333333333", approximate: true)
+        expectFormatted("1e+2+3", display: "103", copy: "103", approximate: false)
+        expectFormatted("2e-2+0.01", display: "0.03", copy: "0.03", approximate: false)
 
-// ── Test runner ────────────────────────────────────────────────
+        let tiny = expectFormat(
+            expectSuccess("1/10000000000000"),
+            context: "tiny non-zero result"
+        )
+        expect(tiny.displayText != "0", "tiny non-zero display is not zero")
+        expect(tiny.copyText != "0", "tiny non-zero copy is not zero")
+        expect(tiny.copyText.lowercased().contains("e"), "tiny result uses scientific notation")
+        expect(
+            Decimal(string: tiny.copyText, locale: Locale(identifier: "en_US_POSIX")) != nil,
+            "scientific copy remains parseable"
+        )
 
-struct Case { let input: String; let expected: String }
+        let negativeTiny = expectFormat(
+            expectSuccess("-1/10000000000000"),
+            context: "negative tiny result"
+        )
+        expect(negativeTiny.displayText != "-0", "negative tiny display is not negative zero")
+        expect(negativeTiny.copyText != "-0", "negative tiny copy is not negative zero")
 
-func run(_ title: String, _ cases: [Case], _ fn: (String) -> String?) {
-    print("\n── \(title)")
-    for c in cases {
+        expectFailure("1/0", .divisionByZero)
+        expectFailure("0/0", .divisionByZero)
+    }
+
+    private static func testPowerSemantics() {
+        expectFormatted("2^3^2", display: "512", copy: "512", approximate: false)
+        expectFormatted("-2^2", display: "-4", copy: "-4", approximate: false)
+        expectFormatted("(-2)^2", display: "4", copy: "4", approximate: false)
+        expectFormatted("2^-2", display: "0.25", copy: "0.25", approximate: false)
+        expectFormatted("0^0", display: "1", copy: "1", approximate: false)
+
+        expectFailure("2^0.5", .unsupportedOperation)
+        expectFailure("(-2)^0.5", .unsupportedOperation)
+        expectFailure("(1+1e-17)^(100000000000000000.5)", .unsupportedOperation)
+        expectFailure("((1/3)*3-1)*1e127", .unstableApproximation)
+        expectFailure(
+            "(1/3-0.33333333333333333333333333333333333333)*1e127",
+            .unstableApproximation
+        )
+        expectFailure("2^10001", .numberTooLarge)
+        expectFailure("2^-9223372036854775808", .numberTooLarge)
+    }
+
+    private static func testSyntaxValidation() {
+        let valid = [
+            "1+2", ".5+1", "5.+1", "1e+2+3", "3--2", "1/--2", "(1+2)*3", "1+2="
+        ]
+        for expression in valid {
+            expect(
+                MathExpressionEvaluator.validatedExpression(from: expression) != nil,
+                "valid syntax accepted: \(expression)"
+            )
+        }
+
+        let invalid = [
+            "1e+2", "1+()", "(1+)+2", "1/( )", "1e/2", "1e2e3+1",
+            "(+1)", "2(3)+1", "(2)3+1", "1..2+3", "1 2+3", "1=+2", "1+2=="
+        ]
+        for expression in invalid {
+            expect(
+                MathExpressionEvaluator.validatedExpression(from: expression) == nil,
+                "invalid syntax rejected: \(expression)"
+            )
+        }
+    }
+
+    private static func testPrecisionAndComplexityBounds() {
+        let thirtyEightDigits = String(repeating: "9", count: 38)
+        let thirtyEightOnes = String(repeating: "1", count: 38)
+        let thirtyNineDigits = String(repeating: "9", count: 39)
+        let oneWithThirtyEightZeros = "1" + String(repeating: "0", count: 38)
+        expectSuccess("\(thirtyEightDigits)+0")
+        expectSuccess("\(thirtyEightDigits)*1")
+        expectSuccess("-1*\(thirtyEightDigits)")
+        expectSuccess("\(oneWithThirtyEightZeros)+0")
+        expectSuccess("1e128+0")
+        expectSuccess("1e127*10")
+        expectSuccess("1e165+0")
+        expectFailure("1e166+0", .numberTooLarge)
+        expectFailure("1e9223372036854775807+0", .numberTooLarge)
+        expectFailure("10e9223372036854775807+0", .numberTooLarge)
+        expectFailure("1.0e-9223372036854775808+0", .numberTooLarge)
+        let doubledOnes = expectSuccess("\(thirtyEightOnes)*2")
+        expectEqual(
+            doubledOnes.decimal,
+            Decimal(string: String(repeating: "2", count: 38), locale: Locale(identifier: "en_US_POSIX")),
+            "38-digit multiplication remains exact"
+        )
+        expect(!doubledOnes.isApproximate, "38-digit multiplication is not approximate")
+        expectFormatted(
+            "\(oneWithThirtyEightZeros)-\(thirtyEightDigits)",
+            display: "1",
+            copy: "1",
+            approximate: false
+        )
+        expectFailure("\(thirtyNineDigits)+0", .numberTooLarge)
+        expectFailure("\(thirtyEightDigits)*9", .numberTooLarge)
+
+        expectFormatted("0*(1/3)", display: "0", copy: "0", approximate: false)
+        expectFormatted("(1/3)*1", display: "0.333333333333", copy: "0.333333333333", approximate: true)
+
+        let unstableCancellation = expectSuccess("1/3+2/3-1")
+        expect(
+            MathExpressionEvaluator.format(unstableCancellation, locale: englishLocale) == nil,
+            "uncertainty crossing the displayed result is rejected"
+        )
+
+        let tooLong = String(repeating: "1+", count: 2_050) + "1"
+        expect(
+            MathExpressionEvaluator.validatedExpression(from: tooLong) == nil,
+            "input byte limit enforced"
+        )
+
+        let tooManyOperators = Array(repeating: "1", count: 514).joined(separator: "+")
+        expect(
+            MathExpressionEvaluator.validatedExpression(from: tooManyOperators) == nil,
+            "operator limit enforced"
+        )
+
+        let deeplyNested = String(repeating: "(", count: 66) + "1+1" + String(repeating: ")", count: 66)
+        expect(
+            MathExpressionEvaluator.validatedExpression(from: deeplyNested) == nil,
+            "recursion depth enforced"
+        )
+    }
+
+    private static func testDetectorIntegration() {
+        let detector = MathExpressionDetector()
+        let expression = "152.45+88/12="
+        let detection = detector.detect(in: expression)
+        expectEqual(detection?.kind, ContentKind.mathExpr, "detector returns math kind")
+        expectEqual(detection?.value, "152.45+88/12", "detector returns normalized expression")
+        expect(detector.detect(in: "1+()") == nil, "detector rejects parser-invalid input")
+        expect(detector.detect(in: "1e+2") == nil, "scientific literal alone is not a formula")
+    }
+
+    private static func testValidationEvaluationAgreement() {
+        let alphabet = Array("0123456789+-*/^().eE= ×÷")
+        var state: UInt64 = 0xC0FFEE
+        for _ in 0..<2_000 {
+            state = state &* 6_364_136_223_846_793_005 &+ 1
+            let length = Int((state >> 32) % 48) + 1
+            var expression = ""
+            for _ in 0..<length {
+                state = state &* 6_364_136_223_846_793_005 &+ 1
+                expression.append(alphabet[Int((state >> 32) % UInt64(alphabet.count))])
+            }
+
+            guard MathExpressionEvaluator.validatedExpression(from: expression) != nil else {
+                continue
+            }
+            if case let .failure(error) = MathExpressionEvaluator.evaluate(expression),
+               error == .invalidSyntax || error == .tooComplex {
+                expect(false, "validated expression must share execution grammar: \(expression)")
+                return
+            }
+        }
+        expect(true, "deterministic parser robustness corpus completed")
+    }
+
+    @discardableResult
+    private static func expectSuccess(
+        _ expression: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) -> MathExpressionValue {
         total += 1
-        let r = fn(c.input) ?? "nil"
-        if r == c.expected { passed += 1; pass("\(c.input) → \(r)") }
-        else { fail("\(c.input) → \(r) (expected: \(c.expected))") }
+        switch MathExpressionEvaluator.evaluate(expression) {
+        case let .success(value):
+            return value
+        case let .failure(error):
+            failures += 1
+            fputs("FAIL: \(expression) unexpectedly failed with \(error) [\(file):\(line)]\n", stderr)
+            return MathExpressionValue(decimal: .zero)
+        }
+    }
+
+    private static func expectFailure(
+        _ expression: String,
+        _ expected: MathExpressionEvaluationError,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        total += 1
+        switch MathExpressionEvaluator.evaluate(expression) {
+        case .success:
+            failures += 1
+            fputs("FAIL: \(expression) unexpectedly succeeded [\(file):\(line)]\n", stderr)
+        case let .failure(actual):
+            guard actual == expected else {
+                failures += 1
+                fputs("FAIL: \(expression) failed with \(actual), expected \(expected) [\(file):\(line)]\n", stderr)
+                return
+            }
+        }
+    }
+
+    private static func expectFormatted(
+        _ expression: String,
+        display: String,
+        copy: String,
+        approximate: Bool,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let value = expectSuccess(expression, file: file, line: line)
+        let formatted = expectFormat(value, context: expression, file: file, line: line)
+        expectEqual(formatted.displayText, display, "display for \(expression)", file: file, line: line)
+        expectEqual(formatted.copyText, copy, "copy for \(expression)", file: file, line: line)
+        expectEqual(formatted.isApproximate, approximate, "approximation for \(expression)", file: file, line: line)
+    }
+
+    private static func expectFormat(
+        _ value: MathExpressionValue,
+        context: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) -> MathExpressionFormattedResult {
+        total += 1
+        guard let formatted = MathExpressionEvaluator.format(value, locale: englishLocale) else {
+            failures += 1
+            fputs("FAIL: \(context) has no stable formatted result [\(file):\(line)]\n", stderr)
+            return MathExpressionFormattedResult(displayText: "", copyText: "", isApproximate: true)
+        }
+        return formatted
+    }
+
+    private static func expect(
+        _ condition: @autoclosure () -> Bool,
+        _ message: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        total += 1
+        guard condition() else {
+            failures += 1
+            fputs("FAIL: \(message) [\(file):\(line)]\n", stderr)
+            return
+        }
+    }
+
+    private static func expectEqual<T: Equatable>(
+        _ actual: T,
+        _ expected: T,
+        _ message: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        expect(actual == expected, "\(message): got \(actual), expected \(expected)", file: file, line: line)
     }
 }
-
-// ═══════════════════════════════════════════════════════════════
-print("═══════════════════════════════════════════")
-print("  PART 1: NSExpression Internal Type Behavior")
-print("═══════════════════════════════════════════")
-
-let samples = ["3+2","10-3","4*5","3/2","10/3","1/3","6/3","3^2","(2+3)*4","10/3*3","3*5/2","-10+5","3/2.0","10.0/3"]
-print("\nExpression → NSExpression return type + doubleValue:")
-for expr in samples {
-    let c = clean(expr)
-    guard let raw = evaluate(c), let num = extractNumber(raw) else { print("  \(expr) → nil"); continue }
-    let ts = num.1.map{"Int64(\($0))"} ?? "Double"
-    print("  \(expr.padding(toLength: 12, withPad: " ", startingAt: 0)) → \(ts.padding(toLength: 16, withPad: " ", startingAt: 0))  doubleValue=\(num.0)")
-}
-
-// ═══════════════════════════════════════════════════════════════
-print("\n═══════════════════════════════════════════")
-print("  PART 2: Correctness Tests (Fixed Pipeline)")
-print("═══════════════════════════════════════════")
-
-run("Division — fractional results", [
-    Case(input: "3/2",    expected: "1.5"),
-    Case(input: "10/3",   expected: "3.333333333333"),
-    Case(input: "1/3",    expected: "0.333333333333"),
-    Case(input: "100/3",  expected: "33.333333333333"),
-    Case(input: "1/2",    expected: "0.5"),
-    Case(input: "7/2",    expected: "3.5"),
-    Case(input: "10/3*3", expected: "10"),
-    Case(input: "3*5/2",  expected: "7.5"),
-    Case(input: "10÷3",   expected: "3.333333333333"),
-    Case(input: "1/8",    expected: "0.125"),
-], calcFixed)
-
-run("Division — exact integer results", [
-    Case(input: "6/3",    expected: "2"),
-    Case(input: "8÷2",    expected: "4"),
-    Case(input: "100/10", expected: "10"),
-    Case(input: "0/5",    expected: "0"),
-    Case(input: "9/3",    expected: "3"),
-], calcFixed)
-
-run("Addition & Subtraction", [
-    Case(input: "3+2",    expected: "5"),
-    Case(input: "10-7",   expected: "3"),
-    Case(input: "-5+3",   expected: "-2"),
-    Case(input: "5-10",   expected: "-5"),
-    Case(input: "999+1",  expected: "1,000"),
-    Case(input: "0+0",    expected: "0"),
-], calcFixed)
-
-run("Multiplication", [
-    Case(input: "4*5",    expected: "20"),
-    Case(input: "3×4",    expected: "12"),
-    Case(input: "1000*1000", expected: "1,000,000"),
-    Case(input: "11*11",  expected: "121"),
-    Case(input: "2*3*4",  expected: "24"),
-], calcFixed)
-
-run("Exponentiation", [
-    Case(input: "3^2",    expected: "9"),
-    Case(input: "2^10",   expected: "1,024"),
-    Case(input: "2^3",    expected: "8"),
-    Case(input: "5^3",    expected: "125"),
-    Case(input: "10^0",   expected: "1"),
-], calcFixed)
-
-run("Parentheses", [
-    Case(input: "(2+3)*4", expected: "20"),
-    Case(input: "(10+5)/3", expected: "5"),
-    Case(input: "(1+2)/2",  expected: "1.5"),
-    Case(input: "20/(3+1)", expected: "5"),
-    Case(input: "10/(3+3)", expected: "1.666666666667"),
-    Case(input: "1/(2)",    expected: "0.5"),
-    Case(input: "((2+3))*2", expected: "10"),
-], calcFixed)
-
-run("Negative numbers + division", [
-    Case(input: "-3/2",   expected: "-1.5"),
-    Case(input: "3/-2",   expected: "-1.5"),
-    Case(input: "-3/-2",  expected: "1.5"),
-    Case(input: "-10/3",  expected: "-3.333333333333"),
-], calcFixed)
-
-run("Already-float expressions", [
-    Case(input: "3.5+2",  expected: "5.5"),
-    Case(input: "3.5/2",  expected: "1.75"),
-    Case(input: "1.5*3",  expected: "4.5"),
-    Case(input: "10.0/3", expected: "3.333333333333"),
-    Case(input: "2.5^2",  expected: "6.25"),
-], calcFixed)
-
-run("Spacing robustness", [
-    Case(input: " 3 / 2 ",  expected: "1.5"),
-    Case(input: "3+ 2",     expected: "5"),
-    Case(input: "( 1 + 2 )/2", expected: "1.5"),
-], calcFixed)
-
-// ═══════════════════════════════════════════════════════════════
-print("\n═══════════════════════════════════════════")
-print("  PART 3: Bug Repro — Current vs Fixed")
-print("═══════════════════════════════════════════")
-
-let bugCases = ["3/2", "10/3", "1/3", "10/3*3", "3*5/2", "100/3"]
-print("\nExpression   Current → Fixed")
-for expr in bugCases {
-    let cur = calcCurrent(expr) ?? "nil"
-    let fix = calcFixed(expr) ?? "nil"
-    let marker = cur == fix ? "  " : "←"
-    print("  \(expr.padding(toLength: 10, withPad: " ", startingAt: 0))   \(cur.padding(toLength: 5, withPad: " ", startingAt: 0)) → \(fix) \(marker)")
-}
-
-// ═══════════════════════════════════════════════════════════════
-print("\n═══════════════════════════════════════════")
-print("  PART 4: Edge Cases")
-print("═══════════════════════════════════════════")
-
-info("Division by zero: 5/0 → \(calcFixed("5/0") ?? "nil") (inf → isFinite guard)")
-info("Scientific notation: 2e5/4 → \(calcFixed("2e5/4") ?? "nil")")
-info("Scientific notation reuse: 2e5+2e5 → \(calcFixed("2e5+2e5") ?? "nil")")
-info("Large division: 999999999999999999/1 → \(calcFixed("999999999999999999/1") ?? "nil")")
-info("Zero num/den: 0/0 → \(calcFixed("0/0") ?? "nil") (NaN → isFinite guard)")
-
-// Verify \b won't match digits in scientific notation
-let sciExpr = clean("2e5/4")
-let converted = toDoubleExpr(sciExpr)
-info("toDoubleExpr('2e5/4') → '\(converted)' (should NOT change: 2e5 is not an integer literal)")
-
-// ═══════════════════════════════════════════════════════════════
-print("\n═══════════════════════════════════════════")
-print("  Results: \(passed)/\(total) passed")
-print("═══════════════════════════════════════════")
-print(passed == total ? "\(G)ALL TESTS PASSED\(X)" : "\(R)\(total - passed) FAILED\(X)")
-
-print("""
-
-FIRST-PRINCIPLES ANALYSIS
-═══════════════════════════════════════════
-Problem: NSExpression inherits C integer arithmetic semantics.
-  "3/2" is parsed as Int/Int → integer division → 1.0
-  The truncation happens INSIDE NSExpression's parser.
-  By the time Swift sees the result, it's already wrong.
-
-Why other ops seem "fine":
-  +, -, * on integers always produce integer results — truncation
-  is invisible. But the same integer type inference is happening.
-  ** (power) on integers → integer result.
-
-General solution (first-principles):
-  Decouple evaluation semantics from input syntax. Just because
-  the user typed "3/2" without "." doesn't mean they want integer
-  division. A calculator should ALWAYS use real-number arithmetic.
-
-Implementation:
-  For any integer-only expression, convert all integer literals
-  to .0 form BEFORE NSExpression evaluation:
-    "3/2" → "3.0/2.0" → NSExpression → 1.5
-    "2e5/4" → untouched (\\b guard prevents match in "2e5")
-
-  The regex \\b(\\d+)\\b uses word boundaries:
-  - "3" in "3/2" → matched (surrounded by non-word chars)
-  - "2" in "2e5" → NOT matched ('e' is a word char, no boundary)
-  - This correctly handles scientific notation.
-
-  NumberFormatter handles display: 6/3 → 6.0/3.0 → 2.0 → "2"
-""")

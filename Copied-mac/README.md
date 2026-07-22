@@ -39,6 +39,8 @@ pip3 install 'dmgbuild>=1.6.5'   # 首次需安装
 
 复制任意内容 → 卡片弹出。悬停保持，点击预览行展开全文，点击右侧按钮执行操作，点击图标、来源信息或其他空白区域关闭。默认在第一次 Control 松开后的 350ms 内再次按下并松开 Control，即可触发主操作；设置中也可选择单击模式、其他修饰键或原生鼠标侧键。
 
+公式计算用 `=` 标记精确结果、用 `≈` 标记有限精度近似结果；界面与复制内容使用同一次舍入，计算失败时不显示复制按钮。
+
 侧键录制需要辅助功能权限。Mac Mouse Fix 等鼠标重映射工具可能在事件到达 Copied 前拦截或改写原生侧键、“修饰键 + 滚轮”等输入；此时只需在该工具中关闭对应映射或保留原生事件，无需退出整个工具。
 
 右键菜单提供搜索、另存为、类型专属操作，以及一键将当前 App 加入黑名单。设置中可开启左右键手势（按住左键+右键=⌘C）、管理检测类型、管理黑名单、安装插件。
@@ -52,6 +54,7 @@ CopiedApp.swift             — 入口：MenuBarExtra + AppDelegate + Settings
 ClipboardMonitor.swift      — NSPasteboard 轮询 + 内容解析 + 黑名单过滤
 CopyGestureManager.swift    — 共享全局鼠标事件管道 + 左右键手势 + ⌘C 模拟
 DetectionRegistry.swift     — 全局检测器注册中心 + 优先级管道
+MathExpressionEvaluator.swift — 公式统一解析、Decimal 求值与精确/近似格式化
 ContentKind.swift           — 统一类型标识
 AppLanguage.swift           — 界面语言相关的检测可用性策略
 Detectors/                  — 15 个内置检测器

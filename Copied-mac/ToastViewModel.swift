@@ -5,7 +5,7 @@ import Observation
 /// Describes an in-place result overlay shown after an inline-update action.
 struct ResultOverlay: Equatable {
     let displayText: String   // shown in the popup
-    let copyText: String      // copied when user taps "复制"
+    let copyText: String?     // nil for errors that must not expose a copy action
 }
 
 @Observable

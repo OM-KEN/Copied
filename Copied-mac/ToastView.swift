@@ -157,44 +157,46 @@ struct ToastView: View {
                 }
 
                 // ── Right: Action Button ──────────────────────────
-                if viewModel.resultOverlay != nil {
-                    // Result mode: "复制" button
-                    Button {
-                        onCommand(.performPrimary)
-                    } label: {
-                        HStack(spacing: 4) {
-                            ZStack {
-                                Image(systemName: "doc.on.doc")
-                                    .opacity(isActionButtonHovered ? 0 : 1)
-                                Image(systemName: viewModel.triggerModifierIcon)
-                                    .opacity(isActionButtonHovered ? 1 : 0)
-                            }
-                            .font(.system(size: 12, weight: .medium))
-                            .frame(height: 14)
-                            Text("复制")
+                if let resultOverlay = viewModel.resultOverlay {
+                    if resultOverlay.copyText != nil {
+                        // Successful inline result: expose the copy action.
+                        Button {
+                            onCommand(.performPrimary)
+                        } label: {
+                            HStack(spacing: 4) {
+                                ZStack {
+                                    Image(systemName: "doc.on.doc")
+                                        .opacity(isActionButtonHovered ? 0 : 1)
+                                    Image(systemName: viewModel.triggerModifierIcon)
+                                        .opacity(isActionButtonHovered ? 1 : 0)
+                                }
                                 .font(.system(size: 12, weight: .medium))
+                                .frame(height: 14)
+                                Text("复制")
+                                    .font(.system(size: 12, weight: .medium))
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(actionButtonBackground)
+                            .contentShape(Rectangle())
                         }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(actionButtonBackground)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(PressTrackingButtonStyle(isPressed: $isActionButtonPressed))
-                    .overlay(quickTriggerWaitingHighlight)
-                    .scaleEffect((viewModel.quickTriggerVisualState == .pressed || isActionButtonPressed) ? 0.92 : 1.0)
-                    .opacity(viewModel.quickTriggerVisualState == .waitingForSecondTap ? 0.82 : 1.0)
-                    .animation(.spring(response: 0.2, dampingFraction: 0.6), value: viewModel.quickTriggerVisualState)
-                    .animation(.spring(response: 0.2, dampingFraction: 0.6), value: isActionButtonPressed)
-                    .onHover { hovering in
-                        if hovering {
-                            hoverDebounceTask?.cancel()
-                            isActionButtonHovered = true
-                        } else {
-                            hoverDebounceTask?.cancel()
-                            hoverDebounceTask = Task {
-                                try? await Task.sleep(for: .milliseconds(100))
-                                if !Task.isCancelled {
-                                    isActionButtonHovered = false
+                        .buttonStyle(PressTrackingButtonStyle(isPressed: $isActionButtonPressed))
+                        .overlay(quickTriggerWaitingHighlight)
+                        .scaleEffect((viewModel.quickTriggerVisualState == .pressed || isActionButtonPressed) ? 0.92 : 1.0)
+                        .opacity(viewModel.quickTriggerVisualState == .waitingForSecondTap ? 0.82 : 1.0)
+                        .animation(.spring(response: 0.2, dampingFraction: 0.6), value: viewModel.quickTriggerVisualState)
+                        .animation(.spring(response: 0.2, dampingFraction: 0.6), value: isActionButtonPressed)
+                        .onHover { hovering in
+                            if hovering {
+                                hoverDebounceTask?.cancel()
+                                isActionButtonHovered = true
+                            } else {
+                                hoverDebounceTask?.cancel()
+                                hoverDebounceTask = Task {
+                                    try? await Task.sleep(for: .milliseconds(100))
+                                    if !Task.isCancelled {
+                                        isActionButtonHovered = false
+                                    }
                                 }
                             }
                         }

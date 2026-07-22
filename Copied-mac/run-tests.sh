@@ -4,9 +4,19 @@ set -euo pipefail
 TEST_BUILD_DIR=".build/tests"
 mkdir -p "$TEST_BUILD_DIR"
 
+swiftc -parse-as-library \
+    MathExpressionEvaluator.swift \
+    PluginActionTemplate.swift \
+    ContentKind.swift \
+    ContentDetection.swift \
+    Detectors/MathExpressionDetector.swift \
+    Tests/MathExpressionTests.swift \
+    -framework AppKit \
+    -o "$TEST_BUILD_DIR/MathExpressionTests"
+"$TEST_BUILD_DIR/MathExpressionTests"
+
 swift Tests/AppFilterTests.swift
 swift Tests/DateTimeTests.swift
-swift Tests/MathExpressionTests.swift
 
 swiftc -parse-as-library \
     KeyboardShortcutSettings.swift \
