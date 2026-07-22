@@ -17,7 +17,8 @@ DMG 背景图：放 `.build/dmg_background.png`（440×240），由 `dmg_setting
 ```
 CopiedApp.swift             MenuBarExtra + AppDelegate + Settings
 ClipboardMonitor.swift      每 0.15s 轮询 NSPasteboard.changeCount（含黑名单过滤门）
-CopyGestureManager.swift    共享 CGEventTap 左+右 → ⌘C 手势（双路径 + R_UP 兜底）
+GlobalMouseEventCoordinator.swift  共享 CGEventTap + 权限失效保护
+CopyGestureManager.swift    左+右 → ⌘C 手势（双路径 + R_UP 兜底）
 DetectionRegistry.swift     全局检测器注册中心 + 优先级管道 + 限流
 MathExpressionEvaluator.swift  公式统一词法/解析 + Decimal 求值 + 精确/近似格式化
 ContentKind.swift           统一类型标识（struct + 静态常量）
@@ -145,6 +146,7 @@ rebuild 后签名变化会使 macOS 清掉 `SMAppService` 登录项注册记录�
 - `QuickTriggerModifierKeyPolicy` 必须按左右真实 keyCode 维护状态，禁止用可能夹带 Function/NumericPad 的聚合 flags 推断。
 - 本地只监听 `.keyDown` / `.flagsChanged`；普通鼠标输入走共享 `GlobalMouseEventCoordinator` + HID 计数，禁止另建 Event Tap 或左键 NSEvent monitor。
 - 键盘路径无需辅助功能权限；侧键录制/触发与左右键复制共享 CGEventTap，需要权限。
+- CGEventTap 仅可在 `.tapDisabledByTimeout` 且权限仍有效时重新启用；`.tapDisabledByUserInput` 或权限失效必须保持禁用并异步回正手势开关，禁止无条件 `tapEnable(true)`。
 
 **重映射工具限制**：Mac Mouse Fix 等工具可能在 CGEvent/AppKit/HID 计数之前吞掉原生侧键或“修饰键 + 滚轮”。关闭对应映射或保留原生事件即可；不要增加重复监听或 raw IOHID 绕过路径。
 
@@ -165,7 +167,7 @@ rebuild 后签名变化会使 macOS 清掉 `SMAppService` 登录项注册记录�
 - `gestureFired` 每次 leftDown/leftUp 重置，防双击发
 - ⌘C 模拟：CGEvent keyboard source 传 `nil`，完整发送 Command down → C down → C up → Command up，末次释放清空 flags
 
-**权限 UX（三重保障）**：无权限 Toggle 强制 OFF → 重启引导 Alert → 权限丢失自动回正。签名：Apple Development，Team ID `683MU5Q6FB`（TCC 凭 Team ID 识别）。
+**权限 UX（三重保障）**：用户请求开启时保存意图 → 授权成功后醒目提示重启 → 启动时按真实权限恢复或回正为 OFF。仅有权限但未主动开启的用户保持关闭。签名：Apple Development，Team ID `683MU5Q6FB`（TCC 凭 Team ID 识别）。
 
 **已知限制**：先松左键 → WindowServer 在 HID 层独立发 secondary-click popup → 源 App 弹右键菜单（session-level tap 无法拦截）。
 

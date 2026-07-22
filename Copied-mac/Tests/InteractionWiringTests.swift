@@ -11,6 +11,35 @@ private func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
 @main
 struct InteractionWiringTests {
     static func main() {
+        expect(
+            GlobalMouseEventTapRecoveryPolicy.action(
+                for: .tapDisabledByTimeout,
+                accessibilityTrusted: true
+            ) == .reenable,
+            "a timeout may recover while Accessibility permission remains valid"
+        )
+        expect(
+            GlobalMouseEventTapRecoveryPolicy.action(
+                for: .tapDisabledByTimeout,
+                accessibilityTrusted: false
+            ) == .keepDisabled,
+            "a timeout cannot recover after Accessibility permission is lost"
+        )
+        expect(
+            GlobalMouseEventTapRecoveryPolicy.action(
+                for: .tapDisabledByUserInput,
+                accessibilityTrusted: true
+            ) == .keepDisabled,
+            "a user-disabled tap is never re-enabled"
+        )
+        expect(
+            GlobalMouseEventTapRecoveryPolicy.action(
+                for: .tapDisabledByUserInput,
+                accessibilityTrusted: false
+            ) == .keepDisabled,
+            "permission revocation keeps the tap disabled"
+        )
+
         let sequence = CopyGestureEventSequence.commandC
         expect(sequence.count == 4, "Command-C uses four physical-style events")
         expect(sequence[0] == .init(virtualKey: CopyGestureEventSequence.commandKey, isKeyDown: true, flags: .maskCommand), "Command down first")

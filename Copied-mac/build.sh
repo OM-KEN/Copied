@@ -16,6 +16,7 @@ if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
 fi
 
 SOURCES=(
+    CopyGesturePermissionPolicy.swift
     CopyGestureEventSequence.swift
     MouseButtonRecordingStateMachine.swift
     AppLanguage.swift
@@ -56,6 +57,7 @@ SOURCES=(
     SourceAppDetector.swift
     BlacklistSourceAppAction.swift
     ClipboardAction.swift
+    GlobalMouseEventTapRecoveryPolicy.swift
     GlobalMouseEventCoordinator.swift
     CopyGestureManager.swift
     FilePreviewGenerator.swift

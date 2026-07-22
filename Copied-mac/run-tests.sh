@@ -31,6 +31,7 @@ swiftc -parse-as-library \
     KeyboardShortcutSettings.swift \
     QuickTriggerModifierKeyPolicy.swift \
     QuickTriggerStateMachine.swift \
+    GlobalMouseEventTapRecoveryPolicy.swift \
     GlobalMouseEventCoordinator.swift \
     QuickTriggerCoordinator.swift \
     Tests/QuickTriggerCoordinatorTests.swift \
@@ -53,6 +54,7 @@ swiftc -parse-as-library \
 "$TEST_BUILD_DIR/AppUpdateServiceTests"
 
 swiftc -parse-as-library \
+    GlobalMouseEventTapRecoveryPolicy.swift \
     CopyGestureEventSequence.swift \
     MouseButtonRecordingStateMachine.swift \
     AppUpdateModels.swift \
@@ -60,6 +62,12 @@ swiftc -parse-as-library \
     -framework CoreGraphics \
     -o "$TEST_BUILD_DIR/InteractionWiringTests"
 "$TEST_BUILD_DIR/InteractionWiringTests"
+
+swiftc -parse-as-library \
+    CopyGesturePermissionPolicy.swift \
+    Tests/CopyGesturePermissionPolicyTests.swift \
+    -o "$TEST_BUILD_DIR/CopyGesturePermissionPolicyTests"
+"$TEST_BUILD_DIR/CopyGesturePermissionPolicyTests"
 
 swiftc -parse-as-library \
     ToastCommand.swift \

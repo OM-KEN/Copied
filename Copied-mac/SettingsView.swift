@@ -31,7 +31,9 @@ struct SettingsView: View {
     @AppStorage("copyGestureEnabled") private var copyGestureEnabled = false
     @State private var selectedTab = "general"
     @State private var isGestureTrusted = AXIsProcessTrusted()
-    @State private var showRestartAlert = false
+    @State private var showPermissionRequestAlert = false
+    @State private var showGestureRestartAlert = false
+    @State private var isAwaitingGesturePermission = false
     @AppStorage(AppUpdateService.automaticRemindersKey)
     private var automaticUpdateRemindersEnabled = true
     @ObservedObject private var updateService = AppUpdateService.shared
@@ -163,7 +165,7 @@ struct SettingsView: View {
         .frame(width: 400, height: 480)
         .onAppear {
             NSApp.activate(ignoringOtherApps: true)
-            isGestureTrusted = AXIsProcessTrusted()
+            refreshGesturePermission(clearUnavailableIntent: true)
             mouseQuickTriggerButton = QuickTriggerSettings.current().mouseButton
             if SettingsNavigation.requestedTab == "about" {
                 selectedTab = "about"
@@ -176,6 +178,9 @@ struct SettingsView: View {
         .onReceive(NotificationCenter.default.publisher(for: SettingsNavigation.showAboutNotification)) { _ in
             selectedTab = "about"
             SettingsNavigation.clearRequest()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            resolveGesturePermissionAfterActivation()
         }
     }
 
@@ -282,7 +287,7 @@ struct SettingsView: View {
                                 copyGestureEnabled = true
                                 CopyGestureManager.shared.start()
                             } else {
-                                showRestartAlert = true
+                                showPermissionRequestAlert = true
                             }
                         } else {
                             copyGestureEnabled = false
@@ -300,52 +305,87 @@ struct SettingsView: View {
 
             Section {
                 HStack {
-                    Image(systemName: CopyGestureManager.shared.isRunning
+                    Image(systemName: isGestureTrusted
                           ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                        .foregroundStyle(CopyGestureManager.shared.isRunning ? .green : .yellow)
-                    Text(CopyGestureManager.shared.isRunning
-                         ? String(localized: "运行中")
-                         : String(localized: "未运行"))
-                    if !CopyGestureManager.shared.isRunning {
+                        .foregroundStyle(isGestureTrusted ? .green : .yellow)
+                    Text(isGestureTrusted
+                         ? String(localized: "已授权")
+                         : String(localized: "未授权"))
+                    Spacer()
+                    if !isGestureTrusted {
                         Button("打开辅助功能设置…") {
                             openAccessibilityPrefs()
                         }
                     }
                 }
-                if !CopyGestureManager.shared.lastDiagnostic.isEmpty {
-                    Text(CopyGestureManager.shared.lastDiagnostic)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                }
-                Text("此功能需要辅助功能权限来监听鼠标事件。授权或撤销后需重启 Copied。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             } header: {
                 Text("权限")
             }
         }
         .formStyle(.grouped)
-        .alert("需要辅助功能权限", isPresented: $showRestartAlert) {
+        .alert("需要辅助功能权限", isPresented: $showPermissionRequestAlert) {
             Button("请求权限") {
+                copyGestureEnabled = true
+                isAwaitingGesturePermission = true
                 requestAccessibilityAndRetry()
             }
             Button("取消", role: .cancel) {}
         } message: {
-            Text("此功能需要系统辅助功能权限来监听鼠标事件。授权后请重启 Copied 使权限生效。")
+            Text("此功能需要系统辅助功能权限来监听鼠标事件。")
         }
-        .onAppear {
-            isGestureTrusted = AXIsProcessTrusted()
+        .alert("辅助功能权限已开启", isPresented: $showGestureRestartAlert) {
+            Button("退出 Copied") {
+                NSApp.terminate(nil)
+            }
+            Button("稍后", role: .cancel) {}
+        } message: {
+            Text("重启 Copied 后，左右键快捷复制会自动开启。")
         }
     }
 
     private func requestAccessibilityAndRetry() {
         let opts = [kAXTrustedCheckOptionPrompt.takeRetainedValue() as String: true] as CFDictionary
-        AXIsProcessTrustedWithOptions(opts)
+        let trusted = AXIsProcessTrustedWithOptions(opts)
+        isGestureTrusted = trusted
+        finishGesturePermissionRequestIfGranted(trusted)
         // 给系统弹窗一点时间，然后刷新状态
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-            isGestureTrusted = AXIsProcessTrusted()
+            let trusted = AXIsProcessTrusted()
+            isGestureTrusted = trusted
+            finishGesturePermissionRequestIfGranted(trusted)
         }
+    }
+
+    private func refreshGesturePermission(clearUnavailableIntent: Bool) {
+        let trusted = AXIsProcessTrusted()
+        isGestureTrusted = trusted
+        guard clearUnavailableIntent, copyGestureEnabled, !trusted else { return }
+        copyGestureEnabled = false
+        CopyGestureManager.shared.stop()
+    }
+
+    private func resolveGesturePermissionAfterActivation() {
+        let trusted = AXIsProcessTrusted()
+        isGestureTrusted = trusted
+
+        if isAwaitingGesturePermission {
+            isAwaitingGesturePermission = false
+            if trusted {
+                showGestureRestartAlert = true
+            } else {
+                copyGestureEnabled = false
+                CopyGestureManager.shared.stop()
+            }
+        } else if copyGestureEnabled, !trusted {
+            copyGestureEnabled = false
+            CopyGestureManager.shared.stop()
+        }
+    }
+
+    private func finishGesturePermissionRequestIfGranted(_ trusted: Bool) {
+        guard isAwaitingGesturePermission, trusted else { return }
+        isAwaitingGesturePermission = false
+        showGestureRestartAlert = true
     }
 
     private func openAccessibilityPrefs() {

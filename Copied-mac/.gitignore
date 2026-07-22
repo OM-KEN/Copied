@@ -7,6 +7,7 @@ Tests/*
 !Tests/AppUpdateModelsTests.swift
 !Tests/AppUpdateServiceTests.swift
 !Tests/InteractionWiringTests.swift
+!Tests/CopyGesturePermissionPolicyTests.swift
 !Tests/ToastCommandTests.swift
 .DS_Store
 *.dmg

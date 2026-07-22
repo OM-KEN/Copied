@@ -5,6 +5,9 @@ import CoreGraphics
 /// the toast side-button quick trigger. Business state remains in each client.
 final class GlobalMouseEventCoordinator {
     static let shared = GlobalMouseEventCoordinator()
+    static let eventTapBecameUnavailableNotification = Notification.Name(
+        "CopiedGlobalMouseEventTapBecameUnavailable"
+    )
 
     typealias Listener = (_ type: CGEventType, _ event: CGEvent) -> Bool
 
@@ -12,6 +15,7 @@ final class GlobalMouseEventCoordinator {
     private var runLoopSource: CFRunLoopSource?
     private var listeners: [UUID: Listener] = [:]
     private var swallowedOtherButtons: Set<Int> = []
+    private var eventTapUnavailable = false
 
     private(set) var lastDiagnostic = ""
     var isRunning: Bool { eventTap != nil }
@@ -33,7 +37,7 @@ final class GlobalMouseEventCoordinator {
     }
 
     private func ensureTap(promptForAccessibility: Bool) -> Bool {
-        if eventTap != nil { return true }
+        if eventTap != nil { return !eventTapUnavailable }
         let trusted = AXIsProcessTrusted()
         lastDiagnostic = "AXIsProcessTrusted=\(trusted)"
         guard trusted else {
@@ -74,6 +78,7 @@ final class GlobalMouseEventCoordinator {
         }
 
         eventTap = tap
+        eventTapUnavailable = false
         runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
         if let runLoopSource {
             CFRunLoopAddSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
@@ -85,7 +90,17 @@ final class GlobalMouseEventCoordinator {
 
     private func handle(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-            if let eventTap { CGEvent.tapEnable(tap: eventTap, enable: true) }
+            let accessibilityTrusted = type == .tapDisabledByTimeout
+                && AXIsProcessTrusted()
+            let action = GlobalMouseEventTapRecoveryPolicy.action(
+                for: type,
+                accessibilityTrusted: accessibilityTrusted
+            )
+            if action == .reenable {
+                if let eventTap { CGEvent.tapEnable(tap: eventTap, enable: true) }
+            } else {
+                markEventTapUnavailable()
+            }
             return nil
         }
 
@@ -114,5 +129,19 @@ final class GlobalMouseEventCoordinator {
         CFMachPortInvalidate(eventTap)
         self.eventTap = nil
         runLoopSource = nil
+        eventTapUnavailable = false
+    }
+
+    private func markEventTapUnavailable() {
+        guard !eventTapUnavailable else { return }
+        eventTapUnavailable = true
+        swallowedOtherButtons.removeAll()
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.eventTapUnavailable else { return }
+            NotificationCenter.default.post(
+                name: Self.eventTapBecameUnavailableNotification,
+                object: self
+            )
+        }
     }
 }

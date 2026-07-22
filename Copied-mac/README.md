@@ -41,7 +41,7 @@ pip3 install 'dmgbuild>=1.6.5'   # 首次需安装
 
 公式计算用 `=` 标记精确结果、用 `≈` 标记有限精度近似结果；界面与复制内容使用同一次舍入，计算失败时不显示复制按钮。
 
-侧键录制需要辅助功能权限。Mac Mouse Fix 等鼠标重映射工具可能在事件到达 Copied 前拦截或改写原生侧键、“修饰键 + 滚轮”等输入；此时只需在该工具中关闭对应映射或保留原生事件，无需退出整个工具。
+左右键手势和侧键录制/触发需要辅助功能权限；撤销权限后，Copied 会立即停用相关鼠标监听并关闭手势开关。Mac Mouse Fix 等鼠标重映射工具可能在事件到达 Copied 前拦截或改写原生侧键、“修饰键 + 滚轮”等输入；此时只需在该工具中关闭对应映射或保留原生事件，无需退出整个工具。
 
 右键菜单提供搜索、另存为、类型专属操作，以及一键将当前 App 加入黑名单。设置中可开启左右键手势（按住左键+右键=⌘C）、管理检测类型、管理黑名单、安装插件。
 
@@ -52,7 +52,8 @@ pip3 install 'dmgbuild>=1.6.5'   # 首次需安装
 ```
 CopiedApp.swift             — 入口：MenuBarExtra + AppDelegate + Settings
 ClipboardMonitor.swift      — NSPasteboard 轮询 + 内容解析 + 黑名单过滤
-CopyGestureManager.swift    — 共享全局鼠标事件管道 + 左右键手势 + ⌘C 模拟
+GlobalMouseEventCoordinator.swift — 共享全局鼠标 Event Tap + 权限失效保护
+CopyGestureManager.swift    — 左右键手势 + ⌘C 模拟
 DetectionRegistry.swift     — 全局检测器注册中心 + 优先级管道
 MathExpressionEvaluator.swift — 公式统一解析、Decimal 求值与精确/近似格式化
 ContentKind.swift           — 统一类型标识

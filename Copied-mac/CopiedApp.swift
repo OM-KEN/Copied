@@ -128,18 +128,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Rebuild 后签名变化可能使 macOS 清掉注册记录，此时 UserDefaults 仍为 true
         syncLoginItem()
 
-        // Copy gesture — enabled via Settings
-        // 如果上次开关 ON 但权限丢失（更新后签名不匹配），自动置 OFF
-        if copyGestureEnabled {
-            if AXIsProcessTrusted() {
-                CopyGestureManager.shared.start()
-            } else {
-                NSLog("Copied: gesture toggle was ON but AX not trusted — resetting to OFF")
-                copyGestureEnabled = false
-            }
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleGlobalMouseEventTapBecameUnavailable),
+            name: GlobalMouseEventCoordinator.eventTapBecameUnavailableNotification,
+            object: GlobalMouseEventCoordinator.shared
+        )
+
+        // Copy gesture — restore only a prior user request backed by current permission.
+        let gestureTrusted = AXIsProcessTrusted()
+        let shouldEnableGesture = CopyGesturePermissionPolicy.reconciledEnabled(
+            requested: copyGestureEnabled,
+            accessibilityTrusted: gestureTrusted
+        )
+        if shouldEnableGesture {
+            CopyGestureManager.shared.start()
+        } else if copyGestureEnabled {
+            NSLog("Copied: gesture toggle was ON but AX not trusted — resetting to OFF")
         }
+        copyGestureEnabled = shouldEnableGesture
 
         AppUpdateService.shared.startAutomaticChecks()
+    }
+
+    @objc private func handleGlobalMouseEventTapBecameUnavailable() {
+        guard copyGestureEnabled || CopyGestureManager.shared.isRunning else { return }
+        copyGestureEnabled = false
+        CopyGestureManager.shared.stop()
     }
 
     /// 确保 UserDefaults 中的 launchAtLogin 与 SMAppService 实际状态一致
