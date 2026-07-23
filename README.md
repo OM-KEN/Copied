@@ -6,11 +6,11 @@
 
 ![macOS 14+](https://img.shields.io/badge/macOS-14%2B-black?logo=apple)
 ![Swift](https://img.shields.io/badge/Swift-AppKit%20%2B%20SwiftUI-F05138?logo=swift\&logoColor=white)
-![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 **Know it was copied. See what you copied. Act on it instantly.**
 
-Copied is a lightweight, open-source macOS utility that confirms every copy with an instant top-screen toast. It previews copied text, images, files, URLs, colors, calculations, and more, then suggests a relevant next action such as opening a link, revealing a file, searching, translating, or calculating.
+Copied is a lightweight, open-source macOS utility that confirms every copy with an instant top-screen toast. It previews all copied content, then suggests a relevant **next action** such as opening a link, revealing a file, searching, translating, or calculating.
 
 Copied is not a traditional clipboard history manager. It focuses on the moment immediately after you copy, giving you visual confirmation, useful context, and a faster path to whatever comes next.
 
@@ -28,7 +28,7 @@ As a UI designer, I also wanted it to feel at home on the Mac. The interface is 
 
 With AI making software development more accessible, I took the idea one step further and added **smart next actions**.
 
-Copy a sentence and trigger a search without opening a browser and pasting it manually. Copy an unfamiliar word or Chinese character and look it up immediately. Copy a color value and see the color directly in the toast. Copy a file or image and view its size, dimensions, and preview without opening Get Info.
+Copy a sentence and trigger a search without opening a browser and pasting it manually. Copy a color value and see the color directly in the toast. Copy a file or image and view its size, dimensions, and preview without opening Get Info.
 
 Copied has one central goal: **make the moment after copying as fast as possible**.
 
@@ -40,10 +40,10 @@ The optional left-and-right mouse gesture is disabled by default, but I strongly
   Shows a top-screen toast whenever new content is copied.
 
 * **Smart next actions**
-  Displays a context-aware action such as opening a URL, revealing a file, calculating an expression, showing pronunciation or dictionary information, searching, or translating.
+  Displays a context-aware action such as opening a URL, revealing a file, calculating an expression, or searching.
 
 * **Rich content previews**
-  Previews text, files, images, CSS colors, file sizes, image dimensions, and other useful metadata.
+  Previews text, word count, files, images, **CSS colors**, file sizes, image dimensions, and other useful metadata.
 
 * **Fast keyboard trigger**
   Click the action button or double-tap the configured modifier key, `Control ⌃` by default, while the toast is visible.
@@ -52,7 +52,7 @@ The optional left-and-right mouse gesture is disabled by default, but I strongly
   Hold the left mouse button and click the right mouse button to copy selected content.
 
 * **Native macOS design**
-  Uses Liquid Glass on macOS 26 and a native material fallback on earlier supported versions, with dark mode support.
+  Uses Liquid Glass on macOS 26+ and a native material fallback on earlier supported versions, with dark mode support.
 
 * **Local-first and lightweight**
   Built with Swift, AppKit, and SwiftUI. Content processing stays on your Mac, except for update checks.
@@ -70,13 +70,13 @@ The optional left-and-right mouse gesture is disabled by default, but I strongly
 ## Installation
 
 1. Download the latest `.dmg` from [Releases](/OM-KEN/Copied/releases/latest).
-2. Open the disk image.
+2. Open it.
 3. Drag Copied into the Applications folder.
-4. Launch Copied and copy anything to see the toast.
+4. Launch Copied and try copying anything.
 
 ## Usage
 
-Copy any supported content and Copied will show a preview at the top of the screen.
+Copy any content and Copied will show a preview at the top of the screen.
 
 While the toast is visible, you can:
 
@@ -88,13 +88,12 @@ While the toast is visible, you can:
 
 Examples:
 
-* Copy a URL to open it.
-* Copy a file path to reveal the file in Finder.
-* Copy a calculation to see the result.
-* Copy a date or time to view contextual date information.
-* Copy a Chinese character or English word to check its pronunciation or definition.
-* Copy a CSS color to preview it instantly.
-* Copy text to search or translate it.
+* Copy a URL to open it. Try → `www.google.com`
+* Copy a file path to reveal the file in Finder. Try → `/System/Applications/System Settings.app`
+* Copy a calculation to see the result. Try → `111111111*111111111`
+* Copy a date or time to view contextual date information. Try → `Jan 1, 2077`
+* Copy a CSS color to preview it instantly. Try → `rgb(1, 102, 239)` or `#0166ef`
+* Copy text to search or copy text over 50 characters to save it separately. Try → `a​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​b` (There are a lot of Zero-Width Space hidden in here)
 
 ## Supported Content
 
@@ -110,8 +109,7 @@ Copied can recognize and preview:
 * Mathematical expressions
 * Dates and times
 * Chinese characters
-* English words and phrases
-* Source code
+* Code
 * Hex, RGB, HSL, and other CSS color values
 
 Recognition for individual content types can be enabled or disabled in Settings.
@@ -131,7 +129,7 @@ Copied includes settings for:
 * Lightweight reminder mode
 * Plugins
 
-## Plugins
+## Plugins (Experimental)
 
 Copied supports `.copiedplugin` folders for custom detection rules and actions.
 
