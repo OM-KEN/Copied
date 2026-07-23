@@ -1,80 +1,272 @@
 # Copied
 
-Copied 可以即时预览你复制的任何内容，在屏幕顶部提示，并可根据内容智能执行下一步操作。（注意：不是剪贴板工具）
+### Copy Confirmation Toast & Smart Clipboard Actions for macOS
 
-<img width="414" height="172" alt="PixPin_2026-07-02_00-39-59" src="https://github.com/user-attachments/assets/c0a118a4-a140-468c-aa92-3043e8ba83f2" />
+[English](README.md) | [简体中文](README.zh-CN.md)
 
-## 为什么做 Copied？
-有时候明明复制了，却总会怀疑到底成功了没，然后下意识再多按几次。在 Windows 上，我用 Quicker 写过插件，让我的每次复制都会有 Toast 提醒，还有一个特别好用的功能：按住左键点右键就能复制。于是，我也在 Mac 上实现了复制提醒和左右键复制。作为 UI 设计师，我也尽量做到既原生又美观，先满足自己——**能让自己每天都能用得舒服的 app 才是好 app**。
+![macOS 14+](https://img.shields.io/badge/macOS-14%2B-black?logo=apple)
+![Swift](https://img.shields.io/badge/Swift-AppKit%20%2B%20SwiftUI-F05138?logo=swift\&logoColor=white)
+![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
 
-现在 AI 写代码更容易了，于是我也更进一步，增加了复制后的“**下一步操作**”。比如复制一句话，不用打开网页再粘贴搜索，只要再双击一下快捷键（默认是control ⌃）就能**直接搜**。遇到不会读的单词、生僻字，或者忘记单词意思，也是一样。作为设计师，我复制了某个色值，也不用打开设计软件粘贴再看了，现在复制后弹窗**直接显示颜色**。文件大小、图片尺寸等信息，也不用反复切视图或者右键“显示简介”，复制一下就能看到。
+**Know it was copied. See what you copied. Act on it instantly.**
 
-做这个 App 的唯一目标就是快。所以我尽量使用**原生功能**，让它保持**轻量、简洁**。左右键复制默认关闭，但我非常推荐打开，因为鼠标已经选中文本后，再去按 ⌘+C 已经慢了。选中内容，按住左键点一下右键，**马上复制、马上预览、马上进行下一步操作，唯快不破**。
+Copied is a lightweight, open-source macOS utility that confirms every copy with an instant top-screen toast. It previews copied text, images, files, URLs, colors, calculations, and more, then suggests a relevant next action such as opening a link, revealing a file, searching, translating, or calculating.
 
-## 功能特征
+Copied is not a traditional clipboard history manager. It focuses on the moment immediately after you copy, giving you visual confirmation, useful context, and a faster path to whatever comes next.
 
-- **复制弹窗**：监听所有复制操作，弹窗预览已复制的内容
-- **快捷操作按钮**：根据内容类型在弹窗右侧显示对应操作按钮（打开链接、定位文件、计算、显示拼音、搜索、翻译）
-- **文件、图片、颜色等预览**：复制文件、图片，显示预览小图；复制 #FF6B6B 或CSS颜色，显示预览颜色
-- 原生液态玻璃 UI和动效、深色模式适配
-- 纯 Swift + AppKit + SwiftUI，纯本地（检查更新除外），零第三方依赖
-- 使用 Apple SF Symbols 作为图标系统
-- CPU 占用极低
+[Download the latest release](/OM-KEN/Copied/releases/latest)
 
-## 系统要求
+![Copied preview](https://github.com/user-attachments/assets/c0a118a4-a140-468c-aa92-3043e8ba83f2)
 
-目前支持 macOS 14+
+## Why Copied?
 
-## 使用
+Sometimes you press `⌘C`, but still wonder whether the copy actually worked, so you press it again just to be sure.
 
-下载 dmg，拖动 app 到 Applications。复制任意内容，显示弹窗。
+On Windows, I built a Quicker extension that showed a toast every time I copied something. It also supported a gesture I found especially useful: hold the left mouse button and click the right mouse button to copy. I wanted the same fast, visible feedback on macOS, so I built Copied.
 
-弹窗显示期间，**点击右侧按钮或双击 ⌃ 键**可触发右侧操作按钮（如计算、打开链接、搜索）。
+As a UI designer, I also wanted it to feel at home on the Mac. The interface is native, lightweight, and designed to stay out of the way until it is useful.
 
-## 支持的类型
+With AI making software development more accessible, I took the idea one step further and added **smart next actions**.
 
-普通文本、文件、URL、文件路径、邮箱、电话、算式、日期、汉字、英文、代码
+Copy a sentence and trigger a search without opening a browser and pasting it manually. Copy an unfamiliar word or Chinese character and look it up immediately. Copy a color value and see the color directly in the toast. Copy a file or image and view its size, dimensions, and preview without opening Get Info.
 
-## 构建
+Copied has one central goal: **make the moment after copying as fast as possible**.
 
-纯 Swift 编译，macOS 26+ 无需 Xcode 工程。git clone 后进入 Copied-mac 目录，执行 `./build.sh` 即可构建（macOS 26 之前可能需安装 Xcode control Line Tools）。
+The optional left-and-right mouse gesture is disabled by default, but I strongly recommend trying it. Select text, hold the left mouse button, click the right mouse button, and Copied immediately confirms the copy and prepares the next action.
 
-## 架构
+## Highlights
 
+* **Instant copy confirmation**
+  Shows a top-screen toast whenever new content is copied.
+
+* **Smart next actions**
+  Displays a context-aware action such as opening a URL, revealing a file, calculating an expression, showing pronunciation or dictionary information, searching, or translating.
+
+* **Rich content previews**
+  Previews text, files, images, CSS colors, file sizes, image dimensions, and other useful metadata.
+
+* **Fast keyboard trigger**
+  Click the action button or double-tap the configured modifier key, `Control ⌃` by default, while the toast is visible.
+
+* **Optional mouse copy gesture**
+  Hold the left mouse button and click the right mouse button to copy selected content.
+
+* **Native macOS design**
+  Uses Liquid Glass on macOS 26 and a native material fallback on earlier supported versions, with dark mode support.
+
+* **Local-first and lightweight**
+  Built with Swift, AppKit, and SwiftUI. Content processing stays on your Mac, except for update checks.
+
+* **No third-party dependencies**
+  Uses native Apple frameworks and SF Symbols.
+
+* **Low resource usage**
+  Designed to remain responsive with minimal CPU overhead.
+
+## Requirements
+
+* macOS 14 or later
+
+## Installation
+
+1. Download the latest `.dmg` from [Releases](/OM-KEN/Copied/releases/latest).
+2. Open the disk image.
+3. Drag Copied into the Applications folder.
+4. Launch Copied and copy anything to see the toast.
+
+## Usage
+
+Copy any supported content and Copied will show a preview at the top of the screen.
+
+While the toast is visible, you can:
+
+* Click the action button on the right.
+* Double-tap the configured modifier key, `Control ⌃` by default.
+* Open the context menu for additional actions.
+* Expand longer content for a full preview.
+* Use a configured mouse side button as a quick trigger.
+
+Examples:
+
+* Copy a URL to open it.
+* Copy a file path to reveal the file in Finder.
+* Copy a calculation to see the result.
+* Copy a date or time to view contextual date information.
+* Copy a Chinese character or English word to check its pronunciation or definition.
+* Copy a CSS color to preview it instantly.
+* Copy text to search or translate it.
+
+## Supported Content
+
+Copied can recognize and preview:
+
+* Plain text
+* Files and folders
+* Images
+* URLs
+* File paths
+* Email addresses
+* Phone numbers
+* Mathematical expressions
+* Dates and times
+* Chinese characters
+* English words and phrases
+* Source code
+* Hex, RGB, HSL, and other CSS color values
+
+Recognition for individual content types can be enabled or disabled in Settings.
+
+## Customization
+
+Copied includes settings for:
+
+* Launch at login
+* Search engine
+* Quick-trigger modifier key
+* Single-tap or double-tap trigger mode
+* Mouse side-button shortcuts
+* Smart recognition types
+* Copy gesture
+* App blacklist
+* Lightweight reminder mode
+* Plugins
+
+## Plugins
+
+Copied supports `.copiedplugin` folders for custom detection rules and actions.
+
+Plugins can define:
+
+* Pattern-based content detection
+* Search actions
+* URL actions
+* Text transformations
+* Menu-only actions
+* Multiline behavior
+
+Plugin folders are scanned, validated, compiled, and loaded locally.
+
+## Build from Source
+
+Copied is compiled directly with Swift.
+
+```bash
+git clone https://github.com/OM-KEN/Copied.git
+cd Copied/Copied-mac
+./build.sh
 ```
-CopiedApp.swift             MenuBarExtra + AppDelegate + Settings
-ClipboardMonitor.swift      每 0.15s 轮询 NSPasteboard.changeCount（含黑名单过滤门）
-CopyGestureManager.swift    共享 CGEventTap 左+右 → ⌘C 手势（双路径 + R_UP 兜底）
-DetectionRegistry.swift     全局检测器注册中心 + 优先级管道 + 限流
-ContentKind.swift           统一类型标识（struct + 静态常量）
-AppLanguage.swift           当前 Bundle 界面语言策略（英文环境过滤英文单词检测）
-Detectors/                  15 个内置检测器（详见目录）
-DictionaryLookupService.swift  DCSCopyTextDefinition 词典查询
-PluginLoader.swift          扫描/校验/加载 .copiedplugin 文件夹
-PluginManifest.swift        插件清单 + Rule 模型 + CompiledRule
-PluginAction.swift          插件动作执行（openURL/search/transform）
-PluginActionTemplate.swift  插件动作模板（menuOnly/multiline 配置）
-AppFilterSettings.swift     应用黑名单单例 — 过滤判断 + 持久化
-AppFilterView.swift         设置 → 黑名单 Tab（列表管理 + 运行中应用选择器）
-BlacklistSourceAppAction.swift  右键"屏蔽此来源" Action
-ClipboardAction.swift       Action 协议 + 内置 Action + ActionResolver
-KeyboardShortcutSettings.swift  快速触发修饰键、双击/单击模式、侧键配置
-QuickTriggerModifierKeyPolicy.swift  按实际 keyCode 维护左右修饰键状态
-MouseButtonRecordingStateMachine.swift  侧键录制状态与取消/绑定决策
-AppUpdateService.swift      GitHub Releases 检查、缓存、节流与提醒状态
-ToastWindowController.swift 浮动 NSWindow + NSHostingView + Action + 键盘/侧键快速触发
-ToastViewModel.swift        @Observable 模型（含 sourceBundleID）
-RelativeDateDescription.swift 日期/时间详情格式化（日历日语义 + 本地化时间）
-ToastView.swift             SwiftUI 卡片 + glassEffect（macOS 26+）/ ultraThinMaterial（降级）+ 展开查看全文（if/else 双态）+ contextMenu
-LightReminderController.swift 轻提醒模式浮标（NSWindow + NSHostingView + macOS 26+ drawOff / opacity 降级）
-TypeSettingsView.swift      设置 → 智能识别 Tab（ContentKind 开关 + 插件管理）
-SettingsView.swift           设置（开机启动/搜索引擎/快速触发修饰键/智能识别/手势/黑名单/轻提醒 Tab）
-FilePreviewGenerator.swift  QLThumbnailGenerator 异步缩略图
-SourceAppDetector.swift     NSWorkspace.frontmostApplication（含 bundleIdentifier）
-Localizable.xcstrings       String Catalog（zh-Hans 源语言 + en / zh-Hant）
-build.sh                    swiftc + xcstringstool + actool + codesign
+
+On macOS 26 or later, the project can be built without an Xcode project file. Earlier supported macOS versions may require Xcode Command Line Tools.
+
+## Architecture
+
+```text
+CopiedApp.swift
+  MenuBarExtra, AppDelegate, and Settings
+
+ClipboardMonitor.swift
+  Polls NSPasteboard.changeCount every 0.15 seconds
+  Includes the app blacklist filtering gate
+
+CopyGestureManager.swift
+  Shared CGEventTap for the left-button + right-button copy gesture
+  Includes dual event paths and an R_UP fallback
+
+DetectionRegistry.swift
+  Global detector registry, priority pipeline, and throttling
+
+ContentKind.swift
+  Unified content-type identifiers using a struct and static constants
+
+AppLanguage.swift
+  Bundle language policy
+  Filters English-word detection in English UI environments
+
+Detectors/
+  15 built-in content detectors
+
+DictionaryLookupService.swift
+  Dictionary lookup through DCSCopyTextDefinition
+
+PluginLoader.swift
+  Scans, validates, and loads .copiedplugin folders
+
+PluginManifest.swift
+  Plugin manifest, rule models, and compiled rules
+
+PluginAction.swift
+  Executes plugin actions such as openURL, search, and transform
+
+PluginActionTemplate.swift
+  Plugin action templates with menuOnly and multiline configuration
+
+AppFilterSettings.swift
+  App blacklist singleton, filtering logic, and persistence
+
+AppFilterView.swift
+  Settings interface for blacklist management and running-app selection
+
+BlacklistSourceAppAction.swift
+  Context-menu action for blocking the current source app
+
+ClipboardAction.swift
+  Action protocol, built-in actions, and ActionResolver
+
+KeyboardShortcutSettings.swift
+  Modifier-key trigger, single/double-tap mode, and side-button settings
+
+QuickTriggerModifierKeyPolicy.swift
+  Tracks left and right modifier-key states using their actual key codes
+
+MouseButtonRecordingStateMachine.swift
+  Handles side-button recording, cancellation, and binding decisions
+
+AppUpdateService.swift
+  GitHub Releases update checks, caching, throttling, and reminders
+
+ToastWindowController.swift
+  Floating NSWindow, NSHostingView, actions, and quick-trigger handling
+
+ToastViewModel.swift
+  @Observable model, including sourceBundleID
+
+RelativeDateDescription.swift
+  Localized relative date and calendar-day descriptions
+
+ToastView.swift
+  SwiftUI toast card
+  Liquid Glass on macOS 26+, ultraThinMaterial fallback
+  Expandable full-text preview and context menu
+
+LightReminderController.swift
+  Lightweight reminder indicator using NSWindow
+  drawOff on macOS 26+, opacity fallback on earlier versions
+
+TypeSettingsView.swift
+  Smart Recognition settings and plugin management
+
+SettingsView.swift
+  Launch at login, search engine, quick trigger, recognition,
+  gestures, blacklist, and lightweight reminder settings
+
+FilePreviewGenerator.swift
+  Asynchronous thumbnails through QLThumbnailGenerator
+
+SourceAppDetector.swift
+  Detects the frontmost app and its bundle identifier
+
+Localizable.xcstrings
+  String Catalog with Simplified Chinese as the source language,
+  plus English and Traditional Chinese
+
+build.sh
+  swiftc, xcstringstool, actool, and codesign build pipeline
 ```
 
-## 许可证
+## Privacy
 
-本项目基于 [MIT License](LICENSE) 开源。
+Copied processes copied content locally on your Mac. It does not send clipboard content to a remote service. Network access is only used to check GitHub Releases for updates.
+
+## License
+
+Copied is open source under the [MIT License](LICENSE).
