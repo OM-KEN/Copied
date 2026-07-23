@@ -1,6 +1,6 @@
 # Copied
 
-适用于 macOS 的复制确认提示与智能剪贴板操作
+### 适用于 macOS 的复制确认提示与智能剪贴板操作
 
 ![macOS 14+](https://img.shields.io/badge/macOS-14%2B-black?logo=apple)
 ![Swift](https://img.shields.io/badge/Swift-AppKit%20%2B%20SwiftUI-F05138?logo=swift\&logoColor=white)
