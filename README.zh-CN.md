@@ -1,8 +1,18 @@
 # Copied
 
-Copied 可以即时预览你复制的任何内容，在屏幕顶部提示，并可根据内容智能执行下一步操作。（注意：不是剪贴板工具）
+适用于 macOS 的复制确认提示与智能剪贴板操作
+
+![macOS 14+](https://img.shields.io/badge/macOS-14%2B-black?logo=apple)
+![Swift](https://img.shields.io/badge/Swift-AppKit%20%2B%20SwiftUI-F05138?logo=swift\&logoColor=white)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 <img width="414" height="172" alt="PixPin_2026-07-02_00-39-59" src="https://github.com/user-attachments/assets/c0a118a4-a140-468c-aa92-3043e8ba83f2" />
+
+**确认已经复制。查看复制内容。智能推荐下一步操作。**
+
+Copied 是一款轻量、开源的 macOS 工具。每当你复制内容时，它都会立即在屏幕顶部显示一条提示，确认复制操作已经完成。它可以预览复制的所有内容，并根据内容推荐合适的下一步操作，例如打开链接、显示文件位置、搜索、翻译或计算。
+
+Copied 不是一款传统意义上的剪贴板历史管理工具。它只给你复制后的视觉反馈、有用的内容预览，以及更快捷的下一步操作。
 
 ## 为什么做 Copied？
 有时候明明复制了，却总会怀疑到底成功了没，然后下意识再多按几次。在 Windows 上，我用 Quicker 写过插件，让我的每次复制都会有 Toast 提醒，还有一个特别好用的功能：按住左键点右键就能复制。于是，我也在 Mac 上实现了复制提醒和左右键复制。作为 UI 设计师，我也尽量做到既原生又美观，先满足自己——**能让自己每天都能用得舒服的 app 才是好 app**。
