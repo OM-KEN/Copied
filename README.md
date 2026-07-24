@@ -6,7 +6,7 @@
 
 ![macOS 14+](https://img.shields.io/badge/macOS-14%2B-black?logo=apple)
 ![Swift](https://img.shields.io/badge/Swift-AppKit%20%2B%20SwiftUI-F05138?logo=swift\&logoColor=white)
-[![License: MIT]()](LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue)](LICENSE)
 
 **Know it was copied. See what you copied. Act on it instantly.**
 
