@@ -6,7 +6,7 @@
 
 ![macOS 14+](https://img.shields.io/badge/macOS-14%2B-black?logo=apple)
 ![Swift](https://img.shields.io/badge/Swift-AppKit%20%2B%20SwiftUI-F05138?logo=swift\&logoColor=white)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![License: MIT]()](LICENSE)
 
 **Know it was copied. See what you copied. Act on it instantly.**
 
@@ -160,105 +160,36 @@ On macOS 26 or later, the project can be built without an Xcode project file. Ea
 
 ```text
 CopiedApp.swift
-  MenuBarExtra, AppDelegate, and Settings
-
 ClipboardMonitor.swift
-  Polls NSPasteboard.changeCount every 0.15 seconds
-  Includes the app blacklist filtering gate
-
 CopyGestureManager.swift
-  Shared CGEventTap for the left-button + right-button copy gesture
-  Includes dual event paths and an R_UP fallback
-
 DetectionRegistry.swift
-  Global detector registry, priority pipeline, and throttling
-
 ContentKind.swift
-  Unified content-type identifiers using a struct and static constants
-
 AppLanguage.swift
-  Bundle language policy
-  Filters English-word detection in English UI environments
-
 Detectors/
-  15 built-in content detectors
-
 DictionaryLookupService.swift
-  Dictionary lookup through DCSCopyTextDefinition
-
 PluginLoader.swift
-  Scans, validates, and loads .copiedplugin folders
-
 PluginManifest.swift
-  Plugin manifest, rule models, and compiled rules
-
 PluginAction.swift
-  Executes plugin actions such as openURL, search, and transform
-
 PluginActionTemplate.swift
-  Plugin action templates with menuOnly and multiline configuration
-
 AppFilterSettings.swift
-  App blacklist singleton, filtering logic, and persistence
-
 AppFilterView.swift
-  Settings interface for blacklist management and running-app selection
-
 BlacklistSourceAppAction.swift
-  Context-menu action for blocking the current source app
-
 ClipboardAction.swift
-  Action protocol, built-in actions, and ActionResolver
-
 KeyboardShortcutSettings.swift
-  Modifier-key trigger, single/double-tap mode, and side-button settings
-
 QuickTriggerModifierKeyPolicy.swift
-  Tracks left and right modifier-key states using their actual key codes
-
 MouseButtonRecordingStateMachine.swift
-  Handles side-button recording, cancellation, and binding decisions
-
 AppUpdateService.swift
-  GitHub Releases update checks, caching, throttling, and reminders
-
 ToastWindowController.swift
-  Floating NSWindow, NSHostingView, actions, and quick-trigger handling
-
 ToastViewModel.swift
-  @Observable model, including sourceBundleID
-
 RelativeDateDescription.swift
-  Localized relative date and calendar-day descriptions
-
 ToastView.swift
-  SwiftUI toast card
-  Liquid Glass on macOS 26+, ultraThinMaterial fallback
-  Expandable full-text preview and context menu
-
 LightReminderController.swift
-  Lightweight reminder indicator using NSWindow
-  drawOff on macOS 26+, opacity fallback on earlier versions
-
 TypeSettingsView.swift
-  Smart Recognition settings and plugin management
-
 SettingsView.swift
-  Launch at login, search engine, quick trigger, recognition,
-  gestures, blacklist, and lightweight reminder settings
-
 FilePreviewGenerator.swift
-  Asynchronous thumbnails through QLThumbnailGenerator
-
 SourceAppDetector.swift
-  Detects the frontmost app and its bundle identifier
-
 Localizable.xcstrings
-  String Catalog with Simplified Chinese as the source language,
-  plus English and Traditional Chinese
-
 build.sh
-  swiftc, xcstringstool, actool, and codesign build pipeline
 ```
 
 ## Privacy
