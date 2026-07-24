@@ -14,7 +14,7 @@ Copied is a lightweight, open-source macOS utility that confirms every copy with
 
 Copied is not a traditional clipboard history manager. It focuses on the moment immediately after you copy, giving you visual confirmation, useful context, and a faster path to whatever comes next.
 
-[Download the latest release](/OM-KEN/Copied/releases/latest)
+[Download the latest release](/OM-KEN/Copied/releases)
 
 ![Copied preview](https://github.com/user-attachments/assets/c0a118a4-a140-468c-aa92-3043e8ba83f2)
 
@@ -69,7 +69,7 @@ The optional left-and-right mouse gesture is disabled by default, but I strongly
 
 ## Installation
 
-1. Download the latest `.dmg` from [Releases](/OM-KEN/Copied/releases/latest).
+1. Download the latest `.dmg` from [Releases](/OM-KEN/Copied/releases).
 2. Open it.
 3. Drag Copied into the Applications folder.
 4. Launch Copied and try copying anything.
