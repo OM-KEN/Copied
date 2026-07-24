@@ -4,7 +4,7 @@
 
 ![macOS 14+](https://img.shields.io/badge/macOS-14%2B-black?logo=apple)
 ![Swift](https://img.shields.io/badge/Swift-AppKit%20%2B%20SwiftUI-F05138?logo=swift\&logoColor=white)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue)](LICENSE)
 
 <img width="414" height="172" alt="PixPin_2026-07-02_00-39-59" src="https://github.com/user-attachments/assets/c0a118a4-a140-468c-aa92-3043e8ba83f2" />
 
@@ -37,7 +37,7 @@ Copied 不是一款传统意义上的剪贴板历史管理工具。它只给你�
 
 ## 使用
 
-下载 dmg，拖动 app 到 Applications。复制任意内容，显示弹窗。
+[下载 `dmg`](https://github.com/OM-KEN/Copied/releases/latest)，拖动 app 到 Applications。复制任意内容，显示弹窗。
 
 弹窗显示期间，**点击右侧按钮或双击 ⌃ 键**可触发右侧操作按钮（如计算、打开链接、搜索）。
 
