@@ -125,7 +125,7 @@ final class ClipboardMonitor {
                 names.prefix(3).joined(separator: ", ")
                     + String(localized: "（\(names.count)个文件）")
             }
-            // Single image file → thumbnail + dimensions; single file → size
+            // Single image file → thumbnail + dimensions + size; single file → size
             var thumb: NSImage? = nil
             let detail: String
             let imgFmt: String?
@@ -134,7 +134,11 @@ final class ClipboardMonitor {
                    let fileImage = NSImage(contentsOf: urls[0]) {
                     thumb = createThumbnail(from: fileImage)
                     let (w, h) = imagePixelDimensions(fileImage)
-                    detail = "\(w)×\(h)"
+                    detail = formatImageDetail(
+                        width: w,
+                        height: h,
+                        formattedSize: formatFileSize(urls[0])
+                    )
                     imgFmt = urls[0].pathExtension.uppercased()
                 } else if (try? urls[0].resourceValues(forKeys: [.isDirectoryKey, .isPackageKey]))
                     .map({ $0.isDirectory == true && $0.isPackage != true }) == true {
@@ -189,10 +193,21 @@ final class ClipboardMonitor {
                 ]
                 fmt = utiFormats.first(where: { types.contains(NSPasteboard.PasteboardType($0.0)) })?.1
             }
+            let imageByteCount: Int64? = if types.contains(.png) {
+                pasteboard.data(forType: .png).map { Int64($0.count) }
+            } else {
+                pasteboard.data(forType: .tiff).map { Int64($0.count) }
+            }
+            let formattedImageSize = imageByteCount
+                .flatMap { $0 > 0 ? Self.fileSizeFormatter.string(fromByteCount: $0) : nil }
             return ClipboardContent(
                 type: .image,
                 preview: String(localized: "图片"),
-                detail: "\(w)×\(h)",
+                detail: formatImageDetail(
+                    width: w,
+                    height: h,
+                    formattedSize: formattedImageSize
+                ),
                 thumbnail: thumb,
                 fileURLs: nil,
                 rawText: nil,
@@ -276,6 +291,12 @@ final class ClipboardMonitor {
             return Self.fileSizeFormatter.string(fromByteCount: size)
         }
         return ""
+    }
+
+    private func formatImageDetail(width: Int, height: Int, formattedSize: String?) -> String {
+        let dimensions = "\(width)×\(height)"
+        guard let formattedSize, !formattedSize.isEmpty else { return dimensions }
+        return "\(dimensions) · \(formattedSize)"
     }
 
     /// Recursively sum file sizes under a directory or package.
