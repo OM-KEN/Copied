@@ -31,6 +31,7 @@ PluginLoader.swift          扫描/校验/加载 .copiedplugin 文件夹
 PluginManifest.swift        插件清单 + Rule 模型 + CompiledRule
 PluginAction.swift          插件动作执行（openURL/search/transform）
 PluginActionTemplate.swift  插件动作模板（menuOnly/multiline 配置）
+PluginRuntimeSafety.swift   插件目录/卸载约束 + 有界正则执行
 AppFilterSettings.swift     应用黑名单单例 — 过滤判断 + 持久化
 AppFilterView.swift         设置 → 黑名单 Tab（列表管理 + 运行中应用选择器）
 BlacklistSourceAppAction.swift  右键"屏蔽此来源" Action
@@ -62,7 +63,7 @@ UserDefaults 键：`searchEngine`, `launchAtLogin`, `isPaused`, `copyGestureEnab
 
 复制声音默认 Frog，固定使用 `NSSound` 的 0.5 音量；设置试听与实际复制共用同一播放路径，可选择其他系统声音或 `none`。声音在来源过滤后、视觉去重前播放，因此 500ms 内重复复制相同内容仍会逐次发声；暂停、不可读内容和黑名单来源无声。
 
-**插件系统**：声明式 JSON + 正则，不执行代码。目录为 `~/Library/Application Support/Copied/Plugins/`，只从设置手动安装；规则支持 `multiline`、`menuOnly`，无默认插件。性能边界统一由 `DetectionRegistry` 管理。
+**插件系统**：声明式 JSON + 正则，不执行代码。目录为 `~/Library/Application Support/Copied/Plugins/`，只从设置手动安装；规则支持 `multiline`、`menuOnly`，无默认插件。只扫描插件根目录的直接 `.copiedplugin` 子目录，拒绝目录符号链接和不安全 identifier。卸载必须枚举根目录内的安全插件目录、读取 manifest 并精确匹配 identifier，再删除实际目录；禁止根据 identifier 拼接删除路径。通用检测熔断由 `DetectionRegistry` 管理，插件正则另由 `PluginRuntimeSafety` 主动限制。
 
 ### 轻提醒模式（LightReminderController）
 
@@ -92,13 +93,16 @@ SwiftUI `Button` 是鼠标 `ToastCommand` 的唯一来源；禁止恢复窗口�
 
 用 `pasteboard.types` 判断内容类别，不用 `readObjects`。缩略图策略：`QLThumbnailGenerator` 异步 + SF Symbol 降级。详见 `ClipboardMonitor.swift`。
 
+生产诊断日志不得写入 `ClipboardContent.preview`、`rawText` 或其他剪贴板正文；只记录内容类型、计数和非敏感状态。需要内容级复现时使用明确的合成测试数据。
+
 ### 内容类型检测（DetectionRegistry）
 
 按优先级管道执行所有已注册检测器。检测器实现 `ContentDetectorProtocol`，返回 `ContentDetection?`。
 
-性能熔断（硬边界）：
+性能熔断（分层边界）：
 - **100KB 文本截断**：>100KB → 仅运行内置语言检测器（跳过插件与实体检测器）
-- **50ms 单检测器超时**：累计 >50ms → 限流 30s
+- **50ms 单检测器计时**：`DetectionRegistry` 在检测器返回后统计耗时；累计 >50ms → 限流 30s，该层不负责中断当前调用
+- **50ms 插件正则预算**：一个 `PluginDetector` 的全部规则共享同一预算，transform 单独使用同一预算；通过正则进度回调主动停止，并限制最多 10,000 个匹配、1,000,000 UTF-16 单元输出，超限时不返回部分结果
 - **3 次限流自动禁用**：连续 ≥3 次 → 永久禁用 + 系统通知
 
 ### 公式计算
@@ -183,7 +187,7 @@ rebuild 后签名变化会使 macOS 清掉 `SMAppService` 登录项注册记录�
 
 **禁止猜测式修 bug。必须先加文件日志定位根因。**
 
-1. **加文件日志**：写私有 logger 到 `FileManager.default.temporaryDirectory`，每条日志含「事件类型 + 当前状态 + 关键变量」。启动时清空。
+1. **加文件日志**：写私有 logger 到 `FileManager.default.temporaryDirectory`，每条日志含「事件类型 + 当前状态 + 关键变量」。启动时清空；禁止记录真实剪贴板正文，内容级诊断必须使用合成测试数据。
 2. **复现 + `cat` 读日志**：严格按步骤触发，对比正常/异常日志差异。
 3. **确认根因后改码**：日志必须明确显示断点。不确定就加更多日志。
 4. **修复后清理日志代码**。
