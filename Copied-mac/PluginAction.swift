@@ -31,7 +31,7 @@ struct PluginAction: ClipboardAction {
             SearchTextAction(text: text).perform(content: content, controller: controller)
 
         case .transform:
-            let result = applyTransform(template, on: text)
+            guard let result = applyTransform(template, on: text) else { return }
             controller?.showResultOverlay(displayText: result, copyText: result)
 
         case .none:
@@ -41,13 +41,25 @@ struct PluginAction: ClipboardAction {
 
     // MARK: - Transform
 
-    private func applyTransform(_ template: PluginActionTemplate, on text: String) -> String {
+    private func applyTransform(_ template: PluginActionTemplate, on text: String) -> String? {
         guard let pattern = template.transformPattern,
               let replacement = template.transformReplacement,
               let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
-            return text
+            return nil
         }
         let range = NSRange(text.startIndex..., in: text)
-        return regex.stringByReplacingMatches(in: text, range: range, withTemplate: replacement)
+        switch BoundedRegularExpression.replacingMatches(
+            regex,
+            in: text,
+            range: range,
+            withTemplate: replacement,
+            deadline: RegexDeadline(timeLimit: BoundedRegularExpression.defaultTimeLimit)
+        ) {
+        case .success(let result):
+            return result
+        case .limitExceeded:
+            NSLog("Copied: plugin transform exceeded regex budget")
+            return nil
+        }
     }
 }

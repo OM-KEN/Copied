@@ -30,6 +30,7 @@ SOURCES=(
     AppUpdateModels.swift
     AppUpdateService.swift
     PluginActionTemplate.swift
+    PluginRuntimeSafety.swift
     PluginManifest.swift
     PluginAction.swift
     PluginLoader.swift

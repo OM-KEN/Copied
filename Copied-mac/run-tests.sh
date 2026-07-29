@@ -5,6 +5,12 @@ TEST_BUILD_DIR=".build/tests"
 mkdir -p "$TEST_BUILD_DIR"
 
 swiftc -parse-as-library \
+    PluginRuntimeSafety.swift \
+    Tests/PluginSecurityTests.swift \
+    -o "$TEST_BUILD_DIR/PluginSecurityTests"
+"$TEST_BUILD_DIR/PluginSecurityTests"
+
+swiftc -parse-as-library \
     MathExpressionEvaluator.swift \
     PluginActionTemplate.swift \
     ContentKind.swift \

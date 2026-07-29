@@ -72,6 +72,16 @@ struct InteractionWiringTests {
             "menu update indicator does not use the leading dot"
         )
 
+        let clipboardSource = try! String(contentsOfFile: "ClipboardMonitor.swift", encoding: .utf8)
+        expect(
+            !clipboardSource.contains("preview=\\(content.preview"),
+            "clipboard diagnostics never interpolate preview text"
+        )
+        expect(
+            !clipboardSource.contains("rawText=\\(content.rawText"),
+            "clipboard diagnostics never interpolate raw clipboard text"
+        )
+
         print("InteractionWiringTests: PASS")
     }
 }
