@@ -99,7 +99,7 @@ final class ClipboardMonitor {
                 return
             }
 
-            NSLog("Copied: dispatching show (type=\(content.type), preview=\(content.preview.prefix(50)))")
+            NSLog("Copied: dispatching show (type=\(content.type))")
             if LightReminderController.shared.isEnabled {
                 LightReminderController.shared.show()
             } else {

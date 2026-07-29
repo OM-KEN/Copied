@@ -67,6 +67,7 @@ ContentKind.swift           — 统一类型标识
 AppLanguage.swift           — 界面语言相关的检测可用性策略
 Detectors/                  — 15 个内置检测器
 PluginLoader.swift          — .copiedplugin 扩展加载/管理
+PluginRuntimeSafety.swift   — 插件目录约束与正则执行预算
 AppFilterSettings.swift     — 应用黑名单过滤 + 持久化
 ClipboardAction.swift       — Action 协议 + 内置 Action + ActionResolver
 KeyboardShortcutSettings.swift — 快速触发修饰键、双击/单击模式和侧键配置

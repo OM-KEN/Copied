@@ -17,23 +17,7 @@ final class PluginLoader {
 
     /// 扫描插件目录，返回所有 `.copiedplugin` 文件夹的 URL。
     func scanPlugins() -> [URL] {
-        let dir = Self.pluginsDirectory
-        guard FileManager.default.fileExists(atPath: dir.path) else { return [] }
-
-        do {
-            let contents = try FileManager.default.contentsOfDirectory(
-                at: dir,
-                includingPropertiesForKeys: [.isDirectoryKey],
-                options: [.skipsHiddenFiles]
-            )
-            return contents.filter { url in
-                url.pathExtension == "copiedplugin"
-                    && (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
-            }
-        } catch {
-            NSLog("Copied: failed to scan plugins directory: \(error.localizedDescription)")
-            return []
-        }
+        PluginRemovalPolicy.pluginDirectories(in: Self.pluginsDirectory)
     }
 
     // MARK: - Loading
@@ -48,6 +32,10 @@ final class PluginLoader {
         guard let manifestData = try? Data(contentsOf: manifestURL),
               let manifest = try? JSONDecoder().decode(PluginManifest.self, from: manifestData) else {
             NSLog("Copied: failed to load manifest for \(url.lastPathComponent)")
+            return nil
+        }
+        guard PluginRemovalPolicy.isValidIdentifier(manifest.identifier) else {
+            NSLog("Copied: rejected unsafe plugin identifier in \(url.lastPathComponent)")
             return nil
         }
 
@@ -141,6 +129,16 @@ final class PluginLoader {
 
     /// 卸载插件：从 DetectionRegistry 移除 + 删除文件。
     func uninstallPlugin(identifier: String) {
+        do {
+            _ = try PluginRemovalPolicy.removeInstalledPlugins(
+                identifier: identifier,
+                from: Self.pluginsDirectory
+            )
+        } catch {
+            NSLog("Copied: failed to remove plugin '\(identifier)': \(error.localizedDescription)")
+            return
+        }
+
         // Remove from registry
         DetectionRegistry.shared.unregisterPlugin(identifier: identifier)
         DetectionRegistry.shared.setEnabled(true, kindID: identifier) // clear disabled state
@@ -149,10 +147,6 @@ final class PluginLoader {
         var installed = UserDefaults.standard.stringArray(forKey: "installedPlugins") ?? []
         installed.removeAll { $0 == identifier }
         UserDefaults.standard.set(installed, forKey: "installedPlugins")
-
-        // Delete folder
-        let pluginURL = Self.pluginsDirectory.appendingPathComponent("\(identifier).copiedplugin")
-        try? FileManager.default.removeItem(at: pluginURL)
 
         NSLog("Copied: uninstalled plugin '\(identifier)'")
     }
@@ -182,9 +176,16 @@ struct PluginDetector: ContentDetectorProtocol {
     let rules: [CompiledRule]
 
     func detect(in text: String) -> ContentDetection? {
+        let deadline = RegexDeadline(timeLimit: BoundedRegularExpression.defaultTimeLimit)
         for rule in rules {
             let range = NSRange(text.startIndex..., in: text)
-            if let match = rule.regex.firstMatch(in: text, range: range) {
+            switch BoundedRegularExpression.firstMatch(
+                rule.regex,
+                in: text,
+                range: range,
+                deadline: deadline
+            ) {
+            case .match(let match):
                 let value = extractValue(from: match, group: rule.extractGroup, in: text)
                 return ContentDetection(
                     kind: kind,
@@ -192,6 +193,11 @@ struct PluginDetector: ContentDetectorProtocol {
                     metadata: ["ruleId": rule.id],
                     pluginActionTemplate: rule.actionTemplate
                 )
+            case .noMatch:
+                continue
+            case .limitExceeded:
+                NSLog("Copied: plugin detector '\(kind.id)' exceeded regex budget")
+                return nil
             }
         }
         return nil
