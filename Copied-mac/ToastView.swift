@@ -400,7 +400,7 @@ private struct ExpandedTextView: View {
                     let cardFrame = proxy.frame(in: .named("ToastRoot"))
                     let frame = CGRect(
                         x: cardFrame.midX - ExpandedTextLayoutMetrics.textWidth / 2,
-                        y: cardFrame.minY + ExpandedTextLayoutMetrics.topInset,
+                        y: cardFrame.minY,
                         width: ExpandedTextLayoutMetrics.textWidth,
                         height: ExpandedTextLayoutMetrics.viewportHeight(for: rawText)
                     )
@@ -420,18 +420,18 @@ struct ExpandedBottomBarControlsView: View {
     let onCommand: (ToastCommand<any ClipboardAction>) -> Void
 
     var body: some View {
-        HStack {
+        controls
+            .buttonStyle(.bordered)
+    }
+
+    private var controls: some View {
+        HStack(spacing: 8) {
             Button("在文本编辑中打开") { onCommand(.editInTextEdit) }
                 .buttonBorderShape(.roundedRectangle(radius: 8))
-            Button {
-                onCommand(.dismiss)
-            } label: {
-                Color.clear
-                    .contentShape(Rectangle())
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-            .buttonStyle(.plain)
+            Spacer(minLength: 8)
             Button("收起") { onCommand(.collapse) }
+                .buttonBorderShape(.roundedRectangle(radius: 8))
+            Button("关闭") { onCommand(.dismiss) }
                 .buttonBorderShape(.roundedRectangle(radius: 8))
         }
         .padding(.horizontal, 16)
@@ -440,35 +440,6 @@ struct ExpandedBottomBarControlsView: View {
             height: ExpandedTextLayoutMetrics.bottomBarVisualHeight
         )
         .onHover(perform: onHoverChanged)
-    }
-}
-
-struct ExpandedBottomBarGlassView: View {
-    private var barShape: UnevenRoundedRectangle {
-        UnevenRoundedRectangle(
-            bottomLeadingRadius: ToastView.cardCornerRadius,
-            bottomTrailingRadius: ToastView.cardCornerRadius,
-            style: .continuous
-        )
-    }
-
-    @ViewBuilder
-    var body: some View {
-        if #available(macOS 26, *) {
-            Color.clear
-                .frame(
-                    width: ExpandedTextLayoutMetrics.cardWidth,
-                    height: ExpandedTextLayoutMetrics.bottomBarVisualHeight
-                )
-                .glassEffect(.regular, in: barShape)
-        } else {
-            barShape
-                .fill(.regularMaterial)
-                .frame(
-                    width: ExpandedTextLayoutMetrics.cardWidth,
-                    height: ExpandedTextLayoutMetrics.bottomBarVisualHeight
-                )
-        }
     }
 }
 

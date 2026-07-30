@@ -77,7 +77,7 @@ UserDefaults 键：`searchEngine`, `launchAtLogin`, `isPaused`, `copyGestureEnab
 
 macOS 26+ 用 `.glassEffect(in: .rect(cornerRadius: cardCornerRadius))`；旧系统用 `.ultraThinMaterial` + 0.08s 延迟淡入，避免首帧灰闪。圆角统一为 32pt。
 
-标准弹窗必须使用 `ToastPanel`：`NSPanel + .borderless + .nonactivatingPanel`，`canBecomeKey=true`、`canBecomeMain=false`、`becomesKeyOnlyIfNeeded=true`、`isFloatingPanel=true`、`hidesOnDeactivate=false`。普通 SwiftUI 控件位于 `needsPanelToBecomeKey=false` 的 first-mouse hosting 中，点击不得激活 Copied 或让 Panel 成为 key；只有原生展开文本交互可按需成为 key。
+标准弹窗必须使用 `ToastPanel`：`NSPanel + .borderless + .nonactivatingPanel`，`canBecomeKey=true`、`canBecomeMain=false`、`becomesKeyOnlyIfNeeded=true`、`isFloatingPanel=true`、`hidesOnDeactivate=false`。折叠态 SwiftUI 控件位于 `needsPanelToBecomeKey=false` 的 first-mouse hosting 中，点击不得激活 Copied 或让 Panel 成为 key；用户主动展开后 Panel 默认成为 key，原生正文成为 first responder。
 
 非 key 窗口用 `.stroke(.primary.opacity(0.15))` 补偿边缘高光。每次 `show()` 必须重建窗口；复用窗口在全屏 Space 长时间运行后可能无法 `orderFront`。
 
@@ -133,11 +133,11 @@ rebuild 后签名变化会使 macOS 清掉 `SMAppService` 登录项注册记录�
 
 ### 展开查看全文（ToastView expand/collapse）
 
-`ExpandedTextView` 固定宽 360、总高最多 300pt；主 host 只预留几何空间，controller 分层安装原生 `NSTextView/NSScrollView`、无命中玻璃 host 和独立按钮 host。文档高度必须取 `NSLayoutManager.usedRect` 再加 64pt，底栏高 54pt、左右内边距 16pt，两端按钮圆角 8pt，`updateWindowSize` 上限 340pt；`expandedText` 优先级为结果覆盖层 > 原文 > 文件名+路径。
+`ExpandedTextView` 固定宽 360、总高最多 300pt；主 host 只预留几何空间，controller 分层安装原生 `NSTextView/NSScrollView` 和独立按钮 host。正文视口必须从卡片顶边开始、在底栏上方结束；顶部两角按 `cardCornerRadius - horizontalInset` 裁切以贴合卡片外轮廓，但不得重新引入顶部位置偏移。`CALayer.isGeometryFlipped=true` 时视觉顶部对应 `minY` 两角，非 flipped 时对应 `maxY` 两角。初始 12pt 顶距放进可滚动正文的 `textContainerInset`，文档高度取 `NSLayoutManager.usedRect` 再加顶部 12pt 与底部 10pt。底栏高 54pt、左右内边距 16pt，两端按钮圆角 8pt，`updateWindowSize` 上限 340pt；`expandedText` 优先级为结果覆盖层 > 原文 > 文件名+路径。
 
-展开态在 `NSPanel` 四周额外保留 16pt 透明阴影边界；SwiftUI hosting 保持原尺寸并整体内移，原生正文与底栏继续通过 hosting 坐标换算同步定位，禁止在 SwiftUI 根视图上加 padding 代替窗口边界。
+展开态在 `NSPanel` 左右和底部额外保留 16pt 透明阴影边界；顶部不留边界，以免 WindowServer 将窗口约束到屏幕顶边后让展开卡片下移。SwiftUI hosting 保持原尺寸并整体内移，原生正文与底栏继续通过 hosting 坐标换算同步定位，禁止在 SwiftUI 根视图上加 padding 代替窗口边界。
 
-展开期间暂停全部快速触发。只有原生正文按需让 Panel 成为 key，并通过 responder chain 支持拖选、⌘C 和右键菜单；底栏按钮保持 non-key，中间透明 SwiftUI Button 负责关闭，禁止坐标命中，Escape 无操作。TextEdit 使用 UUID 临时文件并防重入。
+展开期间暂停全部快速触发。展开完成后 Panel 默认成为 key、原生正文成为 first responder，并通过 responder chain 支持拖选、⌘C 和右键菜单；收起时主动 resign key。底栏按钮保持 non-key、无独立背景，统一使用 macOS 原生 bordered 样式，不强制 Liquid Glass；空白区域不响应点击，右下角提供明确的关闭按钮，禁止坐标命中，Escape 无操作。TextEdit 使用 UUID 临时文件并防重入。
 
 展开期间不得启动自动关闭计时器；鼠标移出后保持展开，只有手动关闭、收起或打开 TextEdit 才结束展开态。收起后恢复折叠态原有的自动关闭行为。
 

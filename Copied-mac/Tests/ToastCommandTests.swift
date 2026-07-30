@@ -26,7 +26,8 @@ struct ToastCommandTests {
         expandedTextSurfaceScopesKeyBehavior()
         expandedTextMetricsAreBounded()
         expandedTextDocumentReservesBottomBarClearance()
-        expandedWindowReservesShadowOutsetWithoutChangingContentSize()
+        expandedWindowKeepsContentTopAlignedAndReservesShadowOutset()
+        expandedTextTopCornersFollowLayerGeometry()
         productionWiringUsesOneCommandPath()
         print("ToastCommandTests: PASS")
     }
@@ -128,8 +129,6 @@ struct ToastCommandTests {
         expect(textView.needsPanelToBecomeKey, "native text interaction may make panel key")
         expect(textView.acceptsFirstMouse(for: nil), "native text accepts first mouse")
 
-        let visualHosting = ToastVisualHostingView(rootView: AnyView(EmptyView()))
-        expect(visualHosting.hitTest(.zero) == nil, "glass-only hosting never owns mouse input")
     }
 
     private static func expandedTextMetricsAreBounded() {
@@ -142,8 +141,8 @@ struct ToastCommandTests {
         expect(longHeight == ExpandedTextLayoutMetrics.maxTotalHeight, "long text is capped")
         expect(
             ExpandedTextLayoutMetrics.viewportHeight(for: "short")
-                + ExpandedTextLayoutMetrics.topInset == shortHeight,
-            "native text viewport extends behind the bottom bar"
+                + ExpandedTextLayoutMetrics.bottomBarVisualHeight == shortHeight,
+            "native text viewport reaches the card top and ends above the bottom controls"
         )
     }
 
@@ -155,8 +154,8 @@ struct ToastCommandTests {
             usedTextMaxY: usedTextMaxY
         )
         expect(
-            documentHeight == 669,
-            "native text layout keeps the full bottom clearance"
+            documentHeight == 627,
+            "native text layout keeps initial top and final-line spacing"
         )
         expect(
             ExpandedTextLayoutMetrics.bottomReservedHeight
@@ -172,7 +171,7 @@ struct ToastCommandTests {
         )
     }
 
-    private static func expandedWindowReservesShadowOutsetWithoutChangingContentSize() {
+    private static func expandedWindowKeepsContentTopAlignedAndReservesShadowOutset() {
         let contentSize = NSSize(width: 396, height: 197)
         expect(
             ExpandedWindowLayoutMetrics.windowSize(
@@ -186,8 +185,8 @@ struct ToastCommandTests {
             isExpanded: true
         )
         expect(
-            expandedSize == NSSize(width: 428, height: 229),
-            "expanded window adds transparent room for the shadow"
+            expandedSize == NSSize(width: 428, height: 213),
+            "expanded window reserves horizontal and bottom shadow room"
         )
         let hostingFrame = ExpandedWindowLayoutMetrics.hostingFrame(
             for: contentSize,
@@ -196,6 +195,23 @@ struct ToastCommandTests {
         expect(
             hostingFrame == NSRect(x: 16, y: 16, width: 396, height: 197),
             "expanded content keeps its size and moves inward as one surface"
+        )
+        expect(
+            hostingFrame.maxY == expandedSize.height,
+            "expanded content top stays aligned with the window top"
+        )
+    }
+
+    private static func expandedTextTopCornersFollowLayerGeometry() {
+        expect(
+            ExpandedTextCornerPolicy.topCorners(isGeometryFlipped: true)
+                == [.layerMinXMinYCorner, .layerMaxXMinYCorner],
+            "geometry-flipped layers use minY for the visual top"
+        )
+        expect(
+            ExpandedTextCornerPolicy.topCorners(isGeometryFlipped: false)
+                == [.layerMinXMaxYCorner, .layerMaxXMaxYCorner],
+            "non-flipped layers use maxY for the visual top"
         )
     }
 
@@ -254,8 +270,28 @@ struct ToastCommandTests {
         expect(!controller.contains("isUpdateReminderHitRegion"), "update coordinate hit test is removed")
         expect(!controller.contains("findTextView"), "copy monitor view search is removed")
         expect(controller.contains("addSubview(scrollView, positioned: .above"), "native text is a sibling view")
-        expect(controller.contains("bottomBarGlassHosting"), "glass renders between text and controls")
         expect(controller.contains("bottomBarControlsHosting"), "bottom controls keep their own command host")
+        expect(!controller.contains("bottomBarGlassHosting"), "bottom controls have no separate background")
+        expect(
+            controller.contains("scrollView.layer?.cornerRadius = innerCornerRadius"),
+            "native text top corners follow the card outline"
+        )
+        expect(
+            controller.contains("ToastView.cardCornerRadius - ExpandedTextLayoutMetrics.horizontalInset"),
+            "native text corner radius accounts for its horizontal inset"
+        )
+        expect(
+            controller.contains("textView.textContainerInset = NSSize("),
+            "initial text spacing lives inside the scrollable document"
+        )
+        expect(view.contains("y: cardFrame.minY,"), "native text viewport starts at the card edge")
+        expect(controller.contains("private func focusExpandedText()"), "expanded text has one focus entry point")
+        expect(controller.contains("window.makeFirstResponder(textView)"), "expanded text becomes first responder")
+        expect(controller.contains("window.makeKey()"), "expanded panel becomes key")
+        expect(controller.contains("window?.resignKey()"), "collapse releases expanded focus")
+        expect(view.contains("Button(\"关闭\")"), "expanded controls expose an explicit close button")
+        expect(view.contains(".buttonStyle(.bordered)"), "expanded controls use the native macOS bordered style")
+        expect(!view.contains(".buttonStyle(.glass"), "expanded controls do not force Liquid Glass")
         expect(!view.contains(".onTapGesture"), "SwiftUI uses explicit buttons instead of tap gestures")
         expect(!view.contains(".textSelection(.enabled)"), "expanded selection is not hosted by root SwiftUI")
         expect(!view.contains("onPreviewHoverChanged"), "preview hover is visual only")

@@ -29,11 +29,12 @@ enum ExpandedTextLayoutMetrics {
     }
 
     static func viewportHeight(for text: String) -> CGFloat {
-        max(1, totalHeight(for: text) - topInset)
+        max(1, totalHeight(for: text) - bottomBarVisualHeight)
     }
 
     static func documentHeight(viewportHeight: CGFloat, usedTextMaxY: CGFloat) -> CGFloat {
-        max(viewportHeight, ceil(usedTextMaxY) + bottomReservedHeight)
+        let bottomTextSpacing = bottomReservedHeight - bottomBarVisualHeight
+        return max(viewportHeight, ceil(usedTextMaxY) + topInset + bottomTextSpacing)
     }
 
     static func attributedText(_ text: String) -> NSAttributedString {
@@ -57,7 +58,7 @@ enum ExpandedWindowLayoutMetrics {
         guard isExpanded else { return contentSize }
         return NSSize(
             width: contentSize.width + shadowOutset * 2,
-            height: contentSize.height + shadowOutset * 2
+            height: contentSize.height + shadowOutset
         )
     }
 
@@ -66,6 +67,14 @@ enum ExpandedWindowLayoutMetrics {
             ? NSPoint(x: shadowOutset, y: shadowOutset)
             : .zero
         return NSRect(origin: origin, size: contentSize)
+    }
+}
+
+enum ExpandedTextCornerPolicy {
+    static func topCorners(isGeometryFlipped: Bool) -> CACornerMask {
+        isGeometryFlipped
+            ? [.layerMinXMinYCorner, .layerMaxXMinYCorner]
+            : [.layerMinXMaxYCorner, .layerMaxXMaxYCorner]
     }
 }
 
@@ -89,11 +98,6 @@ final class ToastPanel: NSPanel {
 final class ToastHostingView: NSHostingView<AnyView> {
     override var needsPanelToBecomeKey: Bool { false }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-}
-
-final class ToastVisualHostingView: NSHostingView<AnyView> {
-    override var needsPanelToBecomeKey: Bool { false }
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
 final class ToastExpandedTextView: NSTextView {
