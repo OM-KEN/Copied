@@ -81,6 +81,10 @@ struct InteractionWiringTests {
             !clipboardSource.contains("rawText=\\(content.rawText"),
             "clipboard diagnostics never interpolate raw clipboard text"
         )
+        expect(
+            clipboardSource.contains("pollInterval: TimeInterval = 0.075"),
+            "clipboard polling uses the 75ms responsiveness interval"
+        )
 
         print("InteractionWiringTests: PASS")
     }

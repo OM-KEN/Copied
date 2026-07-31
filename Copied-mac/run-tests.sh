@@ -25,6 +25,25 @@ swift Tests/AppFilterTests.swift
 swift Tests/DateTimeTests.swift
 
 swiftc -parse-as-library \
+    ContentKind.swift \
+    PluginActionTemplate.swift \
+    ContentDetection.swift \
+    Detectors/URLDetector.swift \
+    Detectors/PhoneNumberDetector.swift \
+    Detectors/DateTimeDetector.swift \
+    Tests/EntityDetectorCandidateTests.swift \
+    -framework AppKit \
+    -o "$TEST_BUILD_DIR/EntityDetectorCandidateTests"
+"$TEST_BUILD_DIR/EntityDetectorCandidateTests"
+
+swiftc -parse-as-library \
+    DictionaryLookupService.swift \
+    Tests/DictionaryWarmUpTests.swift \
+    -framework CoreServices \
+    -o "$TEST_BUILD_DIR/DictionaryWarmUpTests"
+"$TEST_BUILD_DIR/DictionaryWarmUpTests"
+
+swiftc -parse-as-library \
     CopySoundFeedback.swift \
     Tests/CopySoundFeedbackTests.swift \
     -framework AppKit \

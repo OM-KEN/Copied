@@ -113,6 +113,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSLog("Copied: applicationDidFinishLaunching")
 
+        // Pre-warm DictionaryServices asynchronously with synthetic input.
+        DictionaryLookupService.scheduleWarmUp()
+
         // Pre-warm NSDataDetector (lazy init ~20ms — do it now, not on first copy)
         _ = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
 

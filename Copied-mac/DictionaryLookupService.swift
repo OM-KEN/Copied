@@ -1,14 +1,86 @@
 import Foundation
 import CoreServices  // DCSCopyTextDefinition（DictionaryServices 子框架）
 
+/// 线程安全的一次性后台任务协调器。
+/// 提交器与查询闭包可注入，便于在不访问真实系统词典的情况下验证调度语义。
+final class DictionaryWarmUpCoordinator: @unchecked Sendable {
+    typealias Submit = (@escaping @Sendable () -> Void) -> Void
+    typealias Lookup = @Sendable (String) -> String?
+
+    private let lock = NSLock()
+    private var didSchedule = false
+    private let syntheticWord: String
+    private let submit: Submit
+    private let lookup: Lookup
+
+    init(
+        syntheticWord: String,
+        submit: @escaping Submit,
+        lookup: @escaping Lookup
+    ) {
+        self.syntheticWord = syntheticWord
+        self.submit = submit
+        self.lookup = lookup
+    }
+
+    func start() {
+        lock.lock()
+        guard !didSchedule else {
+            lock.unlock()
+            return
+        }
+        didSchedule = true
+        lock.unlock()
+
+        let syntheticWord = syntheticWord
+        let lookup = lookup
+        submit {
+            _ = lookup(syntheticWord)
+        }
+    }
+}
+
 /// 系统词典查询服务 — 调用 macOS 内置词典（牛津英汉汉英），查询英文单词的中文释义。
 /// 无需下载、无需网络，零配置即可使用。
 enum DictionaryLookupService {
+    static let syntheticWarmUpWord = "example"
+
+    /// DictionaryServices 的首次加载和真实查询共用同一串行队列，
+    /// 避免启动预热与用户立即复制英文词时并发进入底层服务。
+    private static let lookupQueue = DispatchQueue(
+        label: "com.copied.dictionary-lookup",
+        qos: .utility
+    )
+    private static let warmUpCoordinator: DictionaryWarmUpCoordinator = {
+        let queue = lookupQueue
+        return DictionaryWarmUpCoordinator(
+            syntheticWord: syntheticWarmUpWord,
+            submit: { operation in
+                queue.async(execute: operation)
+            },
+            lookup: { word in
+                lookupOnDictionaryQueue(word)
+            }
+        )
+    }()
+
+    /// 在后台预热 DictionaryServices。进程内重复调用只会提交一次。
+    static func scheduleWarmUp() {
+        warmUpCoordinator.start()
+    }
+
     /// 对单个英文词查询中文释义。失败返回 nil。
     /// 返回两行格式（\n 分隔），ToastView 对每行独立设 lineLimit(1)，
     /// 第一行不会挤压第二行。
     ///   第二行: 中文释义（用，分隔）
     static func lookup(_ word: String) -> String? {
+        lookupQueue.sync {
+            lookupOnDictionaryQueue(word)
+        }
+    }
+
+    /// 仅可在 lookupQueue 上调用；预热直接走这里，避免对同一串行队列 sync。
+    private static func lookupOnDictionaryQueue(_ word: String) -> String? {
         let cfStr = word as CFString
         let range = CFRange(location: 0, length: word.utf16.count)
 

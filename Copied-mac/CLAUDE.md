@@ -16,9 +16,9 @@ DMG 背景图：放 `.build/dmg_background.png`（440×240），由 `dmg_setting
 
 ```
 CopiedApp.swift             MenuBarExtra + AppDelegate + Settings
-ClipboardMonitor.swift      每 0.15s 轮询 NSPasteboard.changeCount（含黑名单过滤门）
+ClipboardMonitor.swift      每 0.075s 轮询 NSPasteboard.changeCount（含黑名单过滤门）
 ClipboardTextPolicy.swift   长文本阈值与纯文本主操作策略
-CopySoundFeedback.swift     复制系统声音选择、默认值与播放
+CopySoundFeedback.swift     复制系统声音选择、默认值与异步串行播放
 GlobalMouseEventCoordinator.swift  共享 CGEventTap + 权限失效保护
 CopyGestureManager.swift    左+右 → ⌘C 手势（双路径 + R_UP 兜底）
 DetectionRegistry.swift     全局检测器注册中心 + 优先级管道 + 限流
@@ -26,7 +26,7 @@ MathExpressionEvaluator.swift  公式统一词法/解析 + Decimal 求值 + 精�
 ContentKind.swift           统一类型标识（struct + 静态常量）
 AppLanguage.swift           当前 Bundle 界面语言策略（英文环境过滤英文单词检测）
 Detectors/                  15 个内置检测器（详见目录）
-DictionaryLookupService.swift  DCSCopyTextDefinition 词典查询
+DictionaryLookupService.swift  DCSCopyTextDefinition 词典查询 + 启动异步预热
 PluginLoader.swift          扫描/校验/加载 .copiedplugin 文件夹
 PluginManifest.swift        插件清单 + Rule 模型 + CompiledRule
 PluginAction.swift          插件动作执行（openURL/search/transform）
@@ -59,9 +59,9 @@ run-tests.sh                统一运行现有与弹窗交互测试
 
 UserDefaults 键：`searchEngine`, `launchAtLogin`, `isPaused`, `copyGestureEnabled`, `lightReminderEnabled`, `copyFeedbackSound`, `keyboardQuickTriggerModifier`, `keyboardQuickTriggerMode`, `mouseQuickTriggerButton`, `automaticUpdateRemindersEnabled`, `contentKindPriorities`, `disabledContentKinds`, `installedPlugins`, `popupFilterBlockedApps`。
 
-**数据流**：`ClipboardMonitor` → `DetectionRegistry.detectAll()` → `SourceAppDetector.detect()` → `AppFilterSettings.shouldShowPopup()` 过滤门 → `CopySoundFeedback` → 视觉去重 → 分支：轻提醒模式 → `LightReminderController.show()`，标准模式 → `ToastWindowController.show()` → `ToastViewModel` → `ToastView`
+**数据流**：`ClipboardMonitor` → `DetectionRegistry.detectAll()` → `SourceAppDetector.detect()` → `AppFilterSettings.shouldShowPopup()` 过滤门 → `CopySoundFeedback` 投递异步播放 → 视觉去重 → 分支：轻提醒模式 → `LightReminderController.show()`，标准模式 → `ToastWindowController.show()` → `ToastViewModel` → `ToastView`
 
-复制声音默认 Frog，固定使用 `NSSound` 的 0.5 音量；设置试听与实际复制共用同一播放路径，可选择其他系统声音或 `none`。声音在来源过滤后、视觉去重前播放，因此 500ms 内重复复制相同内容仍会逐次发声；暂停、不可读内容和黑名单来源无声。
+复制声音默认 Frog，固定使用 `AVAudioPlayer` 的 0.5 音量；设置试听与实际复制共用专用串行队列，声音文件的载入、停止和播放均不阻塞主线程，可选择其他系统声音或 `none`。声音在来源过滤后、视觉去重前投递，因此 500ms 内重复复制相同内容仍会逐次发声；暂停、不可读内容和黑名单来源无声。
 
 **插件系统**：声明式 JSON + 正则，不执行代码。目录为 `~/Library/Application Support/Copied/Plugins/`，只从设置手动安装；规则支持 `multiline`、`menuOnly`，无默认插件。只扫描插件根目录的直接 `.copiedplugin` 子目录，拒绝目录符号链接和不安全 identifier。卸载必须枚举根目录内的安全插件目录、读取 manifest 并精确匹配 identifier，再删除实际目录；禁止根据 identifier 拼接删除路径。通用检测熔断由 `DetectionRegistry` 管理，插件正则另由 `PluginRuntimeSafety` 主动限制。
 
@@ -91,7 +91,7 @@ SwiftUI `Button` 是鼠标 `ToastCommand` 的唯一来源；禁止恢复窗口�
 
 ### 剪贴板检测
 
-用 `pasteboard.types` 判断内容类别，不用 `readObjects`。缩略图策略：`QLThumbnailGenerator` 异步 + SF Symbol 降级。详见 `ClipboardMonitor.swift`。
+每 75ms 检查一次 `NSPasteboard.changeCount`；不要在没有端到端 CPU 与延迟测量时继续缩短。用 `pasteboard.types` 判断内容类别，不用 `readObjects`。缩略图策略：`QLThumbnailGenerator` 异步 + SF Symbol 降级。详见 `ClipboardMonitor.swift`。
 
 生产诊断日志不得写入 `ClipboardContent.preview`、`rawText` 或其他剪贴板正文；只记录内容类型、计数和非敏感状态。需要内容级复现时使用明确的合成测试数据。
 
@@ -100,6 +100,7 @@ SwiftUI `Button` 是鼠标 `ToastCommand` 的唯一来源；禁止恢复窗口�
 按优先级管道执行所有已注册检测器。检测器实现 `ContentDetectorProtocol`，返回 `ContentDetection?`。
 
 性能熔断（分层边界）：
+- **实体候选预检**：无 scheme URL 最多 2,048 UTF-16 单元；电话和数字日期/时间最多 256；无数字自然语言日期最多 64。超出边界或结构明显不符时，不进入 `NSDataDetector`
 - **100KB 文本截断**：>100KB → 仅运行内置语言检测器（跳过插件与实体检测器）
 - **50ms 单检测器计时**：`DetectionRegistry` 在检测器返回后统计耗时；累计 >50ms → 限流 30s，该层不负责中断当前调用
 - **50ms 插件正则预算**：一个 `PluginDetector` 的全部规则共享同一预算，transform 单独使用同一预算；通过正则进度回调主动停止，并限制最多 10,000 个匹配、1,000,000 UTF-16 单元输出，超限时不返回部分结果
@@ -121,7 +122,7 @@ SwiftUI `Button` 是鼠标 `ToastCommand` 的唯一来源；禁止恢复窗口�
 
 **内联更新**（`performsInlineUpdate = true`）：Action 后保留弹窗并显示 `ResultOverlay { displayText, copyText? }`；只有 `copyText` 非空时主按钮和快速触发才改为 `CopyTextAction`，错误结果不提供复制入口。结果逐行 `.lineLimit(1)`，滚动区上限 200pt。
 
-**词典查询**：`LookupAction` 使用 `DCSCopyTextDefinition`。预查只能在 `ActionResolver.makeAction()`，有释义显示翻译、无释义回退搜索；禁止放进受 50ms 熔断约束的检测器。
+**词典查询**：`LookupAction` 使用 `DCSCopyTextDefinition`。App 启动时只用固定合成词 `example` 在后台预热一次；预热与真实查询共用串行队列，预热失败不重试且不记录输入。预查只能在 `ActionResolver.makeAction()`，有释义显示翻译、无释义回退搜索；禁止放进受 50ms 熔断约束的检测器。
 
 **优先级**：首个非颜色检测占右侧唯一按钮，其余进右键菜单；无检测时短文本默认搜索、长文本默认另存为，纯语言类型不产生按钮。规则以 `ClipboardAction.swift` 和各 `*Action.swift` 为准。
 
