@@ -1,4 +1,60 @@
-import AppKit
+import AVFoundation
+import Foundation
+
+protocol CopySoundPlaying: AnyObject {
+    var volume: Float { get set }
+
+    func stop()
+
+    @discardableResult
+    func play() -> Bool
+}
+
+extension AVAudioPlayer: CopySoundPlaying {}
+
+final class CopySoundPlaybackEngine: @unchecked Sendable {
+    typealias PlayerFactory = @Sendable (URL) throws -> any CopySoundPlaying
+
+    private let queue: DispatchQueue
+    private let playerFactory: PlayerFactory
+    private var activePlayer: (any CopySoundPlaying)?
+
+    init(
+        queue: DispatchQueue = DispatchQueue(
+            label: "com.copied.copy-sound-feedback.audio",
+            qos: .userInitiated
+        ),
+        playerFactory: @escaping PlayerFactory = {
+            try AVAudioPlayer(contentsOf: $0)
+        }
+    ) {
+        self.queue = queue
+        self.playerFactory = playerFactory
+    }
+
+    func play(selection: String) {
+        let resolved = CopySoundFeedback.resolvedSelection(selection)
+
+        queue.async { [self] in
+            activePlayer?.stop()
+            activePlayer = nil
+
+            guard resolved != CopySoundFeedback.disabledValue else { return }
+
+            let soundURL = URL(
+                fileURLWithPath: "/System/Library/Sounds",
+                isDirectory: true
+            )
+            .appendingPathComponent(resolved)
+            .appendingPathExtension("aiff")
+
+            guard let player = try? playerFactory(soundURL) else { return }
+            player.volume = CopySoundFeedback.playbackVolume
+            activePlayer = player
+            player.play()
+        }
+    }
+}
 
 enum CopySoundFeedback {
     static let defaultsKey = "copyFeedbackSound"
@@ -23,7 +79,7 @@ enum CopySoundFeedback {
         "Tink",
     ]
 
-    @MainActor private static var activeSound: NSSound?
+    private static let playbackEngine = CopySoundPlaybackEngine()
 
     static func resolvedSelection(_ storedValue: String?) -> String {
         guard let storedValue else { return defaultSoundName }
@@ -31,22 +87,11 @@ enum CopySoundFeedback {
         return availableSoundNames.contains(storedValue) ? storedValue : defaultSoundName
     }
 
-    @MainActor
     static func playConfiguredSound(defaults: UserDefaults = .standard) {
         play(selection: resolvedSelection(defaults.string(forKey: defaultsKey)))
     }
 
-    @MainActor
     static func play(selection: String) {
-        activeSound?.stop()
-        activeSound = nil
-
-        let resolved = resolvedSelection(selection)
-        guard resolved != disabledValue,
-              let sound = NSSound(named: NSSound.Name(resolved)) else { return }
-
-        sound.volume = playbackVolume
-        activeSound = sound
-        sound.play()
+        playbackEngine.play(selection: selection)
     }
 }
