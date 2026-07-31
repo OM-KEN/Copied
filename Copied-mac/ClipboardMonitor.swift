@@ -34,7 +34,7 @@ final class ClipboardMonitor {
     private var lastHash: Int = 0
     private var lastShowTime: Date = .distantPast
     private let dedupWindow: TimeInterval = 0.5
-    private let pollInterval: TimeInterval = 0.15
+    private let pollInterval: TimeInterval = 0.075
 
     weak var toastController: ToastWindowController?
 
