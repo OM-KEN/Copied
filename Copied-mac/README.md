@@ -10,7 +10,7 @@
 - **克制** — 可按应用设置黑名单，不想被打扰的 App 里不弹窗
 - **安静** — 折叠卡片 3 秒自动消失且不抢焦点，展开全文后保持显示并自动进入可选文本状态
 - **轻提醒模式** — 菜单栏一键切换，复制时仅鼠标旁弹出绘制动画图标，零干扰
-- **声音反馈** — 默认用半音量 Frog 确认每次复制，可在通用设置中更换系统声音或关闭
+- **声音反馈** — 默认用半音量 Frog 确认每次复制，异步播放不阻塞卡片显示，可在通用设置中更换系统声音或关闭
 - **原生多语言** — 完全跟随 macOS，支持简体中文、繁体中文和英文
 - **干净** — 零第三方依赖；除检查 GitHub Releases 更新外不联网，CPU ≈ 0%
 
@@ -40,7 +40,7 @@ pip3 install 'dmgbuild>=1.6.5'   # 首次需安装
 
 复制任意内容 → 卡片弹出。图片详情会在尺寸后显示文件大小。悬停保持，点击预览行展开全文，点击右侧按钮执行操作，点击图标、来源信息或其他空白区域关闭。展开全文后不会自动关闭，正文自动获得焦点，可立即拖选、复制，也可在文本编辑中打开、收起或关闭。默认在第一次 Control 松开后的 350ms 内再次按下并松开 Control，即可触发主操作；设置中也可选择单击模式、其他修饰键或原生鼠标侧键。
 
-复制声音默认使用系统 Frog 提示音的 50% 音量，可在“设置 → 通用 → 复制反馈”中选择其他系统声音或“无”。500ms 内重复复制相同内容仍会播放声音，但不会重复弹出视觉反馈。
+复制声音默认使用系统 Frog 提示音的 50% 音量，可在“设置 → 通用 → 复制反馈”中选择其他系统声音或“无”。声音异步播放，不会等待音频载入后才显示卡片；500ms 内重复复制相同内容仍会播放声音，但不会重复弹出视觉反馈。
 
 公式计算用 `=` 标记精确结果、用 `≈` 标记有限精度近似结果；界面与复制内容使用同一次舍入，计算失败时不显示复制按钮。
 
@@ -56,9 +56,9 @@ pip3 install 'dmgbuild>=1.6.5'   # 首次需安装
 
 ```
 CopiedApp.swift             — 入口：MenuBarExtra + AppDelegate + Settings
-ClipboardMonitor.swift      — NSPasteboard 轮询 + 内容解析 + 黑名单过滤
+ClipboardMonitor.swift      — 每 75ms 轮询 NSPasteboard + 内容解析 + 黑名单过滤
 ClipboardTextPolicy.swift   — 长文本阈值与纯文本主操作策略
-CopySoundFeedback.swift     — 复制系统声音选择、默认值与播放
+CopySoundFeedback.swift     — 复制系统声音选择、默认值与异步串行播放
 GlobalMouseEventCoordinator.swift — 共享全局鼠标 Event Tap + 权限失效保护
 CopyGestureManager.swift    — 左右键手势 + ⌘C 模拟
 DetectionRegistry.swift     — 全局检测器注册中心 + 优先级管道
@@ -70,6 +70,7 @@ PluginLoader.swift          — .copiedplugin 扩展加载/管理
 PluginRuntimeSafety.swift   — 插件目录约束与正则执行预算
 AppFilterSettings.swift     — 应用黑名单过滤 + 持久化
 ClipboardAction.swift       — Action 协议 + 内置 Action + ActionResolver
+DictionaryLookupService.swift — 系统词典查询 + 启动异步预热
 KeyboardShortcutSettings.swift — 快速触发修饰键、双击/单击模式和侧键配置
 QuickTriggerModifierKeyPolicy.swift — 按实际键码处理修饰键状态与冲突
 QuickTriggerCoordinator.swift — 键盘/侧键快速触发监听、生命周期与上下文保护
