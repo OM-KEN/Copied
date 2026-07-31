@@ -92,3 +92,7 @@ build.sh                    — swiftc + xcstringstool + actool + codesign 一�
 run-tests.sh                — 统一运行全部自动测试
 create-dmg.sh               — DMG 安装包生成
 ```
+
+## 性能报告
+
+- [v3.1.7 剪贴板响应效率报告](Reports/clipboard-response-efficiency.html)
