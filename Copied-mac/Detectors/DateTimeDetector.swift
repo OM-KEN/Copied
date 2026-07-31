@@ -5,9 +5,16 @@ struct DateTimeDetector: ContentDetectorProtocol {
     let kind = ContentKind.dateTime
     let priority = 190
 
+    /// 数字日期/时间及其时区描述的保守总上限。
+    static let maximumCandidateUTF16Length = 256
+
+    /// 保留 "today"、"next Friday"、"明天" 等短自然语言日期；
+    /// 更长的无数字正文不可能是实用的单个日期候选。
+    static let maximumTextualCandidateUTF16Length = 64
+
     func detect(in text: String) -> ContentDetection? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
+        guard Self.isPlausibleCandidate(trimmed) else { return nil }
 
         // ── Phase 0: Reject ambiguous formats ──
         // Two-segment slash (e.g. "10/3", "31/11") is inherently
@@ -138,6 +145,18 @@ struct DateTimeDetector: ContentDetectorProtocol {
     }
 
     // MARK: - Format Validation
+
+    static func isPlausibleCandidate(_ text: String) -> Bool {
+        guard !text.isEmpty else { return false }
+
+        let length = text.utf16.count
+        guard length <= maximumCandidateUTF16Length else { return false }
+
+        let hasDecimalDigit = text.unicodeScalars.contains {
+            CharacterSet.decimalDigits.contains($0)
+        }
+        return hasDecimalDigit || length <= maximumTextualCandidateUTF16Length
+    }
 
     /// Distinguish the fields present in the user's text. A parsed Date cannot be
     /// used for this because NSDataDetector fills every missing calendar field.
