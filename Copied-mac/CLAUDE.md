@@ -140,7 +140,7 @@ rebuild 后签名变化会使 macOS 清掉 `SMAppService` 登录项注册记录�
 
 展开期间暂停全部快速触发。展开完成后 Panel 默认成为 key、原生正文成为 first responder，并通过 responder chain 支持拖选、⌘C 和右键菜单；收起时主动 resign key。底栏按钮保持 non-key、无独立背景，统一使用 macOS 原生 bordered 样式，不强制 Liquid Glass；空白区域不响应点击，右下角提供明确的关闭按钮，禁止坐标命中，Escape 无操作。TextEdit 使用 UUID 临时文件并防重入。
 
-展开期间不得启动自动关闭计时器；鼠标移出后保持展开，只有手动关闭、收起或打开 TextEdit 才结束展开态。收起后恢复折叠态原有的自动关闭行为。
+展开期间不得启动自动关闭计时器；鼠标移出后保持展开，只有手动关闭、收起或打开 TextEdit 才结束展开态。收起完成后必须按窗口几何位置同步计时器：指针仍在折叠卡片内则保持暂停，已移出才重新开始 3 秒计时；不得依赖视图切换期间可能失效的 hover 回调。
 
 展开/收起必须用全窗口 CIGaussianBlur + alpha 两段式切换，以 `isExpandingOrCollapsing` 防重入；resize 不做动画。展开态直接关闭时，原生正文与底栏必须保持可见直到模糊淡出完成，禁止在启动退场动画前隐藏分层 surface。
 
