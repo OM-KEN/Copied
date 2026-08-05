@@ -15,7 +15,7 @@ DMG 背景图：放 `.build/dmg_background.png`（440×240），由 `dmg_setting
 ## 架构
 
 ```
-CopiedApp.swift             MenuBarExtra + AppDelegate + Settings
+CopiedApp.swift             MenuBarExtra + reopen 设置桥接 + AppDelegate + Settings
 ClipboardMonitor.swift      每 0.075s 轮询 NSPasteboard.changeCount（含黑名单过滤门）
 ClipboardTextPolicy.swift   长文本阈值与纯文本主操作策略
 CopySoundFeedback.swift     复制系统声音选择、默认值与异步串行播放
@@ -49,7 +49,7 @@ RelativeDateDescription.swift 日期/时间详情格式化（日历日语义 + �
 ToastView.swift             SwiftUI 卡片 + glassEffect（macOS 26+）/ ultraThinMaterial（降级）+ 展开查看全文（if/else 双态）+ contextMenu
 LightReminderController.swift 轻提醒模式浮标（NSWindow + NSHostingView + macOS 26+ drawOff / opacity 降级）
 TypeSettingsView.swift      设置 → 智能识别 Tab（ContentKind 开关 + 插件管理）
-SettingsView.swift           设置（开机启动/搜索引擎/快速触发修饰键/智能识别/手势/黑名单/轻提醒 Tab）
+SettingsView.swift           设置（开机启动/搜索引擎/快速触发修饰键/智能识别/手势/黑名单/轻提醒 Tab + 底部退出入口）
 FilePreviewGenerator.swift  QLThumbnailGenerator 异步缩略图
 SourceAppDetector.swift     NSWorkspace.frontmostApplication（含 bundleIdentifier）
 Localizable.xcstrings       String Catalog（zh-Hans 源语言 + en / zh-Hant）
@@ -170,6 +170,8 @@ rebuild 后签名变化会使 macOS 清掉 `SMAppService` 登录项注册记录�
 ### 菜单栏
 
 `MenuBarExtra` 使用 `Copied.svg` 模板图；`build.sh` 将白色填充转为黑色模板遮罩。暂停状态直接读 `UserDefaults`，版本项打开关于页；`LSUIElement = YES`。有新版本时，绿色 `arrow.up.circle.fill` 必须用 `Text(Image(...))` 内嵌在版本文字末尾；独立 `Image` 会被 `NSMenu` 强制提升到菜单项左侧并推移文字。
+
+再次打开已运行的 App 时，`applicationShouldHandleReopen` 只发送设置请求，由常驻 `MenuBarLabel` 通过 SwiftUI `openSettings` 打开 `Settings` scene；禁止恢复返回成功但无法显示该 scene 的 `showSettingsWindow:` / `showPreferencesWindow:` selector。设置页底部退出入口使用 `.bar` 语义背景，不得用与 grouped Form 层级不一致的固定窗口背景色。App 图标同时依赖 `CFBundleIconName=Copied` 与 `CFBundleIconFile=Copied`；后者缺失时 Finder 会回退为通用 App 占位图。
 
 ### 左右键快捷复制（CopyGestureManager）
 

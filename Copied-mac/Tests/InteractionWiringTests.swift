@@ -71,6 +71,50 @@ struct InteractionWiringTests {
             !appSource.contains("Image(systemName: \"circle.fill\")"),
             "menu update indicator does not use the leading dot"
         )
+        expect(
+            appSource.contains("func applicationShouldHandleReopen("),
+            "reopening an already running app is handled"
+        )
+        expect(
+            appSource.contains("SettingsNavigation.requestSettings()"),
+            "the reopen handler requests the SwiftUI settings scene"
+        )
+        expect(
+            appSource.contains("@Environment(\\.openSettings) private var openSettings"),
+            "the persistent menu bar label owns the native settings action"
+        )
+        expect(
+            appSource.contains("for: SettingsNavigation.showSettingsNotification"),
+            "the menu bar label receives settings requests while the menu is closed"
+        )
+        expect(
+            !appSource.contains("showSettingsWindow:"),
+            "settings opening does not use the ineffective AppKit selector"
+        )
+
+        let infoData = try! Data(contentsOf: URL(fileURLWithPath: "Info.plist"))
+        let info = try! PropertyListSerialization.propertyList(
+            from: infoData,
+            format: nil
+        ) as! [String: Any]
+        expect(
+            info["CFBundleIconFile"] as? String == "Copied",
+            "Finder has the legacy macOS icon file declaration"
+        )
+
+        let settingsSource = try! String(contentsOfFile: "SettingsView.swift", encoding: .utf8)
+        expect(
+            settingsSource.contains("private var quitFooter: some View"),
+            "settings exposes a persistent quit footer"
+        )
+        expect(
+            settingsSource.contains("Button(\"退出 Copied\")"),
+            "the settings footer provides an explicit quit action"
+        )
+        expect(
+            settingsSource.contains(".background(.bar)"),
+            "the settings footer uses the native bar background style"
+        )
 
         let clipboardSource = try! String(contentsOfFile: "ClipboardMonitor.swift", encoding: .utf8)
         expect(
