@@ -34,7 +34,7 @@ pip3 install 'dmgbuild>=1.6.5'   # 首次需安装
 
 将 `.build/dmg_background.png`（440×240）放入项目根目录可自定义 DMG 背景。
 
-首次启动后，将 App 拖入 `/Applications` 以获得稳定权限。菜单栏出现剪贴板图标即开始工作。
+首次启动后，将 App 拖入 `/Applications` 以获得稳定权限。菜单栏出现剪贴板图标即开始工作；再次打开 Copied 会显示设置窗口，设置页底部可直接退出 App。
 
 ## 使用
 
@@ -55,7 +55,7 @@ pip3 install 'dmgbuild>=1.6.5'   # 首次需安装
 ## 架构
 
 ```
-CopiedApp.swift             — 入口：MenuBarExtra + AppDelegate + Settings
+CopiedApp.swift             — 入口：MenuBarExtra + reopen 设置桥接 + AppDelegate + Settings
 ClipboardMonitor.swift      — 每 75ms 轮询 NSPasteboard + 内容解析 + 黑名单过滤
 ClipboardTextPolicy.swift   — 长文本阈值与纯文本主操作策略
 CopySoundFeedback.swift     — 复制系统声音选择、默认值与异步串行播放
@@ -84,7 +84,7 @@ LightReminderController.swift — 轻提醒模式浮标（NSWindow + drawOff 反
 ToastView.swift             — SwiftUI 卡片 + 展开查看全文 + 色块 + 右键菜单
 ToastViewModel.swift        — @Observable 模型（含展开状态管理）
 RelativeDateDescription.swift — 日期/时间详情的日历语义与本地化格式化
-SettingsView.swift          — 设置页（含快速触发录制、软件更新与关于页）
+SettingsView.swift          — 设置页（含快速触发录制、软件更新、关于页与退出入口）
 Copied.icon                 — Liquid Glass 分层图标
 Copied.svg                  — 菜单栏 template 图标
 Localizable.xcstrings       — 简中、繁中、英文 String Catalog

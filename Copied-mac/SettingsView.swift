@@ -178,6 +178,13 @@ struct SettingsView: View {
                 }
                 .tag("about")
         }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            VStack(spacing: 0) {
+                Divider()
+                quitFooter
+            }
+            .background(.bar)
+        }
         .frame(width: 400, height: 480)
         .onAppear {
             NSApp.activate(ignoringOtherApps: true)
@@ -198,6 +205,17 @@ struct SettingsView: View {
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             resolveGesturePermissionAfterActivation()
         }
+    }
+
+    private var quitFooter: some View {
+        HStack {
+            Spacer()
+            Button("退出 Copied") {
+                NSApp.terminate(nil)
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 12)
     }
 
     // MARK: - About

@@ -4,6 +4,7 @@ import ServiceManagement
 
 enum SettingsNavigation {
     static let showAboutNotification = Notification.Name("CopiedShowAboutSettings")
+    static let showSettingsNotification = Notification.Name("CopiedShowSettings")
     private(set) static var requestedTab: String?
 
     static func requestAboutTab() {
@@ -15,13 +16,30 @@ enum SettingsNavigation {
         requestedTab = nil
     }
 
+    static func requestSettings() {
+        NotificationCenter.default.post(name: showSettingsNotification, object: nil)
+    }
+
     static func openAboutFromToast() {
         requestAboutTab()
-        NSApp.activate(ignoringOtherApps: true)
-        let opened = NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-        if !opened {
-            NSApp.sendAction(Selector(("showPreferencesWindow:")), to: nil, from: nil)
-        }
+        requestSettings()
+    }
+}
+
+private struct MenuBarLabel: View {
+    @Environment(\.openSettings) private var openSettings
+    let icon: NSImage
+
+    var body: some View {
+        Image(nsImage: icon)
+            .onReceive(
+                NotificationCenter.default.publisher(
+                    for: SettingsNavigation.showSettingsNotification
+                )
+            ) { _ in
+                NSApp.activate(ignoringOtherApps: true)
+                openSettings()
+            }
     }
 }
 
@@ -91,7 +109,7 @@ struct CopiedApp: App {
         MenuBarExtra {
             MenuBarContent(onPauseToggle: { appDelegate.setPaused($0) })
         } label: {
-            Image(nsImage: menuBarIcon)
+            MenuBarLabel(icon: menuBarIcon)
         }
 
         Settings {
@@ -108,6 +126,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+    }
+
+    func applicationShouldHandleReopen(
+        _ sender: NSApplication,
+        hasVisibleWindows flag: Bool
+    ) -> Bool {
+        SettingsNavigation.requestSettings()
+        return false
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
