@@ -270,12 +270,15 @@ final class ToastWindowController {
 
             // Phase 2: deblur + fade in
             self.animateWindowAlpha(to: 1, easeIn: false) { [weak self] in
-                self?.removeWindowBlur()
-                self?.isExpandingOrCollapsing = false
-                if self?.isMouseInsideWindow() == false { self?.startDismissTimer() }
-                if let self {
-                    self.quickTriggerCoordinator.resume(context: self.makeQuickTriggerContext())
+                guard let self else { return }
+                self.removeWindowBlur()
+                self.isExpandingOrCollapsing = false
+                if self.isMouseInsideWindow() {
+                    self.pauseDismissTimer()
+                } else {
+                    self.startDismissTimer()
                 }
+                self.quickTriggerCoordinator.resume(context: self.makeQuickTriggerContext())
             }
         }
     }
