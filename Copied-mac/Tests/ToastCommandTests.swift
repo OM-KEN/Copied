@@ -238,6 +238,14 @@ struct ToastCommandTests {
             controller.contains("quickTriggerCoordinator.resume(context:"),
             "collapse completion resumes quick trigger"
         )
+        expect(
+            controller.contains("if self.isMouseInsideWindow() {\n                    self.pauseDismissTimer()"),
+            "collapse completion pauses dismissal while the pointer remains inside"
+        )
+        expect(
+            controller.contains("} else {\n                    self.startDismissTimer()"),
+            "collapse completion restarts dismissal after the pointer leaves"
+        )
         expect(controller.contains("quickTriggerCoordinator.stop()"), "dismiss stops quick trigger")
         for forbiddenDetail in [
             "globalTriggerModifierMonitor",
