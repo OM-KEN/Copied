@@ -17,6 +17,7 @@ DMG 背景图：放 `.build/dmg_background.png`（440×240），由 `dmg_setting
 ```
 CopiedApp.swift             MenuBarExtra + reopen 设置桥接 + AppDelegate + Settings
 ClipboardMonitor.swift      每 0.075s 轮询 NSPasteboard.changeCount（含黑名单过滤门）
+LitheIntegration.swift      Lithe Bundle/剪贴板契约 + 图片文件资格判断 + 非激活打开
 ClipboardTextPolicy.swift   长文本阈值与纯文本主操作策略
 CopySoundFeedback.swift     复制系统声音选择、默认值与异步串行播放
 GlobalMouseEventCoordinator.swift  共享 CGEventTap + 权限失效保护
@@ -60,6 +61,8 @@ run-tests.sh                统一运行现有与弹窗交互测试
 UserDefaults 键：`searchEngine`, `launchAtLogin`, `isPaused`, `copyGestureEnabled`, `lightReminderEnabled`, `copyFeedbackSound`, `keyboardQuickTriggerModifier`, `keyboardQuickTriggerMode`, `mouseQuickTriggerButton`, `automaticUpdateRemindersEnabled`, `contentKindPriorities`, `disabledContentKinds`, `installedPlugins`, `popupFilterBlockedApps`。
 
 **数据流**：`ClipboardMonitor` → `DetectionRegistry.detectAll()` → `SourceAppDetector.detect()` → `AppFilterSettings.shouldShowPopup()` 过滤门 → `CopySoundFeedback` 投递异步播放 → 视觉去重 → 分支：轻提醒模式 → `LightReminderController.show()`，标准模式 → `ToastWindowController.show()` → `ToastViewModel` → `ToastView`
+
+**Lithe 图片压缩**：仅当剪贴板文件全部为本地普通 JPG/JPEG/PNG、Launch Services 能定位 `com.lithe.app`，且内容不带 Lithe 生成标记时，`ActionResolver` 才把“压缩”设为主操作并同时加入右键菜单。纯位图、混合或不支持的文件选择不触发；Lithe 回写 `com.lithe.generated-files` 与 `com.lithe.request-id`，Copied 用前者阻止压缩回环、用后者区分不同请求的视觉去重。打开 Lithe 时不得激活 App 或写入最近项目。
 
 复制声音默认 Frog，固定使用 `AVAudioPlayer` 的 0.5 音量；设置试听与实际复制共用专用串行队列，声音文件的载入、停止和播放均不阻塞主线程，可选择其他系统声音或 `none`。声音在来源过滤后、视觉去重前投递，因此 500ms 内重复复制相同内容仍会逐次发声；暂停、不可读内容和黑名单来源无声。
 
@@ -124,7 +127,7 @@ SwiftUI `Button` 是鼠标 `ToastCommand` 的唯一来源；禁止恢复窗口�
 
 **词典查询**：`LookupAction` 使用 `DCSCopyTextDefinition`。App 启动时只用固定合成词 `example` 在后台预热一次；预热与真实查询共用串行队列，预热失败不重试且不记录输入。预查只能在 `ActionResolver.makeAction()`，有释义显示翻译、无释义回退搜索；禁止放进受 50ms 熔断约束的检测器。
 
-**优先级**：首个非颜色检测占右侧唯一按钮，其余进右键菜单；无检测时短文本默认搜索、长文本默认另存为，纯语言类型不产生按钮。规则以 `ClipboardAction.swift` 和各 `*Action.swift` 为准。
+**优先级**：符合条件的 Lithe 图片文件优先占右侧唯一按钮并同时进入右键菜单；否则首个非颜色检测占按钮，其余进右键菜单。无检测时短文本默认搜索、长文本默认另存为，纯语言类型不产生按钮。规则以 `ClipboardAction.swift` 和各 `*Action.swift` 为准。
 
 **视觉约束**：按钮背景在 macOS 26+ 用 `.glassEffect(.regular.interactive())`，旧系统用 `.fill(.quaternary)`；禁止硬编码白色。hover 图标必须以 `ZStack` + `opacity` 切换，条件替换不同宽度的 SF Symbol 会触发 HStack 重排和文本跳动。
 
