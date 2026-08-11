@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import CoreGraphics
 
@@ -10,7 +11,13 @@ private func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
 
 @main
 struct InteractionWiringTests {
-    static func main() {
+    static func main() throws {
+        try clipboardMarkerPreservesLitheRequestID()
+        try supportedLitheFilesPreserveOrder()
+        try invalidLitheSelectionsAreRejected()
+        try litheGeneratedFilesAndMissingAppAreRejected()
+        injectedLitheClientReceivesExactInvocation()
+
         expect(
             GlobalMouseEventTapRecoveryPolicy.action(
                 for: .tapDisabledByTimeout,
@@ -129,7 +136,203 @@ struct InteractionWiringTests {
             clipboardSource.contains("pollInterval: TimeInterval = 0.075"),
             "clipboard polling uses the 75ms responsiveness interval"
         )
+        expect(
+            clipboardSource.contains("LitheClipboardMetadata(pasteboard: pasteboard)"),
+            "clipboard parsing records Lithe's private marker and request ID"
+        )
+
+        let actionSource = try! String(contentsOfFile: "ClipboardAction.swift", encoding: .utf8)
+        expect(
+            actionSource.contains("struct CompressImagesAction: ClipboardAction"),
+            "Lithe compression is a built-in action rather than a plugin capability"
+        )
+        expect(
+            actionSource.contains("primary = compressAction"),
+            "eligible image files place Lithe on the primary button"
+        )
+        expect(
+            actionSource.contains("menu.append(compressAction)"),
+            "eligible image files also place Lithe in the context menu"
+        )
 
         print("InteractionWiringTests: PASS")
+    }
+
+    private static func clipboardMarkerPreservesLitheRequestID() throws {
+        let pasteboard = NSPasteboard(
+            name: NSPasteboard.Name("Copied.LitheIntegrationTests.\(UUID().uuidString)")
+        )
+        pasteboard.clearContents()
+        let requestID = UUID()
+        expect(
+            pasteboard.setString(
+                "generated",
+                forType: LitheIntegrationContract.generatedFilesPasteboardType
+            ),
+            "Lithe marker is written to the test pasteboard"
+        )
+        expect(
+            pasteboard.setString(
+                requestID.uuidString,
+                forType: LitheIntegrationContract.requestIDPasteboardType
+            ),
+            "Lithe request ID is written to the test pasteboard"
+        )
+
+        let metadata = LitheClipboardMetadata(pasteboard: pasteboard)
+        expect(metadata.isGeneratedByLithe, "Lithe marker is recognized")
+        expect(metadata.requestID == requestID, "Lithe request ID is preserved")
+        pasteboard.clearContents()
+    }
+
+    private static func supportedLitheFilesPreserveOrder() throws {
+        try withTemporarySelection { directory in
+            let first = try makeFile(named: "first.PNG", in: directory)
+            let second = try makeFile(named: "second.jpeg", in: directory)
+            let third = try makeFile(named: "third.jpg", in: directory)
+            let applicationURL = URL(fileURLWithPath: "/Applications/Lithe.app")
+            var lookupCount = 0
+            let client = LitheApplicationClient(
+                locateApplication: {
+                    lookupCount += 1
+                    return applicationURL
+                },
+                openFiles: { _ in }
+            )
+
+            let invocation = LitheCompressionEligibility.invocation(
+                for: [first, second, third],
+                isGeneratedByLithe: false,
+                client: client
+            )
+            expect(invocation?.applicationURL == applicationURL, "installed Lithe is selected")
+            expect(invocation?.fileURLs == [first, second, third], "file order is preserved")
+            expect(lookupCount == 1, "Lithe lookup happens once for a valid selection")
+        }
+    }
+
+    private static func invalidLitheSelectionsAreRejected() throws {
+        try withTemporarySelection { directory in
+            let png = try makeFile(named: "image.png", in: directory)
+            let gif = try makeFile(named: "animation.gif", in: directory)
+            let folder = directory.appendingPathComponent("folder.png", isDirectory: true)
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false)
+            var lookupCount = 0
+            let client = installedClient(lookupCount: { lookupCount += 1 })
+
+            expect(
+                LitheCompressionEligibility.invocation(
+                    for: [png, gif],
+                    isGeneratedByLithe: false,
+                    client: client
+                ) == nil,
+                "mixed supported and unsupported file types are rejected"
+            )
+            expect(
+                LitheCompressionEligibility.invocation(
+                    for: [folder],
+                    isGeneratedByLithe: false,
+                    client: client
+                ) == nil,
+                "directories with image-looking names are rejected"
+            )
+            expect(
+                LitheCompressionEligibility.invocation(
+                    for: [URL(string: "https://example.com/image.png")!],
+                    isGeneratedByLithe: false,
+                    client: client
+                ) == nil,
+                "non-file URLs are rejected"
+            )
+            expect(
+                LitheCompressionEligibility.invocation(
+                    for: nil,
+                    isGeneratedByLithe: false,
+                    client: client
+                ) == nil,
+                "clipboard bitmap data without file URLs is rejected"
+            )
+            expect(lookupCount == 0, "invalid selections do not query installed apps")
+        }
+    }
+
+    private static func litheGeneratedFilesAndMissingAppAreRejected() throws {
+        try withTemporarySelection { directory in
+            let png = try makeFile(named: "image.png", in: directory)
+            var generatedLookupCount = 0
+            expect(
+                LitheCompressionEligibility.invocation(
+                    for: [png],
+                    isGeneratedByLithe: true,
+                    client: installedClient(lookupCount: { generatedLookupCount += 1 })
+                ) == nil,
+                "Lithe-generated files suppress the compression action"
+            )
+            expect(generatedLookupCount == 0, "marker suppression avoids app lookup")
+
+            let missingClient = LitheApplicationClient(
+                locateApplication: { nil },
+                openFiles: { _ in }
+            )
+            expect(
+                LitheCompressionEligibility.invocation(
+                    for: [png],
+                    isGeneratedByLithe: false,
+                    client: missingClient
+                ) == nil,
+                "the action is unavailable when Lithe is not installed"
+            )
+        }
+    }
+
+    private static func injectedLitheClientReceivesExactInvocation() {
+        let first = URL(fileURLWithPath: "/tmp/first.png")
+        let second = URL(fileURLWithPath: "/tmp/second.jpg")
+        let applicationURL = URL(fileURLWithPath: "/Applications/Lithe.app")
+        let invocation = LitheInvocation(
+            applicationURL: applicationURL,
+            fileURLs: [first, second]
+        )
+        var openedInvocation: LitheInvocation?
+        let client = LitheApplicationClient(
+            locateApplication: { applicationURL },
+            openFiles: { openedInvocation = $0 }
+        )
+
+        client.openFiles(invocation)
+        expect(openedInvocation == invocation, "the injected opener receives the exact invocation")
+        let configuration = LitheApplicationClient.makeOpenConfiguration()
+        expect(!configuration.activates, "opening Lithe does not activate it")
+        expect(!configuration.addsToRecentItems, "opening Lithe does not add recent items")
+        expect(
+            LitheIntegrationContract.applicationBundleIdentifier == "com.lithe.app",
+            "the Lithe bundle identifier has one stable contract value"
+        )
+    }
+
+    private static func installedClient(lookupCount: @escaping () -> Void) -> LitheApplicationClient {
+        LitheApplicationClient(
+            locateApplication: {
+                lookupCount()
+                return URL(fileURLWithPath: "/Applications/Lithe.app")
+            },
+            openFiles: { _ in }
+        )
+    }
+
+    private static func withTemporarySelection(
+        _ body: (URL) throws -> Void
+    ) throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("Copied-LitheIntegrationTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try body(directory)
+    }
+
+    private static func makeFile(named name: String, in directory: URL) throws -> URL {
+        let url = directory.appendingPathComponent(name)
+        try Data("test".utf8).write(to: url, options: .atomic)
+        return url
     }
 }

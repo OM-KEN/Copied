@@ -16,12 +16,15 @@ struct ClipboardContent {
     let contentKind: ContentKind?                // primary type (highest-priority detection)
     let detections: [ContentDetection]           // all detected content types
     let imageFormat: String?                     // "PNG", "JPEG", "TIFF", "HEIC", etc.
+    let litheMetadata: LitheClipboardMetadata    // generated-file marker + request identity
 
     var hashValue: Int {
         var hasher = Hasher()
         hasher.combine(type)
         hasher.combine(preview)
         hasher.combine(detail)  // e.g. image dims "1920×1080" makes each image unique
+        hasher.combine(litheMetadata.isGeneratedByLithe)
+        hasher.combine(litheMetadata.requestID)
         return hasher.finalize()
     }
 }
@@ -111,6 +114,7 @@ final class ClipboardMonitor {
     /// Parse clipboard using actual pasteboard types, not guesswork from readObjects.
     private func readClipboardContent(_ pasteboard: NSPasteboard) -> ClipboardContent? {
         let types = pasteboard.types ?? []
+        let litheMetadata = LitheClipboardMetadata(pasteboard: pasteboard)
 
         // ── 1. File URLs ──────────────────────────────────────────
         if types.contains(.fileURL),
@@ -162,7 +166,8 @@ final class ClipboardMonitor {
                 rawText: nil,
                 contentKind: nil,
                 detections: [],
-                imageFormat: imgFmt
+                imageFormat: imgFmt,
+                litheMetadata: litheMetadata
             )
         }
 
@@ -213,7 +218,8 @@ final class ClipboardMonitor {
                 rawText: nil,
                 contentKind: nil,
                 detections: [],
-                imageFormat: fmt
+                imageFormat: fmt,
+                litheMetadata: litheMetadata
             )
         }
 
@@ -241,7 +247,8 @@ final class ClipboardMonitor {
                         rawText: text,
                         contentKind: primaryKind,
                         detections: detections,
-                        imageFormat: nil
+                        imageFormat: nil,
+                        litheMetadata: litheMetadata
                     )
                 }
             }

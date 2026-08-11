@@ -90,7 +90,9 @@ swiftc -parse-as-library \
     CopyGestureEventSequence.swift \
     MouseButtonRecordingStateMachine.swift \
     AppUpdateModels.swift \
+    LitheIntegration.swift \
     Tests/InteractionWiringTests.swift \
+    -framework AppKit \
     -framework CoreGraphics \
     -o "$TEST_BUILD_DIR/InteractionWiringTests"
 "$TEST_BUILD_DIR/InteractionWiringTests"

@@ -45,6 +45,22 @@ struct RevealFileAction: ClipboardAction {
     }
 }
 
+// MARK: - Compress Images in Lithe
+
+struct CompressImagesAction: ClipboardAction {
+    let invocation: LitheInvocation
+    let client: LitheApplicationClient
+
+    var id: String { "compress-images-in-lithe" }
+    var title: String { String(localized: "压缩") }
+    var systemImage: String { "arrow.down.right.and.arrow.up.left" }
+    var menuTitle: String { String(localized: "压缩图片") }
+
+    func perform(content: ClipboardContent, controller: ToastWindowController?) {
+        client.openFiles(invocation)
+    }
+}
+
 // MARK: - Calculate Action
 
 struct CalculateAction: ClipboardAction {
@@ -280,11 +296,27 @@ enum ActionResolver {
     /// Returns (primary button action, right-click menu actions).
     /// Primary is the highest-priority action for the right-side button.
     /// Menu includes all applicable actions for the context menu.
-    static func resolve(for content: ClipboardContent)
+    static func resolve(
+        for content: ClipboardContent,
+        litheClient: LitheApplicationClient = .live
+    )
         -> (primary: (any ClipboardAction)?, menu: [any ClipboardAction]) {
 
         var primary: (any ClipboardAction)? = nil
         var menu: [any ClipboardAction] = []
+
+        if let invocation = LitheCompressionEligibility.invocation(
+            for: content.fileURLs,
+            isGeneratedByLithe: content.litheMetadata.isGeneratedByLithe,
+            client: litheClient
+        ) {
+            let compressAction = CompressImagesAction(
+                invocation: invocation,
+                client: litheClient
+            )
+            primary = compressAction
+            menu.append(compressAction)
+        }
 
         for detection in content.detections {
             guard let action = makeAction(for: detection) else { continue }
