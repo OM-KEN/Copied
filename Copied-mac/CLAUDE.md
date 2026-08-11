@@ -170,6 +170,8 @@ rebuild 后签名变化会使 macOS 清掉 `SMAppService` 登录项注册记录�
 
 `VERSION` 是构建版本单一来源，`build.sh` 写入 Bundle 版本。只检查 GitHub 最新稳定 Release；成功检查每天最多一次、失败一小时后重试，更新入口打开 GitHub，不做应用内安装。标准 Toast 可显示更新入口，轻提醒不叠加提醒。
 
+GitHub Release 的 DMG 资产名固定为 `Copied-<VERSION>.dmg`，版本前不带 `v`（例如 `Copied-3.3.0.dmg`）。`create-dmg.sh` 可继续生成 `.build/Copied.dmg`，但发布流程必须在上传前按 `VERSION` 改名，并通过 Release API 核对资产名、大小和 SHA-256。
+
 ### 菜单栏
 
 `MenuBarExtra` 使用 `Copied.svg` 模板图；`build.sh` 将白色填充转为黑色模板遮罩。暂停状态直接读 `UserDefaults`，版本项打开关于页；`LSUIElement = YES`。有新版本时，绿色 `arrow.up.circle.fill` 必须用 `Text(Image(...))` 内嵌在版本文字末尾；独立 `Image` 会被 `NSMenu` 强制提升到菜单项左侧并推移文字。
