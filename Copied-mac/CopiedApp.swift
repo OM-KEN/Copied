@@ -46,7 +46,8 @@ private struct MenuBarLabel: View {
 private struct MenuBarContent: View {
     @Environment(\.openSettings) private var openSettings
     @AppStorage("isPaused") private var isPaused = false
-    @AppStorage("lightReminderEnabled") private var lightReminderEnabled = false
+    @AppStorage(PopupPresentationPreferences.modeKey)
+    private var popupPresentationMode = PopupPresentationMode.all.rawValue
     @ObservedObject private var updateService = AppUpdateService.shared
     let onPauseToggle: (Bool) -> Void
 
@@ -59,7 +60,17 @@ private struct MenuBarContent: View {
                     onPauseToggle(newValue)
                 }
             ))
-            Toggle("轻提醒模式", isOn: $lightReminderEnabled)
+            Toggle("轻打扰模式", isOn: Binding(
+                get: {
+                    (PopupPresentationMode(rawValue: popupPresentationMode) ?? .all)
+                        == .lowInterruption
+                },
+                set: { enabled in
+                    popupPresentationMode = enabled
+                        ? PopupPresentationMode.lowInterruption.rawValue
+                        : PopupPresentationMode.all.rawValue
+                }
+            ))
             Divider()
             SettingsLink {
                 Text("设置…")

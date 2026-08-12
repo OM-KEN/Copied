@@ -9,6 +9,29 @@ private func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
     }
 }
 
+private func section(in source: String, from start: String, to end: String) -> String? {
+    guard let startRange = source.range(of: start),
+          let endRange = source.range(of: end, range: startRange.upperBound..<source.endIndex)
+    else {
+        return nil
+    }
+    return String(source[startRange.lowerBound..<endRange.lowerBound])
+}
+
+private func appearsInOrder(_ needles: [String], in source: String) -> Bool {
+    var searchStart = source.startIndex
+    for needle in needles {
+        guard let range = source.range(
+            of: needle,
+            range: searchStart..<source.endIndex
+        ) else {
+            return false
+        }
+        searchStart = range.upperBound
+    }
+    return true
+}
+
 @main
 struct InteractionWiringTests {
     static func main() throws {
@@ -98,6 +121,21 @@ struct InteractionWiringTests {
             !appSource.contains("showSettingsWindow:"),
             "settings opening does not use the ineffective AppKit selector"
         )
+        let menuSource = section(
+            in: appSource,
+            from: "private struct MenuBarContent",
+            to: "@main"
+        )
+        expect(menuSource != nil, "menu bar content exists")
+        expect(
+            menuSource?.contains("Toggle(\"轻打扰模式\"") == true
+                && menuSource?.contains("PopupPresentationPreferences.modeKey") == true,
+            "menu bar toggles the popup presentation mode"
+        )
+        expect(
+            menuSource?.contains("lightReminderEnabled") == false,
+            "menu bar does not bind the icon-only reminder setting"
+        )
 
         let infoData = try! Data(contentsOf: URL(fileURLWithPath: "Info.plist"))
         let info = try! PropertyListSerialization.propertyList(
@@ -122,6 +160,62 @@ struct InteractionWiringTests {
             settingsSource.contains(".background(.bar)"),
             "the settings footer uses the native bar background style"
         )
+        expect(
+            settingsSource.contains("Picker(\"弹窗模式\"")
+                && settingsSource.contains("Button(\"自定义…\")")
+                && settingsSource.contains("Picker(\"声音\""),
+            "copy feedback exposes popup mode customization and keeps sound selection"
+        )
+        expect(
+            settingsSource.contains("DisclosureGroup(isExpanded: $isAdvancedExpanded)")
+                && settingsSource.contains("Text(\"高级\")")
+                && settingsSource.contains("Toggle(\"仅提醒模式\"")
+                && settingsSource.contains(
+                    "开启后，只把符合条件的完整弹窗替换为鼠标旁的短暂图标。"
+                ),
+            "icon-only reminder mode lives in the advanced disclosure"
+        )
+        expect(
+            settingsSource.contains("isAdvancedExpanded.toggle()")
+                && settingsSource.contains(
+                    ".frame(maxWidth: .infinity, alignment: .leading)"
+                )
+                && settingsSource.contains(".contentShape(Rectangle())")
+                && settingsSource.contains(".buttonStyle(.plain)"),
+            "the whole advanced disclosure label is an accessible click target"
+        )
+        expect(
+            !settingsSource.contains("Toggle(\"轻提醒模式\""),
+            "the former top-level light-reminder toggle is removed"
+        )
+        let generalFormSource = section(
+            in: settingsSource,
+            from: "            Form {",
+            to: "            .formStyle(.grouped)"
+        )
+        expect(generalFormSource != nil, "general settings form exists")
+        expect(
+            generalFormSource.map {
+                appearsInOrder(
+                    [
+                        "Text(\"快速触发\")",
+                        "DisclosureGroup(isExpanded: $isAdvancedExpanded)",
+                    ],
+                    in: $0
+                )
+            } == true,
+            "advanced disclosure follows the final standard general section"
+        )
+        if let generalFormSource,
+           let advancedRange = generalFormSource.range(
+               of: "DisclosureGroup(isExpanded: $isAdvancedExpanded)"
+           ) {
+            expect(
+                !generalFormSource[advancedRange.upperBound...]
+                    .contains("\n                Section {"),
+                "advanced disclosure is at the bottom of the general form"
+            )
+        }
 
         let clipboardSource = try! String(contentsOfFile: "ClipboardMonitor.swift", encoding: .utf8)
         expect(
@@ -139,6 +233,70 @@ struct InteractionWiringTests {
         expect(
             clipboardSource.contains("LitheClipboardMetadata(pasteboard: pasteboard)"),
             "clipboard parsing records Lithe's private marker and request ID"
+        )
+        expect(
+            appearsInOrder(
+                [
+                    "AppFilterSettings.shared.shouldShowPopup",
+                    "CopySoundFeedback.playConfiguredSound()",
+                    "PopupPresentationPolicy.shouldPresent(",
+                    "let isVisualDuplicate =",
+                    "self.lastHash = content.hashValue",
+                    "self.lastShowTime = now",
+                    "self.toastController?.show",
+                ],
+                in: clipboardSource
+            ),
+            "blacklist, sound, popup policy, dedup state, and display stay ordered"
+        )
+        expect(
+            clipboardSource.contains("textLength = content.rawText?.count ?? 0")
+                && clipboardSource.contains("primaryKindID = content.contentKind?.id"),
+            "popup policy receives raw text length and the primary kind ID"
+        )
+        expect(
+            clipboardSource.contains("fileURLs.allSatisfy(Self.isImageFile)")
+                && clipboardSource.contains(".isRegularFileKey")
+                && clipboardSource.contains("values.isRegularFile == true"),
+            "image-file mapping uses the whole selection and rejects image-named directories"
+        )
+
+        let popupFilterSource = try! String(
+            contentsOfFile: "PopupFilterSettingsView.swift",
+            encoding: .utf8
+        )
+        expect(
+            popupFilterSource.contains("DetectionRegistry.shared.allRegisteredKinds")
+                && popupFilterSource.contains("AppLanguage.isContentKindAvailable")
+                && popupFilterSource.contains("$0.id != \"colorRGB\"")
+                && popupFilterSource.contains("$0.id != \"colorHSL\""),
+            "popup customization lists available kinds with one color preference"
+        )
+        expect(
+            popupFilterSource.contains("let window = NSWindow(")
+                && popupFilterSource.contains("styleMask: [.titled, .closable]")
+                && popupFilterSource.contains("window.level = .normal")
+                && !popupFilterSource.contains("NSPanel"),
+            "popup customization uses an ordinary reusable window"
+        )
+
+        let buildSource = try! String(contentsOfFile: "build.sh", encoding: .utf8)
+        let testRunnerSource = try! String(contentsOfFile: "run-tests.sh", encoding: .utf8)
+        let productionWiring = [
+            appSource,
+            settingsSource,
+            clipboardSource,
+            buildSource,
+            testRunnerSource,
+        ].joined(separator: "\n")
+        expect(
+            !productionWiring.contains("Onboarding"),
+            "popup presentation ships without onboarding wiring"
+        )
+        let projectEntries = try! FileManager.default.contentsOfDirectory(atPath: ".")
+        expect(
+            !projectEntries.contains { $0.hasPrefix("Onboarding") },
+            "popup presentation adds no onboarding source files"
         )
 
         let actionSource = try! String(contentsOfFile: "ClipboardAction.swift", encoding: .utf8)

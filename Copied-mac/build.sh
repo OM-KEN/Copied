@@ -55,6 +55,8 @@ SOURCES=(
     CopiedApp.swift
     AppFilterSettings.swift
     ClipboardTextPolicy.swift
+    PopupPresentationSettings.swift
+    PopupFilterSettingsView.swift
     CopySoundFeedback.swift
     LitheIntegration.swift
     ClipboardMonitor.swift

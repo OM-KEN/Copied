@@ -6,9 +6,12 @@ struct SettingsView: View {
     // ── Launch at Login ────────────────────────────────────
     @AppStorage("launchAtLogin") private var launchAtLogin = false
     @AppStorage("lightReminderEnabled") private var lightReminderEnabled = false
+    @AppStorage(PopupPresentationPreferences.modeKey)
+    private var popupPresentationMode = PopupPresentationMode.all.rawValue
     @AppStorage(CopySoundFeedback.defaultsKey)
     private var copyFeedbackSound = CopySoundFeedback.defaultSoundName
     @State private var loginItemError: String? = nil
+    @State private var isAdvancedExpanded = false
 
     // ── Quick Trigger ─────────────────────────────────────
     @AppStorage(QuickTriggerSettings.keyboardModifierKey)
@@ -40,15 +43,32 @@ struct SettingsView: View {
     private var automaticUpdateRemindersEnabled = true
     @ObservedObject private var updateService = AppUpdateService.shared
 
+    private var popupPresentationModeBinding: Binding<PopupPresentationMode> {
+        Binding(
+            get: {
+                PopupPresentationMode(rawValue: popupPresentationMode) ?? .all
+            },
+            set: { popupPresentationMode = $0.rawValue }
+        )
+    }
+
     var body: some View {
         TabView(selection: $selectedTab) {
             // ── General + Search ─────────────────────────
             Form {
                 Section {
-                    Toggle("轻提醒模式", isOn: $lightReminderEnabled)
-                    Text("开启后，复制时仅在鼠标旁短暂出现图标，不弹出完整窗口。")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    Picker("弹窗模式", selection: popupPresentationModeBinding) {
+                        ForEach(PopupPresentationMode.allCases, id: \.rawValue) { mode in
+                            Text(mode.displayName).tag(mode)
+                        }
+                    }
+                    .pickerStyle(.menu)
+
+                    if popupPresentationModeBinding.wrappedValue == .lowInterruption {
+                        Button("自定义…") {
+                            PopupFilterWindowController.shared.show()
+                        }
+                    }
 
                     Picker("声音", selection: Binding(
                         get: { CopySoundFeedback.resolvedSelection(copyFeedbackSound) },
@@ -143,6 +163,29 @@ struct SettingsView: View {
                     }
                 } header: {
                     Text("快速触发")
+                }
+
+                Section {
+                    DisclosureGroup(isExpanded: $isAdvancedExpanded) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Toggle("仅提醒模式", isOn: $lightReminderEnabled)
+                            Text("开启后，只把符合条件的完整弹窗替换为鼠标旁的短暂图标。")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.top, 4)
+                    } label: {
+                        Button {
+                            withAnimation {
+                                isAdvancedExpanded.toggle()
+                            }
+                        } label: {
+                            Text("高级")
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
             }
             .formStyle(.grouped)

@@ -1,6 +1,125 @@
 {
   "sourceLanguage": "zh-Hans",
   "strings": {
+    "默认模式": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Default Mode" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "默认模式" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "預設模式" } }
+      }
+    },
+    "轻打扰模式": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Low-Interruption Mode" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "轻打扰模式" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "輕打擾模式" } }
+      }
+    },
+    "普通内容": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "General Content" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "普通内容" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "一般內容" } }
+      }
+    },
+    "普通短文本（少于%lld字符）": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Plain short text (fewer than %lld characters)" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "普通短文本（少于%lld字符）" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "一般短文字（少於 %lld 個字元）" } }
+      }
+    },
+    "普通长文本（%lld字符及以上）": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Plain long text (%lld characters or more)" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "普通长文本（%lld字符及以上）" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "一般長文字（%lld 個字元以上）" } }
+      }
+    },
+    "文件": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Files" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "文件" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "檔案" } }
+      }
+    },
+    "暂无可用类型": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No content types available" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "暂无可用类型" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "暫無可用類型" } }
+      }
+    },
+    "识别类型": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Recognized Types" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "识别类型" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "辨識類型" } }
+      }
+    },
+    "这些设置只决定是否显示弹窗，不会关闭内容识别。": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "These settings only control whether a pop-up appears; content recognition remains enabled." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "这些设置只决定是否显示弹窗，不会关闭内容识别。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "這些設定只決定是否顯示彈出視窗，不會關閉內容辨識。" } }
+      }
+    },
+    "恢复默认": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Restore Defaults" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "恢复默认" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "還原預設值" } }
+      }
+    },
+    "显示“%@”弹窗": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Show “%@” pop-ups" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "显示“%@”弹窗" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "顯示「%@」彈出視窗" } }
+      }
+    },
+    "内置": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Built-in" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "内置" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "內建" } }
+      }
+    },
+    "弹窗模式": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Pop-up Mode" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "弹窗模式" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "彈出視窗模式" } }
+      }
+    },
+    "自定义…": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Customize…" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "自定义…" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "自訂…" } }
+      }
+    },
+    "高级": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Advanced" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "高级" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "進階" } }
+      }
+    },
+    "仅提醒模式": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Icon-Only Reminder" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "仅提醒模式" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "僅提醒模式" } }
+      }
+    },
+    "开启后，只把符合条件的完整弹窗替换为鼠标旁的短暂图标。": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "When enabled, qualifying full pop-ups are replaced with a brief icon near the pointer." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "开启后，只把符合条件的完整弹窗替换为鼠标旁的短暂图标。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "開啟後，只會將符合條件的完整彈出視窗替換為滑鼠旁的短暫圖示。" } }
+      }
+    },
     "版本": {
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Version" } },
@@ -266,28 +385,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "暫停"
-          }
-        }
-      }
-    },
-    "轻提醒模式": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Minimal Feedback"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "轻提醒模式"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "輕提醒模式"
           }
         }
       }
