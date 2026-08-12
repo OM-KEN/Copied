@@ -19,6 +19,8 @@ CopiedApp.swift             MenuBarExtra + reopen 设置桥接 + AppDelegate + S
 ClipboardMonitor.swift      每 0.075s 轮询 NSPasteboard.changeCount（含黑名单过滤门）
 LitheIntegration.swift      Lithe Bundle/剪贴板契约 + 图片文件资格判断 + 非激活打开
 ClipboardTextPolicy.swift   长文本阈值与纯文本主操作策略
+PopupPresentationSettings.swift  默认/轻打扰模式偏好 + 内容映射 + 视觉呈现策略
+PopupFilterSettingsView.swift    轻打扰自定义窗口（普通内容 + 识别类型）
 CopySoundFeedback.swift     复制系统声音选择、默认值与异步串行播放
 GlobalMouseEventCoordinator.swift  共享 CGEventTap + 权限失效保护
 CopyGestureManager.swift    左+右 → ⌘C 手势（双路径 + R_UP 兜底）
@@ -48,9 +50,9 @@ ToastWindowController.swift ToastPanel + Action + 展开文本分层 + 快速触
 ToastViewModel.swift        @Observable 模型（含 sourceBundleID）
 RelativeDateDescription.swift 日期/时间详情格式化（日历日语义 + 本地化时间）
 ToastView.swift             SwiftUI 卡片 + glassEffect（macOS 26+）/ ultraThinMaterial（降级）+ 展开查看全文（if/else 双态）+ contextMenu
-LightReminderController.swift 轻提醒模式浮标（NSWindow + NSHostingView + macOS 26+ drawOff / opacity 降级）
+LightReminderController.swift 仅提醒模式浮标（NSWindow + NSHostingView + macOS 26+ drawOff / opacity 降级）
 TypeSettingsView.swift      设置 → 智能识别 Tab（ContentKind 开关 + 插件管理）
-SettingsView.swift           设置（开机启动/搜索引擎/快速触发修饰键/智能识别/手势/黑名单/轻提醒 Tab + 底部退出入口）
+SettingsView.swift           设置（弹窗模式/声音/开机启动/搜索引擎/快速触发/高级仅提醒/智能识别/手势/黑名单 + 底部退出入口）
 FilePreviewGenerator.swift  QLThumbnailGenerator 异步缩略图
 SourceAppDetector.swift     NSWorkspace.frontmostApplication（含 bundleIdentifier）
 Localizable.xcstrings       String Catalog（zh-Hans 源语言 + en / zh-Hant）
@@ -58,9 +60,9 @@ build.sh                    swiftc + xcstringstool + actool + codesign
 run-tests.sh                统一运行现有与弹窗交互测试
 ```
 
-UserDefaults 键：`searchEngine`, `launchAtLogin`, `isPaused`, `copyGestureEnabled`, `lightReminderEnabled`, `copyFeedbackSound`, `keyboardQuickTriggerModifier`, `keyboardQuickTriggerMode`, `mouseQuickTriggerButton`, `automaticUpdateRemindersEnabled`, `contentKindPriorities`, `disabledContentKinds`, `installedPlugins`, `popupFilterBlockedApps`。
+UserDefaults 键：`searchEngine`, `launchAtLogin`, `isPaused`, `copyGestureEnabled`, `lightReminderEnabled`, `copyFeedbackSound`, `popupPresentationMode`, `popupShowShortPlainText`, `popupShowLongPlainText`, `popupShowImages`, `popupShowFiles`, `popupDisabledKindIDs`, `keyboardQuickTriggerModifier`, `keyboardQuickTriggerMode`, `mouseQuickTriggerButton`, `automaticUpdateRemindersEnabled`, `contentKindPriorities`, `disabledContentKinds`, `installedPlugins`, `popupFilterBlockedApps`。
 
-**数据流**：`ClipboardMonitor` → `DetectionRegistry.detectAll()` → `SourceAppDetector.detect()` → `AppFilterSettings.shouldShowPopup()` 过滤门 → `CopySoundFeedback` 投递异步播放 → 视觉去重 → 分支：轻提醒模式 → `LightReminderController.show()`，标准模式 → `ToastWindowController.show()` → `ToastViewModel` → `ToastView`
+**数据流**：`ClipboardMonitor` → `DetectionRegistry.detectAll()` → `SourceAppDetector.detect()` → `AppFilterSettings.shouldShowPopup()` 来源过滤门 → `CopySoundFeedback` 投递异步播放 → `PopupPresentationPolicy.shouldPresent()` 视觉筛选门 → 视觉去重 → 分支：仅提醒模式 → `LightReminderController.show()`，完整卡片 → `ToastWindowController.show()` → `ToastViewModel` → `ToastView`
 
 **Lithe 图片压缩**：仅当剪贴板文件全部为本地普通 JPG/JPEG/PNG、Launch Services 能定位 `com.lithe.app`，且内容不带 Lithe 生成标记时，`ActionResolver` 才把“压缩”设为主操作并同时加入右键菜单。纯位图、混合或不支持的文件选择不触发；Lithe 回写 `com.lithe.generated-files` 与 `com.lithe.request-id`，Copied 用前者阻止压缩回环、用后者区分不同请求的视觉去重。打开 Lithe 时不得激活 App 或写入最近项目。
 
@@ -68,9 +70,19 @@ UserDefaults 键：`searchEngine`, `launchAtLogin`, `isPaused`, `copyGestureEnab
 
 **插件系统**：声明式 JSON + 正则，不执行代码。目录为 `~/Library/Application Support/Copied/Plugins/`，只从设置手动安装；规则支持 `multiline`、`menuOnly`，无默认插件。只扫描插件根目录的直接 `.copiedplugin` 子目录，拒绝目录符号链接和不安全 identifier。卸载必须枚举根目录内的安全插件目录、读取 manifest 并精确匹配 identifier，再删除实际目录；禁止根据 identifier 拼接删除路径。通用检测熔断由 `DetectionRegistry` 管理，插件正则另由 `PluginRuntimeSafety` 主动限制。
 
-### 轻提醒模式（LightReminderController）
+### 轻打扰模式（PopupPresentationPolicy）
 
-开启后只显示鼠标右上方的 24pt `checkmark.app.fill` 浮标，1s 自消。使用忽略鼠标的 borderless floating `NSWindow` + `NSHostingView`，每次 `show()` 重建。
+菜单栏“轻打扰模式”和设置 → 通用 → 复制反馈的弹窗模式共用 `popupPresentationMode`；选择轻打扰后，通过独立标准窗口自定义普通短文本、普通长文本、图片、文件和每个可用 `ContentKind`。自定义类型开关只写 `popupDisabledKindIDs`，不得改写 `disabledContentKinds` 或关闭实际检测。
+
+文本策略必须先区分是否存在 `primaryKindID`：URL、代码、插件等已识别文本只受对应类型开关控制，完全忽略普通文本长度开关；仅未识别文本按 `ClipboardTextPolicy.longTextThreshold` 的 49/50 边界分别读取普通短/长文本开关。颜色三种内部 ID 统一映射到 `colorHex`。默认模式无条件放行这些视觉筛选。
+
+纯位图直接映射为图片；文件 URL 只有在集合非空且每个条目都是受支持扩展名的本地普通文件时才映射为图片，否则映射为文件。轻打扰筛选位于声音之后、视觉去重之前；被筛掉的内容不得更新 `lastHash` / `lastShowTime`，否则下一次允许显示的相同内容会被误吞。
+
+插件只有在功能确实适用于输入时才能把普通文本提升为识别类型。示例“去除空行”必须检测到实际空行或仅含空白的行，不能把“任意包含换行的文本”视为命中。
+
+### 仅提醒模式（LightReminderController）
+
+设置 → 通用最底部“高级”中的“仅提醒模式”与轻打扰筛选正交：开启后，只把已经通过视觉筛选的完整卡片替换为鼠标右上方 24pt `checkmark.app.fill` 浮标，1s 自消。使用忽略鼠标的 borderless floating `NSWindow` + `NSHostingView`，每次 `show()` 重建。
 
 **绘制动画陷阱**：Symbol 默认已是完整绘制态，`drawOn(isActive:)` 会反向擦除。必须用 `drawOff(isActive: !show)`：初始 `show=false` 隐藏，`onAppear` 后切为 true 反向播放；palette 使用白勾蓝底。macOS 26 以下改用 `.opacity` 淡入。
 
@@ -168,7 +180,7 @@ rebuild 后签名变化会使 macOS 清掉 `SMAppService` 登录项注册记录�
 
 ### 版本与更新
 
-`VERSION` 是构建版本单一来源，`build.sh` 写入 Bundle 版本。只检查 GitHub 最新稳定 Release；成功检查每天最多一次、失败一小时后重试，更新入口打开 GitHub，不做应用内安装。标准 Toast 可显示更新入口，轻提醒不叠加提醒。
+`VERSION` 是构建版本单一来源，`build.sh` 写入 Bundle 版本。只检查 GitHub 最新稳定 Release；成功检查每天最多一次、失败一小时后重试，更新入口打开 GitHub，不做应用内安装。完整卡片可显示更新入口，仅提醒浮标不叠加更新提醒。
 
 GitHub Release 的 DMG 资产名固定为 `Copied-<VERSION>.dmg`，版本前不带 `v`（例如 `Copied-3.3.0.dmg`）。`create-dmg.sh` 可继续生成 `.build/Copied.dmg`，但发布流程必须在上传前按 `VERSION` 改名，并通过 Release API 核对资产名、大小和 SHA-256。
 
@@ -177,6 +189,8 @@ GitHub Release 的 DMG 资产名固定为 `Copied-<VERSION>.dmg`，版本前不�
 `MenuBarExtra` 使用 `Copied.svg` 模板图；`build.sh` 将白色填充转为黑色模板遮罩。暂停状态直接读 `UserDefaults`，版本项打开关于页；`LSUIElement = YES`。有新版本时，绿色 `arrow.up.circle.fill` 必须用 `Text(Image(...))` 内嵌在版本文字末尾；独立 `Image` 会被 `NSMenu` 强制提升到菜单项左侧并推移文字。
 
 再次打开已运行的 App 时，`applicationShouldHandleReopen` 只发送设置请求，由常驻 `MenuBarLabel` 通过 SwiftUI `openSettings` 打开 `Settings` scene；禁止恢复返回成功但无法显示该 scene 的 `showSettingsWindow:` / `showPreferencesWindow:` selector。设置页底部退出入口使用 `.bar` 语义背景，不得用与 grouped Form 层级不一致的固定窗口背景色。App 图标同时依赖 `CFBundleIconName=Copied` 与 `CFBundleIconFile=Copied`；后者缺失时 Finder 会回退为通用 App 占位图。
+
+通用页最底部“高级”保留原生 `DisclosureGroup` 箭头，但标题到行尾必须是全宽 `Button` 命中区；禁止退回只有小箭头可展开的默认标签行为，也不得用覆盖整个展开内容的手势导致内部 Toggle 点击时误收起。
 
 ### 左右键快捷复制（CopyGestureManager）
 

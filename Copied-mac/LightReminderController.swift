@@ -32,7 +32,7 @@ private struct CheckmarkIcon: View {
 
 // MARK: - Controller
 
-/// 轻提醒模式浮标控制器。
+/// 仅提醒模式浮标控制器。
 ///
 /// 24pt `checkmark.app.fill`（蓝底白勾），`.drawOff` 反向动画绘制入场，
 /// 鼠标右上角 4pt，1s 自消。每次 `show()` 重建窗口（不复用），状态机极简。
