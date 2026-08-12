@@ -11,6 +11,7 @@ Tests/*
 !Tests/ToastCommandTests.swift
 !Tests/CopySoundFeedbackTests.swift
 !Tests/PluginSecurityTests.swift
+!Tests/PopupPresentationSettingsTests.swift
 .DS_Store
 *.dmg
 *.zip

@@ -113,4 +113,11 @@ swiftc -parse-as-library \
     -o "$TEST_BUILD_DIR/ToastCommandTests"
 "$TEST_BUILD_DIR/ToastCommandTests"
 
+swiftc -parse-as-library \
+    ClipboardTextPolicy.swift \
+    PopupPresentationSettings.swift \
+    Tests/PopupPresentationSettingsTests.swift \
+    -o "$TEST_BUILD_DIR/PopupPresentationSettingsTests"
+"$TEST_BUILD_DIR/PopupPresentationSettingsTests"
+
 echo "All tests passed"

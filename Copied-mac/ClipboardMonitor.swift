@@ -77,15 +77,6 @@ final class ClipboardMonitor {
             return
         }
 
-        let now = Date()
-        let elapsedSinceLastShow = now.timeIntervalSince(lastShowTime)
-        let isVisualDuplicate = content.hashValue == lastHash
-            && elapsedSinceLastShow < dedupWindow
-        if !isVisualDuplicate {
-            lastHash = content.hashValue
-            lastShowTime = now
-        }
-
         let source = SourceAppDetector.detect(for: content)
 
         // Popup filter gate — check against blacklist/whitelist
@@ -97,16 +88,60 @@ final class ClipboardMonitor {
         DispatchQueue.main.async { [weak self] in
             CopySoundFeedback.playConfiguredSound()
 
+            let sourceContentType: PopupPresentationSourceContentType
+            let textLength: Int
+            let primaryKindID: String?
+            switch content.type {
+            case .text:
+                sourceContentType = .text
+                textLength = content.rawText?.count ?? 0
+                primaryKindID = content.contentKind?.id
+            case .image:
+                sourceContentType = .image
+                textLength = 0
+                primaryKindID = nil
+            case .file:
+                sourceContentType = .file
+                textLength = 0
+                primaryKindID = nil
+            }
+
+            let fileURLs = content.fileURLs ?? []
+            let allFilesAreImages = !fileURLs.isEmpty
+                && fileURLs.allSatisfy(Self.isImageFile)
+            let presentationContentType = PopupPresentationPolicy.presentationContentType(
+                sourceContentType: sourceContentType,
+                fileURLCount: fileURLs.count,
+                allFilesAreImages: allFilesAreImages
+            )
+
+            let preferences = PopupPresentationPreferences.current()
+            guard PopupPresentationPolicy.shouldPresent(
+                contentType: presentationContentType,
+                textLength: textLength,
+                primaryKindID: primaryKindID,
+                preferences: preferences
+            ) else {
+                return
+            }
+
+            guard let self else { return }
+            let now = Date()
+            let elapsedSinceLastShow = now.timeIntervalSince(self.lastShowTime)
+            let isVisualDuplicate = content.hashValue == self.lastHash
+                && elapsedSinceLastShow < self.dedupWindow
             if isVisualDuplicate {
                 NSLog("Copied: visual dedup skip (hash=\(content.hashValue), elapsed=\(String(format: "%.3f", elapsedSinceLastShow))s)")
                 return
             }
 
+            self.lastHash = content.hashValue
+            self.lastShowTime = now
             NSLog("Copied: dispatching show (type=\(content.type))")
             if LightReminderController.shared.isEnabled {
                 LightReminderController.shared.show()
             } else {
-                self?.toastController?.show(content: content, source: source)
+                self.toastController?.show(content: content, source: source)
             }
         }
     }
@@ -134,7 +169,7 @@ final class ClipboardMonitor {
             let detail: String
             let imgFmt: String?
             if urls.count == 1 {
-                if isImageFile(urls[0]),
+                if Self.isImageFile(urls[0]),
                    let fileImage = NSImage(contentsOf: urls[0]) {
                     thumb = createThumbnail(from: fileImage)
                     let (w, h) = imagePixelDimensions(fileImage)
@@ -330,8 +365,12 @@ final class ClipboardMonitor {
         return (w, h)
     }
 
-    private func isImageFile(_ url: URL) -> Bool {
-        Self.imageExtensions.contains(url.pathExtension.lowercased())
+    private static func isImageFile(_ url: URL) -> Bool {
+        guard Self.imageExtensions.contains(url.pathExtension.lowercased()),
+              let values = try? url.resourceValues(forKeys: [.isRegularFileKey]) else {
+            return false
+        }
+        return values.isRegularFile == true
     }
 
     /// Create a thumbnail from NSImage, cropped to square and resized to 64pt.

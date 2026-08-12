@@ -3,7 +3,7 @@
   "rules": [
     {
       "id": "remove-empty-lines",
-      "pattern": "^(?=[\\s\\S]*?\\n)[\\s\\S]+",
+      "pattern": "^(?=[\\s\\S]*?\\r?\\n[ \\t]*\\r?\\n)[\\s\\S]+",
       "action": {
         "type": "transform",
         "title": "去除空行",
