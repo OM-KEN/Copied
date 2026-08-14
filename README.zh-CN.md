@@ -1,3 +1,5 @@
+https://github.com/user-attachments/assets/658eb81e-d57e-4ef9-93c6-4ed20cb5f88c
+
 # Copied
 
 ### 适用于 macOS 的复制确认提示与智能剪贴板操作
@@ -5,8 +7,6 @@
 ![macOS 14+](https://img.shields.io/badge/macOS-14%2B-black?logo=apple)
 ![Swift](https://img.shields.io/badge/Swift-AppKit%20%2B%20SwiftUI-F05138?logo=swift\&logoColor=white)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue)](LICENSE)
-
-<img width="414" height="172" alt="PixPin_2026-07-02_00-39-59" src="https://github.com/user-attachments/assets/c0a118a4-a140-468c-aa92-3043e8ba83f2" />
 
 **确认已经复制。查看复制内容。智能推荐下一步操作。**
 
