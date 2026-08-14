@@ -1,3 +1,5 @@
+https://github.com/user-attachments/assets/658eb81e-d57e-4ef9-93c6-4ed20cb5f88c
+
 # Copied
 
 ### Copy Confirmation Toast & Smart Clipboard Actions for macOS
@@ -15,8 +17,6 @@ Copied is a lightweight, open-source macOS utility that confirms every copy with
 Copied is not a traditional clipboard history manager. It focuses on the moment immediately after you copy, giving you visual confirmation, useful context, and a faster path to whatever comes next.
 
 [Download the latest release](https://github.com/OM-KEN/Copied/releases/latest)
-
-![Copied preview](https://github.com/user-attachments/assets/c0a118a4-a140-468c-aa92-3043e8ba83f2)
 
 ## Why Copied?
 
