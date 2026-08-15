@@ -2,6 +2,13 @@ import SwiftUI
 import AppKit
 import ServiceManagement
 
+private enum PendingAccessibilityAction: Equatable {
+    case copyGesture
+    case boundMouseButton
+    case mouseButtonRecording
+    case manualAccessibilitySettings
+}
+
 struct SettingsView: View {
     // ── Launch at Login ────────────────────────────────────
     @AppStorage("launchAtLogin") private var launchAtLogin = false
@@ -37,8 +44,12 @@ struct SettingsView: View {
     @State private var selectedTab = "general"
     @State private var isGestureTrusted = AXIsProcessTrusted()
     @State private var showPermissionRequestAlert = false
-    @State private var showGestureRestartAlert = false
-    @State private var isAwaitingGesturePermission = false
+    @State private var showAccessibilityRestartAlert = false
+    @State private var pendingAccessibilityAction: PendingAccessibilityAction?
+    @State private var restartAccessibilityAction: PendingAccessibilityAction?
+    @State private var accessibilityRequestGeneration = 0
+    @State private var showRelaunchErrorAlert = false
+    @State private var relaunchErrorMessage = ""
     @AppStorage(AppUpdateService.automaticRemindersKey)
     private var automaticUpdateRemindersEnabled = true
     @ObservedObject private var updateService = AppUpdateService.shared
@@ -156,7 +167,9 @@ struct SettingsView: View {
                     }
 
                     if mouseQuickTriggerButton != nil, !isGestureTrusted {
-                        Button("请求辅助功能权限…") { requestAccessibilityAndRetry() }
+                        Button("请求辅助功能权限…") {
+                            requestAccessibilityAndRetry(for: .boundMouseButton)
+                        }
                         Text("鼠标侧键快速触发需要辅助功能权限。")
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -247,6 +260,34 @@ struct SettingsView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             resolveGesturePermissionAfterActivation()
+        }
+        .alert("需要辅助功能权限", isPresented: $showPermissionRequestAlert) {
+            Button("请求权限") {
+                copyGestureEnabled = true
+                requestAccessibilityAndRetry(for: .copyGesture)
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("此功能需要系统辅助功能权限来监听鼠标事件。")
+        }
+        .alert("辅助功能权限已开启", isPresented: $showAccessibilityRestartAlert) {
+            Button("退出并重新打开") {
+                restartAccessibilityAction = nil
+                ApplicationRelauncher.shared.relaunch { error in
+                    relaunchErrorMessage = error.localizedDescription
+                    showRelaunchErrorAlert = true
+                }
+            }
+            Button("稍后", role: .cancel) {
+                restartAccessibilityAction = nil
+            }
+        } message: {
+            Text(accessibilityRestartMessage)
+        }
+        .alert("无法重新打开 Copied", isPresented: $showRelaunchErrorAlert) {
+            Button("好", role: .cancel) {}
+        } message: {
+            Text(verbatim: relaunchErrorMessage)
         }
     }
 
@@ -391,7 +432,7 @@ struct SettingsView: View {
                     Spacer()
                     if !isGestureTrusted {
                         Button("打开辅助功能设置…") {
-                            openAccessibilityPrefs()
+                            openAccessibilityPrefs(for: .manualAccessibilitySettings)
                         }
                     }
                 }
@@ -400,37 +441,54 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .alert("需要辅助功能权限", isPresented: $showPermissionRequestAlert) {
-            Button("请求权限") {
-                copyGestureEnabled = true
-                isAwaitingGesturePermission = true
-                requestAccessibilityAndRetry()
-            }
-            Button("取消", role: .cancel) {}
-        } message: {
-            Text("此功能需要系统辅助功能权限来监听鼠标事件。")
-        }
-        .alert("辅助功能权限已开启", isPresented: $showGestureRestartAlert) {
-            Button("退出 Copied") {
-                NSApp.terminate(nil)
-            }
-            Button("稍后", role: .cancel) {}
-        } message: {
-            Text("重启 Copied 后，左右键快捷复制会自动开启。")
-        }
     }
 
-    private func requestAccessibilityAndRetry() {
-        let opts = [kAXTrustedCheckOptionPrompt.takeRetainedValue() as String: true] as CFDictionary
-        let trusted = AXIsProcessTrustedWithOptions(opts)
-        isGestureTrusted = trusted
-        finishGesturePermissionRequestIfGranted(trusted)
-        // 给系统弹窗一点时间，然后刷新状态
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-            let trusted = AXIsProcessTrusted()
-            isGestureTrusted = trusted
-            finishGesturePermissionRequestIfGranted(trusted)
+    private var accessibilityRestartMessage: String {
+        if restartAccessibilityAction == .mouseButtonRecording {
+            return String(localized: "重新打开 Copied 后，请再次点击“录制侧键…”。")
         }
+        return String(localized: "重新打开 Copied 后，辅助功能相关功能会自动恢复。")
+    }
+
+    private func requestAccessibilityAndRetry(for action: PendingAccessibilityAction) {
+        _ = beginAccessibilityRequest(for: action, prompt: true)
+    }
+
+    @discardableResult
+    private func beginAccessibilityRequest(
+        for action: PendingAccessibilityAction,
+        prompt: Bool
+    ) -> Int? {
+        guard pendingAccessibilityAction == nil else { return nil }
+
+        accessibilityRequestGeneration &+= 1
+        let generation = accessibilityRequestGeneration
+        pendingAccessibilityAction = action
+        let trusted: Bool
+        if prompt {
+            let options = [
+                kAXTrustedCheckOptionPrompt.takeRetainedValue() as String: true,
+            ] as CFDictionary
+            trusted = AXIsProcessTrustedWithOptions(options)
+        } else {
+            trusted = AXIsProcessTrusted()
+        }
+        resolveAccessibilityRequest(
+            action: action,
+            generation: generation,
+            trusted: trusted,
+            finalizeIfDenied: false
+        )
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+            resolveAccessibilityRequest(
+                action: action,
+                generation: generation,
+                trusted: AXIsProcessTrusted(),
+                finalizeIfDenied: false
+            )
+        }
+        return pendingAccessibilityAction == action ? generation : nil
     }
 
     private func refreshGesturePermission(clearUnavailableIntent: Bool) {
@@ -445,29 +503,65 @@ struct SettingsView: View {
         let trusted = AXIsProcessTrusted()
         isGestureTrusted = trusted
 
-        if isAwaitingGesturePermission {
-            isAwaitingGesturePermission = false
-            if trusted {
-                showGestureRestartAlert = true
-            } else {
-                copyGestureEnabled = false
-                CopyGestureManager.shared.stop()
-            }
+        if let action = pendingAccessibilityAction {
+            resolveAccessibilityRequest(
+                action: action,
+                generation: accessibilityRequestGeneration,
+                trusted: trusted,
+                finalizeIfDenied: true
+            )
         } else if copyGestureEnabled, !trusted {
             copyGestureEnabled = false
             CopyGestureManager.shared.stop()
         }
     }
 
-    private func finishGesturePermissionRequestIfGranted(_ trusted: Bool) {
-        guard isAwaitingGesturePermission, trusted else { return }
-        isAwaitingGesturePermission = false
-        showGestureRestartAlert = true
+    private func resolveAccessibilityRequest(
+        action: PendingAccessibilityAction,
+        generation: Int,
+        trusted: Bool,
+        finalizeIfDenied: Bool
+    ) {
+        isGestureTrusted = trusted
+        guard pendingAccessibilityAction == action,
+              accessibilityRequestGeneration == generation else { return }
+
+        if trusted {
+            pendingAccessibilityAction = nil
+            restartAccessibilityAction = action
+            showAccessibilityRestartAlert = true
+        } else if finalizeIfDenied {
+            pendingAccessibilityAction = nil
+            handleAccessibilityRequestDenied(for: action)
+        }
     }
 
-    private func openAccessibilityPrefs() {
-        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
-            NSWorkspace.shared.open(url)
+    private func handleAccessibilityRequestDenied(for action: PendingAccessibilityAction) {
+        switch action {
+        case .copyGesture:
+            copyGestureEnabled = false
+            CopyGestureManager.shared.stop()
+        case .mouseButtonRecording:
+            stopMouseButtonRecording(reason: "accessibilityDenied")
+        case .boundMouseButton, .manualAccessibilitySettings:
+            break
+        }
+    }
+
+    private func openAccessibilityPrefs(for action: PendingAccessibilityAction) {
+        guard let generation = beginAccessibilityRequest(for: action, prompt: false) else {
+            return
+        }
+        guard let url = URL(
+            string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+        ), NSWorkspace.shared.open(url) else {
+            resolveAccessibilityRequest(
+                action: action,
+                generation: generation,
+                trusted: false,
+                finalizeIfDenied: true
+            )
+            return
         }
     }
 
@@ -475,7 +569,7 @@ struct SettingsView: View {
         let trusted = AXIsProcessTrusted()
         stopMouseButtonRecording(reason: "restartRecording")
         guard mouseRecordingState.start(accessibilityTrusted: trusted) else {
-            requestAccessibilityAndRetry()
+            requestAccessibilityAndRetry(for: .mouseButtonRecording)
             return
         }
 
@@ -498,7 +592,7 @@ struct SettingsView: View {
         }
         guard mouseRecordingListenerToken != nil else {
             mouseRecordingState.cancel()
-            requestAccessibilityAndRetry()
+            requestAccessibilityAndRetry(for: .mouseButtonRecording)
             return
         }
     }

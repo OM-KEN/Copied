@@ -16,13 +16,14 @@ DMG 背景图：放 `.build/dmg_background.png`（440×240），由 `dmg_setting
 
 ```
 CopiedApp.swift             MenuBarExtra + reopen 设置桥接 + AppDelegate + Settings
+ApplicationRelauncher.swift 授权完成后的非激活新实例启动 + 旧实例退出
 ClipboardMonitor.swift      每 0.075s 轮询 NSPasteboard.changeCount（含黑名单过滤门）
 LitheIntegration.swift      Lithe Bundle/剪贴板契约 + 图片文件资格判断 + 非激活打开
 ClipboardTextPolicy.swift   长文本阈值与纯文本主操作策略
 PopupPresentationSettings.swift  默认/轻打扰模式偏好 + 内容映射 + 视觉呈现策略
 PopupFilterSettingsView.swift    轻打扰自定义窗口（普通内容 + 识别类型）
 CopySoundFeedback.swift     复制系统声音选择、默认值与异步串行播放
-GlobalMouseEventCoordinator.swift  共享 CGEventTap + 权限失效保护
+GlobalMouseEventCoordinator.swift  共享 CGEventTap + 系统设置暂停 + 权限失效保护
 CopyGestureManager.swift    左+右 → ⌘C 手势（双路径 + R_UP 兜底）
 DetectionRegistry.swift     全局检测器注册中心 + 优先级管道 + 限流
 MathExpressionEvaluator.swift  公式统一词法/解析 + Decimal 求值 + 精确/近似格式化
@@ -50,6 +51,7 @@ ToastWindowController.swift ToastPanel + Action + 展开文本分层 + 快速触
 ToastViewModel.swift        @Observable 模型（含 sourceBundleID）
 RelativeDateDescription.swift 日期/时间详情格式化（日历日语义 + 本地化时间）
 ToastView.swift             SwiftUI 卡片 + glassEffect（macOS 26+）/ ultraThinMaterial（降级）+ 展开查看全文（if/else 双态）+ contextMenu
+MetadataAutoScrollMetrics.swift 标签溢出距离、速度、时长与边缘渐隐参数
 LightReminderController.swift 仅提醒模式浮标（NSWindow + NSHostingView + macOS 26+ drawOff / opacity 降级）
 TypeSettingsView.swift      设置 → 智能识别 Tab（ContentKind 开关 + 插件管理）
 SettingsView.swift           设置（弹窗模式/声音/开机启动/搜索引擎/快速触发/高级仅提醒/智能识别/手势/黑名单 + 底部退出入口）
@@ -103,6 +105,8 @@ macOS 26+ 用 `.glassEffect(in: .rect(cornerRadius: cardCornerRadius))`；旧系
 SwiftUI `Button` 是鼠标 `ToastCommand` 的唯一来源；禁止恢复窗口级左右键 monitor、hover 业务命中、手写矩形或百分比坐标分流。预览按钮发送 `.expand`，右侧按钮发送 `.performPrimary`，整卡背景按钮发送 `.dismiss`；图标和来源信息用 `allowsHitTesting(false)` 穿透到背景关闭，右侧按钮 label 必须用矩形 `contentShape` 覆盖完整视觉区域。hover 只负责视觉状态和暂停自动关闭。
 
 本地 NSEvent monitor 只保留快速触发所需的 `.keyDown` / `.flagsChanged`；订阅 `.leftMouseDown` 会让 nonactivating Panel 只收到 mouseUp，破坏 SwiftUI 原生点击链。`dismissGeneration` 继续防止过期动画清理隐藏新 toast。
+
+来源与详情标签各自使用独立的单行自动滚动区域，自然宽度必须参与卡片 fitting，卡片总宽仍以 360pt 为上限。仅有真实溢出时显示方向随位置变化的 14pt 边缘渐隐；卡片悬停 0.6s 后单次匀速滚到末端、停留并返回，移出复位。标签始终 `allowsHitTesting(false)`，禁止用 `ScrollView`、点击手势或鼠标坐标命中实现。
 
 ### 剪贴板检测
 
@@ -175,6 +179,7 @@ rebuild 后签名变化会使 macOS 清掉 `SMAppService` 登录项注册记录�
 - 本地只监听 `.keyDown` / `.flagsChanged`；普通鼠标输入走共享 `GlobalMouseEventCoordinator` + HID 计数，禁止另建 Event Tap 或左键 NSEvent monitor。
 - 键盘路径无需辅助功能权限；侧键录制/触发与左右键复制共享 CGEventTap，需要权限。
 - CGEventTap 仅可在 `.tapDisabledByTimeout` 且权限仍有效时重新启用；`.tapDisabledByUserInput` 或权限失效必须保持禁用并异步回正手势开关，禁止无条件 `tapEnable(true)`。
+- System Settings 成为前台时，`GlobalMouseEventCoordinator` 必须保留逻辑 listener、提前销毁活动过滤 Tap；离开后仅在权限仍有效时重建，否则走统一失效通知。禁止在用户撤销辅助功能权限时继续把活动 Tap 留在系统鼠标事件链中。
 
 **重映射工具限制**：Mac Mouse Fix 等工具可能在 CGEvent/AppKit/HID 计数之前吞掉原生侧键或“修饰键 + 滚轮”。关闭对应映射或保留原生事件即可；不要增加重复监听或 raw IOHID 绕过路径。
 
@@ -201,7 +206,7 @@ GitHub Release 的 DMG 资产名固定为 `Copied-<VERSION>.dmg`，版本前不�
 - `gestureFired` 每次 leftDown/leftUp 重置，防双击发
 - ⌘C 模拟：CGEvent keyboard source 传 `nil`，完整发送 Command down → C down → C up → Command up，末次释放清空 flags
 
-**权限 UX（三重保障）**：用户请求开启时保存意图 → 授权成功后醒目提示重启 → 启动时按真实权限恢复或回正为 OFF。仅有权限但未主动开启的用户保持关闭。签名：Apple Development，Team ID `683MU5Q6FB`（TCC 凭 Team ID 识别）。
+**权限 UX（三重保障）**：用户请求开启时保存意图 → 授权成功后统一提示“退出并重新打开” → 启动时按真实权限恢复或回正为 OFF。`ApplicationRelauncher` 必须先确认非激活的新实例启动成功，再退出旧实例；启动失败时保留旧实例并显示错误。仅有权限但未主动开启的用户保持关闭。签名：Apple Development，Team ID `683MU5Q6FB`（TCC 凭 Team ID 识别）。
 
 **已知限制**：先松左键 → WindowServer 在 HID 层独立发 secondary-click popup → 源 App 弹右键菜单（session-level tap 无法拦截）。
 

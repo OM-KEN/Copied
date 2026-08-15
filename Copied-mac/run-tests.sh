@@ -86,6 +86,19 @@ swiftc -parse-as-library \
 "$TEST_BUILD_DIR/AppUpdateServiceTests"
 
 swiftc -parse-as-library \
+    ApplicationRelauncher.swift \
+    Tests/ApplicationRelauncherTests.swift \
+    -framework AppKit \
+    -o "$TEST_BUILD_DIR/ApplicationRelauncherTests"
+"$TEST_BUILD_DIR/ApplicationRelauncherTests"
+
+swiftc -parse-as-library \
+    MetadataAutoScrollMetrics.swift \
+    Tests/MetadataAutoScrollMetricsTests.swift \
+    -o "$TEST_BUILD_DIR/MetadataAutoScrollMetricsTests"
+"$TEST_BUILD_DIR/MetadataAutoScrollMetricsTests"
+
+swiftc -parse-as-library \
     GlobalMouseEventTapRecoveryPolicy.swift \
     CopyGestureEventSequence.swift \
     MouseButtonRecordingStateMachine.swift \

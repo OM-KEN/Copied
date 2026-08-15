@@ -29,6 +29,7 @@ SOURCES=(
     QuickTriggerCoordinator.swift
     AppUpdateModels.swift
     AppUpdateService.swift
+    ApplicationRelauncher.swift
     PluginActionTemplate.swift
     PluginRuntimeSafety.swift
     PluginManifest.swift
@@ -73,6 +74,7 @@ SOURCES=(
     SettingsView.swift
     ToastCommand.swift
     ToastPanel.swift
+    MetadataAutoScrollMetrics.swift
     ToastView.swift
     ToastViewModel.swift
     ToastWindowController.swift

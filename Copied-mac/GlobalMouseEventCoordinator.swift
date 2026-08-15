@@ -16,6 +16,7 @@ final class GlobalMouseEventCoordinator {
     private var listeners: [UUID: Listener] = [:]
     private var swallowedOtherButtons: Set<Int> = []
     private var eventTapUnavailable = false
+    private var isSuspendedForSystemSettings = false
 
     private(set) var lastDiagnostic = ""
     var isRunning: Bool { eventTap != nil }
@@ -37,6 +38,7 @@ final class GlobalMouseEventCoordinator {
     }
 
     private func ensureTap(promptForAccessibility: Bool) -> Bool {
+        if isSuspendedForSystemSettings { return true }
         if eventTap != nil { return !eventTapUnavailable }
         let trusted = AXIsProcessTrusted()
         lastDiagnostic = "AXIsProcessTrusted=\(trusted)"
@@ -120,16 +122,47 @@ final class GlobalMouseEventCoordinator {
         return shouldConsume ? nil : Unmanaged.passUnretained(event)
     }
 
+    /// Keep logical listeners registered, but remove the active filter before
+    /// System Settings can revoke its Accessibility permission.
+    func suspendForSystemSettings() {
+        guard !isSuspendedForSystemSettings else { return }
+        isSuspendedForSystemSettings = true
+        swallowedOtherButtons.removeAll()
+        destroyEventTap()
+    }
+
+    func resumeAfterSystemSettings() {
+        guard isSuspendedForSystemSettings else { return }
+        isSuspendedForSystemSettings = false
+        guard !listeners.isEmpty else { return }
+        guard !eventTapUnavailable,
+              ensureTap(promptForAccessibility: false) else {
+            markEventTapUnavailable()
+            return
+        }
+    }
+
     private func stopIfUnused() {
-        guard listeners.isEmpty, swallowedOtherButtons.isEmpty, let eventTap else { return }
-        CGEvent.tapEnable(tap: eventTap, enable: false)
+        guard listeners.isEmpty, swallowedOtherButtons.isEmpty else { return }
+        guard eventTap != nil else {
+            eventTapUnavailable = false
+            return
+        }
+        destroyEventTap()
+        eventTapUnavailable = false
+    }
+
+    private func destroyEventTap() {
+        guard let eventTap else { return }
+        if !eventTapUnavailable {
+            CGEvent.tapEnable(tap: eventTap, enable: false)
+        }
         if let runLoopSource {
             CFRunLoopRemoveSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
         }
         CFMachPortInvalidate(eventTap)
         self.eventTap = nil
         runLoopSource = nil
-        eventTapUnavailable = false
     }
 
     private func markEventTapUnavailable() {

@@ -131,6 +131,8 @@ struct CopiedApp: App {
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    private static let systemSettingsBundleIdentifier = "com.apple.systempreferences"
+
     private var monitor: ClipboardMonitor?
     private var toastController: ToastWindowController?
     @AppStorage("copyGestureEnabled") private var copyGestureEnabled = false
@@ -178,6 +180,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             name: GlobalMouseEventCoordinator.eventTapBecameUnavailableNotification,
             object: GlobalMouseEventCoordinator.shared
         )
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self,
+            selector: #selector(handleWorkspaceApplicationActivation(_:)),
+            name: NSWorkspace.didActivateApplicationNotification,
+            object: nil
+        )
 
         // Copy gesture — restore only a prior user request backed by current permission.
         let gestureTrusted = AXIsProcessTrusted()
@@ -191,6 +199,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSLog("Copied: gesture toggle was ON but AX not trusted — resetting to OFF")
         }
         copyGestureEnabled = shouldEnableGesture
+        updateGlobalMouseEventTapSuspension(
+            for: NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        )
 
         AppUpdateService.shared.startAutomaticChecks()
     }
@@ -199,6 +210,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard copyGestureEnabled || CopyGestureManager.shared.isRunning else { return }
         copyGestureEnabled = false
         CopyGestureManager.shared.stop()
+    }
+
+    @objc private func handleWorkspaceApplicationActivation(_ notification: Notification) {
+        let application = notification.userInfo?[NSWorkspace.applicationUserInfoKey]
+            as? NSRunningApplication
+        updateGlobalMouseEventTapSuspension(for: application?.bundleIdentifier)
+    }
+
+    private func updateGlobalMouseEventTapSuspension(for bundleIdentifier: String?) {
+        let isSystemSettings = bundleIdentifier == Self.systemSettingsBundleIdentifier
+        if isSystemSettings {
+            GlobalMouseEventCoordinator.shared.suspendForSystemSettings()
+        } else {
+            GlobalMouseEventCoordinator.shared.resumeAfterSystemSettings()
+        }
     }
 
     /// 确保 UserDefaults 中的 launchAtLogin 与 SMAppService 实际状态一致

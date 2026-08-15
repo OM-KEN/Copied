@@ -121,6 +121,24 @@ struct InteractionWiringTests {
             !appSource.contains("showSettingsWindow:"),
             "settings opening does not use the ineffective AppKit selector"
         )
+        expect(
+            appSource.contains("NSWorkspace.didActivateApplicationNotification")
+                && appSource.contains("com.apple.systempreferences")
+                && appSource.contains("suspendForSystemSettings()")
+                && appSource.contains("resumeAfterSystemSettings()"),
+            "System Settings activation suspends the active mouse event filter"
+        )
+        let mouseCoordinatorSource = try! String(
+            contentsOfFile: "GlobalMouseEventCoordinator.swift",
+            encoding: .utf8
+        )
+        expect(
+            mouseCoordinatorSource.contains("isSuspendedForSystemSettings")
+                && mouseCoordinatorSource.contains(
+                    "if isSuspendedForSystemSettings { return true }"
+                ),
+            "listeners stay registered while the physical event tap is suspended"
+        )
         let menuSource = section(
             in: appSource,
             from: "private struct MenuBarContent",
@@ -187,6 +205,72 @@ struct InteractionWiringTests {
         expect(
             !settingsSource.contains("Toggle(\"轻提醒模式\""),
             "the former top-level light-reminder toggle is removed"
+        )
+
+        let toastViewSource = try! String(
+            contentsOfFile: "ToastView.swift",
+            encoding: .utf8
+        )
+        let metadataRowsSource = section(
+            in: toastViewSource,
+            from: "                    VStack(alignment: .leading, spacing: 4) {\n                        AutoScrollingMetadataRow(",
+            to: "\n                // ── Right: Action Button"
+        )
+        expect(metadataRowsSource != nil, "metadata rows remain in the collapsed toast")
+        expect(
+            metadataRowsSource?.components(separatedBy: "AutoScrollingMetadataRow(").count == 3,
+            "source and detail each use an independent auto-scrolling row"
+        )
+        expect(
+            metadataRowsSource?.contains("if !viewModel.detailInfo.isEmpty") == true,
+            "an empty detail does not create a second metadata row"
+        )
+        expect(
+            metadataRowsSource?.contains(".allowsHitTesting(false)") == true,
+            "metadata rows continue to pass clicks through to the card background"
+        )
+        let autoScrollSource = section(
+            in: toastViewSource,
+            from: "private struct AutoScrollingMetadataRow<Content: View>",
+            to: "struct ToastView: View"
+        )
+        expect(autoScrollSource != nil, "the private metadata scrolling component exists")
+        expect(
+            autoScrollSource?.contains(".clipped()") == true
+                && autoScrollSource?.contains(".lineLimit(1)") == true,
+            "metadata content stays on one clipped line"
+        )
+        expect(
+            autoScrollSource?.contains(".mask") == true
+                && toastViewSource.contains("private struct MetadataOverflowMask")
+                && toastViewSource.contains("LinearGradient("),
+            "overflowing metadata uses a position-aware gradient mask"
+        )
+        expect(
+            autoScrollSource?.contains("if overflow > 0, viewportWidth > 0") == true
+                && autoScrollSource?.contains("Rectangle().fill(.white)") == true,
+            "non-overflowing metadata keeps a fully opaque mask"
+        )
+        expect(
+            autoScrollSource?.contains("MetadataWidthReader") == true
+                && !toastViewSource.contains("PreferenceKey"),
+            "each metadata row owns instance-local geometry measurements"
+        )
+        expect(
+            autoScrollSource?.contains("ScrollView") == false,
+            "metadata overflow does not add a scroll view"
+        )
+        expect(
+            autoScrollSource?.contains(".onTapGesture") == false
+                && autoScrollSource?.contains("Button") == false,
+            "metadata overflow adds no click path"
+        )
+        expect(
+            appearsInOrder(
+                ["isCardHovered = hovering", "onHoverChanged(hovering)"],
+                in: toastViewSource
+            ),
+            "card hover drives metadata without replacing dismiss-timer forwarding"
         )
         let generalFormSource = section(
             in: settingsSource,
