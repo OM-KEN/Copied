@@ -4,7 +4,7 @@
 >
 > 适用平台：macOS 14+；macOS 26+ 使用 Liquid Glass 适配
 >
-> 更新日期：2026-08-12
+> 更新日期：2026-08-16
 
 ## 1. 文档职责
 
@@ -162,6 +162,8 @@ Copied 是常驻工具，不应通过大面积高饱和色、持续动画或多�
 - macOS 26+ 使用 `.glassEffect(in: .rect(cornerRadius: 32))`。
 - 旧系统使用 `.ultraThinMaterial`。
 - 外轮廓使用 primary 15%、0.8pt 描边。
+- 来源与详情标签的自然宽度参与卡片布局，卡片总宽仍不超过 360pt。
+- 标签溢出时保持单行并使用 14pt 方向渐隐；悬停卡片后只做一次往返滚动，标签本身不增加点击或滚动命中区。
 - 不把 Toast 的大圆角和全玻璃背景复制到普通设置页面。
 
 ### 4.3 内容卡片
@@ -478,6 +480,7 @@ Copied 是常驻工具，不应通过大面积高饱和色、持续动画或多�
 | Toast 缩略图 | 64×64pt，圆角 16pt |
 | Toast Preview | 14pt Medium |
 | Toast Metadata/Action | 12pt Medium |
+| Toast Metadata 溢出 | 14pt 边缘渐隐，30pt/s 单次往返 |
 | Action Button | 水平 10、垂直 6、圆角 8 |
 | About App 图标 | 64×64pt，圆角 14pt |
 | 仅提醒浮标 | 24×24pt，鼠标右上偏移 4pt |

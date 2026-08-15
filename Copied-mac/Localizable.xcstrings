@@ -1,6 +1,48 @@
 {
   "sourceLanguage": "zh-Hans",
   "strings": {
+    "退出并重新打开": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Quit and Reopen" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "退出并重新打开" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "結束並重新開啟" } }
+      }
+    },
+    "好": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "OK" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "好" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "好" } }
+      }
+    },
+    "无法重新打开 Copied": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Couldn't Reopen Copied" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "无法重新打开 Copied" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "無法重新開啟 Copied" } }
+      }
+    },
+    "系统没有返回新的 Copied 实例。": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The system did not return a new Copied instance." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "系统没有返回新的 Copied 实例。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "系統沒有傳回新的 Copied 實例。" } }
+      }
+    },
+    "重新打开 Copied 后，辅助功能相关功能会自动恢复。": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Accessibility features will resume automatically after Copied reopens." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "重新打开 Copied 后，辅助功能相关功能会自动恢复。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "重新開啟 Copied 後，輔助使用相關功能會自動恢復。" } }
+      }
+    },
+    "重新打开 Copied 后，请再次点击“录制侧键…”。": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "After Copied reopens, click “Record Side Button…” again." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "重新打开 Copied 后，请再次点击“录制侧键…”。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "重新開啟 Copied 後，請再次點按「錄製側鍵⋯」。" } }
+      }
+    },
     "默认模式": {
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Default Mode" } },
@@ -1133,28 +1175,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "稍後"
-          }
-        }
-      }
-    },
-    "重启 Copied 后，左右键快捷复制会自动开启。": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Two-Button Copy will turn on automatically after you restart Copied."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "重启 Copied 后，左右键快捷复制会自动开启。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "重新啟動 Copied 後，雙鍵快速複製會自動開啟。"
           }
         }
       }

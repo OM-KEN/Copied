@@ -39,7 +39,7 @@ pip3 install 'dmgbuild>=1.6.5'   # 首次需安装
 
 ## 使用
 
-复制任意内容 → 卡片弹出。图片详情会在尺寸后显示文件大小。悬停保持，点击预览行展开全文，点击右侧按钮执行操作，点击图标、来源信息或其他空白区域关闭。展开全文后不会自动关闭，正文自动获得焦点，可立即拖选、复制，也可在文本编辑中打开、收起或关闭；收起时若指针仍在卡片内会继续保持，移出后重新开始 3 秒计时。默认在第一次 Control 松开后的 350ms 内再次按下并松开 Control，即可触发主操作；设置中也可选择单击模式、其他修饰键或原生鼠标侧键。
+复制任意内容 → 卡片弹出。图片详情会在尺寸后显示文件大小；来源或详情标签过长时，卡片会先按标签需要扩展至 360pt，仍有溢出则在悬停卡片后自动滚动一次，并用边缘渐隐避免生硬截断。标签不拦截点击。悬停保持，点击预览行展开全文，点击右侧按钮执行操作，点击图标、来源信息或其他空白区域关闭。展开全文后不会自动关闭，正文自动获得焦点，可立即拖选、复制，也可在文本编辑中打开、收起或关闭；收起时若指针仍在卡片内会继续保持，移出后重新开始 3 秒计时。默认在第一次 Control 松开后的 350ms 内再次按下并松开 Control，即可触发主操作；设置中也可选择单击模式、其他修饰键或原生鼠标侧键。
 
 菜单栏可一键切换“轻打扰模式”，也可在“设置 → 通用 → 复制反馈 → 自定义…”中细分普通短文本、普通长文本、图片、文件和各识别类型。未识别文本按 50 字符边界分别服从普通短/长文本开关；URL、代码等已识别内容只服从自己的类型开关，不受普通文本长度开关影响。图片文件全部为有效图片时服从“图片”，普通文件和混合选择服从“文件”。这些选项只筛选视觉提示，不关闭内容识别或声音反馈。
 
@@ -51,7 +51,7 @@ pip3 install 'dmgbuild>=1.6.5'   # 首次需安装
 
 公式计算用 `=` 标记精确结果、用 `≈` 标记有限精度近似结果；界面与复制内容使用同一次舍入，计算失败时不显示复制按钮。
 
-左右键手势和侧键录制/触发需要辅助功能权限；撤销权限后，Copied 会立即停用相关鼠标监听并关闭手势开关。Mac Mouse Fix 等鼠标重映射工具可能在事件到达 Copied 前拦截或改写原生侧键、“修饰键 + 滚轮”等输入；此时只需在该工具中关闭对应映射或保留原生事件，无需退出整个工具。
+左右键手势和侧键录制/触发需要辅助功能权限；授权成功后可在提示中一键退出并重新打开 Copied。进入系统设置期间，Copied 会临时暂停相关全局鼠标监听；离开后若权限仍在则自动恢复，若已撤销则关闭手势开关。Mac Mouse Fix 等鼠标重映射工具可能在事件到达 Copied 前拦截或改写原生侧键、“修饰键 + 滚轮”等输入；此时只需在该工具中关闭对应映射或保留原生事件，无需退出整个工具。
 
 右键菜单提供搜索、另存为、类型专属操作，以及一键将当前 App 加入黑名单。设置中可开启左右键手势（按住左键+右键=⌘C）、管理检测类型、管理黑名单、安装插件。
 
@@ -63,13 +63,14 @@ pip3 install 'dmgbuild>=1.6.5'   # 首次需安装
 
 ```
 CopiedApp.swift             — 入口：MenuBarExtra + reopen 设置桥接 + AppDelegate + Settings
+ApplicationRelauncher.swift — 辅助功能授权后的安全退出并重新打开
 ClipboardMonitor.swift      — 每 75ms 轮询 NSPasteboard + 内容解析 + 黑名单过滤
 LitheIntegration.swift      — Lithe 安装检测、图片资格判断与防回环剪贴板契约
 ClipboardTextPolicy.swift   — 长文本阈值与纯文本主操作策略
 PopupPresentationSettings.swift — 默认/轻打扰模式偏好与视觉呈现策略
 PopupFilterSettingsView.swift — 轻打扰模式的普通内容和识别类型自定义窗口
 CopySoundFeedback.swift     — 复制系统声音选择、默认值与异步串行播放
-GlobalMouseEventCoordinator.swift — 共享全局鼠标 Event Tap + 权限失效保护
+GlobalMouseEventCoordinator.swift — 共享全局鼠标 Event Tap + 系统设置暂停 + 权限失效保护
 CopyGestureManager.swift    — 左右键手势 + ⌘C 模拟
 DetectionRegistry.swift     — 全局检测器注册中心 + 优先级管道
 MathExpressionEvaluator.swift — 公式统一解析、Decimal 求值与精确/近似格式化
@@ -92,6 +93,7 @@ ToastCommand.swift          — 弹窗内部命令与单次分发
 ToastWindowController.swift — ToastPanel、展开文本分层与快速触发命令路由（标准模式）
 LightReminderController.swift — 仅提醒模式浮标（NSWindow + drawOff 反向动画）
 ToastView.swift             — SwiftUI 卡片 + 展开查看全文 + 色块 + 右键菜单
+MetadataAutoScrollMetrics.swift — 来源与详情标签的溢出滚动参数
 ToastViewModel.swift        — @Observable 模型（含展开状态管理）
 RelativeDateDescription.swift — 日期/时间详情的日历语义与本地化格式化
 SettingsView.swift          — 设置页（含弹窗模式、仅提醒高级项、快速触发、软件更新、关于页与退出入口）
