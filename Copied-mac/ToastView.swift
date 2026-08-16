@@ -555,7 +555,11 @@ struct ToastView: View {
             RoundedRectangle(cornerRadius: Self.cardCornerRadius, style: .continuous)
                 .stroke(.primary.opacity(0.15), lineWidth: 0.8)
         }
-        .entranceAnimation(animateIn: $animateIn, fallbackMaterialReady: $fallbackMaterialReady)
+        .entranceAnimation(
+            animateIn: $animateIn,
+            fallbackMaterialReady: $fallbackMaterialReady,
+            onDismiss: { onCommand(.dismiss) }
+        )
         .onHover { hovering in
             isCardHovered = hovering
             onHoverChanged(hovering)
@@ -749,7 +753,8 @@ extension View {
     @ViewBuilder
     fileprivate func entranceAnimation(
         animateIn: Binding<Bool>,
-        fallbackMaterialReady: Binding<Bool>
+        fallbackMaterialReady: Binding<Bool>,
+        onDismiss: @escaping () -> Void
     ) -> some View {
         self
             .scaleEffect(animateIn.wrappedValue ? 1 : 0.2)
@@ -759,6 +764,13 @@ extension View {
             .padding(.top, 20)
             .padding(.bottom, 12)
             .padding(.horizontal, 18)
+            .background {
+                Button(action: onDismiss) {
+                    Color.clear
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
             .onAppear {
                 withAnimation(.interpolatingSpring(
                     mass: 1.2, stiffness: 120, damping: 14, initialVelocity: 3
