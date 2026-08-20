@@ -128,6 +128,159 @@ struct InteractionWiringTests {
                 && appSource.contains("resumeAfterSystemSettings()"),
             "System Settings activation suspends the active mouse event filter"
         )
+        let launchSource = section(
+            in: appSource,
+            from: "func applicationDidFinishLaunching(",
+            to: "@objc private func handleGlobalMouseEventTapBecameUnavailable"
+        )
+        expect(launchSource != nil, "application launch wiring exists")
+        expect(
+            launchSource.map {
+                appearsInOrder(
+                    [
+                        "DetectionRegistry.shared.registerBuiltInDetectors()",
+                        "loader.loadAllPlugins()",
+                        "monitor?.start()",
+                        "FirstResponseWarmUp.perform(using: toastController!)",
+                    ],
+                    in: $0
+                )
+            } == true,
+            "first-response warm-up runs after detector/plugin setup and clipboard baseline capture"
+        )
+        expect(
+            appSource.contains("EntityDetectorWarmUp.perform()")
+                && appSource.contains("let source = SourceAppDetector.detect(for: nil)")
+                && appSource.contains("toastController.showStartupNotice(using: source)"),
+            "first-response warm-up primes production detectors and source icon before the startup notice"
+        )
+        expect(
+            launchSource?.contains("NSWorkspace.didActivateApplicationNotification") == true
+                && appSource.contains("SourceAppDetector.prepareIcon(for: application)"),
+            "newly activated source app icons are prepared before the next copy"
+        )
+
+        let sourceDetectorSource = try! String(
+            contentsOfFile: "SourceAppDetector.swift",
+            encoding: .utf8
+        )
+        expect(
+            sourceDetectorSource.contains("iconCache.object(forKey: cacheKey)")
+                && sourceDetectorSource.contains("iconCache.setObject(icon, forKey: cacheKey)"),
+            "source app icons are reused after their first materialization"
+        )
+
+        let toastControllerSource = try! String(
+            contentsOfFile: "ToastWindowController.swift",
+            encoding: .utf8
+        )
+        let startupNoticeSource = section(
+            in: toastControllerSource,
+            from: "func showStartupNotice(using source: SourceAppInfo)",
+            to: "func show(content: ClipboardContent, source: SourceAppInfo)"
+        )
+        expect(startupNoticeSource != nil, "one-shot startup notice entry point exists")
+        expect(
+            startupNoticeSource?.contains("guard !hasShownStartupNotice else { return }") == true
+                && startupNoticeSource?.contains("viewModel.configureStartupNotice(source: source)") == true
+                && startupNoticeSource?.contains("currentContent = nil") == true
+                && startupNoticeSource?.contains("autoDismissAfter: startupNoticeDuration") == true
+                && startupNoticeSource?.contains("pausesDismissWhileHovered: false") == true
+                && startupNoticeSource?.contains("startsQuickTrigger: false") == true,
+            "startup notice is one-shot, actionless, and uses its fixed one-second presentation policy"
+        )
+        expect(
+            startupNoticeSource?.contains("NSPasteboard") == false
+                && startupNoticeSource?.contains("CopySoundFeedback") == false
+                && startupNoticeSource?.contains("ActionResolver") == false
+                && startupNoticeSource?.contains("quickTriggerCoordinator.start") == false,
+            "startup notice does not touch the clipboard, sound, action resolver, or quick trigger"
+        )
+        let productionShowSource = section(
+            in: toastControllerSource,
+            from: "func show(content: ClipboardContent, source: SourceAppInfo)",
+            to: "private func presentConfiguredToast("
+        )
+        expect(
+            productionShowSource?.contains("pauseDismissTimer()") == true
+                && productionShowSource?.contains("viewModel.configure(with: content, source: source)") == true
+                && productionShowSource?.contains("currentContent = content") == true
+                && productionShowSource?.contains("startsQuickTrigger: true") == true,
+            "a real copy cancels the startup timer, installs real content, and enables normal quick trigger wiring"
+        )
+        let sharedPresentationSource = section(
+            in: toastControllerSource,
+            from: "private func presentConfiguredToast(",
+            to: "private func makeToastView()"
+        )
+        expect(
+            sharedPresentationSource?.contains("dismissGeneration += 1") == true
+                && sharedPresentationSource?.contains("window?.orderOut(nil)") == true
+                && sharedPresentationSource?.contains("createWindow()") == true
+                && sharedPresentationSource?.contains("makeToastView()") == true
+                && sharedPresentationSource?.contains("ToastHostingView(") == true
+                && sharedPresentationSource?.contains("installExpandedTextSurface()") == true
+                && sharedPresentationSource?.contains("layoutSubtreeIfNeeded()") == true
+                && sharedPresentationSource?.contains("fittingSize") == true
+                && sharedPresentationSource?.contains("window?.orderFront(nil)") == true,
+            "startup and real-copy presentations share the production panel, layout, fitting, and visible orderFront path"
+        )
+        expect(
+            appearsInOrder(
+                ["dismissGeneration += 1", "window?.orderOut(nil)", "createWindow()"],
+                in: sharedPresentationSource ?? ""
+            ),
+            "every replacement advances the generation before rebuilding the window"
+        )
+        expect(
+            toastControllerSource.contains("private let startupNoticeDuration: TimeInterval = 1.0")
+                && toastControllerSource.contains("guard !isDismissing, pausesDismissWhileHovered else { return }")
+                && toastControllerSource.contains("self.dismissGeneration == generation")
+                && toastControllerSource.contains(
+                    "let releasesPresentationAfterDismiss = viewModel.isStartupNotice"
+                )
+                && toastControllerSource.contains("self.releaseStartupNoticePresentation()")
+                && toastControllerSource.contains("viewModel = ToastViewModel()"),
+            "startup notice releases its window/model state after one second and cannot close a replacement"
+        )
+
+        let toastViewModelSource = try! String(
+            contentsOfFile: "ToastViewModel.swift",
+            encoding: .utf8
+        )
+        let startupConfigurationSource = section(
+            in: toastViewModelSource,
+            from: "func configureStartupNotice(source: SourceAppInfo)",
+            to: "// MARK: - Async thumbnail"
+        )
+        expect(
+            startupConfigurationSource?.contains("primaryAction = nil") == true
+                && startupConfigurationSource?.contains("menuActions = []") == true
+                && startupConfigurationSource?.contains("rawContent = nil") == true
+                && startupConfigurationSource?.contains("isStartupNotice = true") == true
+                && startupConfigurationSource?.contains("ActionResolver") == false,
+            "startup notice receives a dedicated configuration without clipboard actions"
+        )
+        let startupToastViewSource = try! String(
+            contentsOfFile: "ToastView.swift",
+            encoding: .utf8
+        )
+        expect(
+            startupToastViewSource.contains("guard !viewModel.isStartupNotice else { return }")
+                && startupToastViewSource.contains("if !viewModel.isStartupNotice {")
+                && startupToastViewSource.contains(".allowsHitTesting(!viewModel.isStartupNotice)"),
+            "startup notice cannot expand and hides source metadata and usable context-menu content"
+        )
+        let localizationSource = try! String(
+            contentsOfFile: "Localizable.xcstrings",
+            encoding: .utf8
+        )
+        expect(
+            localizationSource.contains("\"Copied 已启动\"")
+                && localizationSource.contains("\"Copied is ready\"")
+                && localizationSource.contains("\"Copied 已啟動\""),
+            "startup notice is localized in all supported languages"
+        )
         let mouseCoordinatorSource = try! String(
             contentsOfFile: "GlobalMouseEventCoordinator.swift",
             encoding: .utf8
@@ -213,7 +366,7 @@ struct InteractionWiringTests {
         )
         let metadataRowsSource = section(
             in: toastViewSource,
-            from: "                    VStack(alignment: .leading, spacing: 4) {\n                        AutoScrollingMetadataRow(",
+            from: "                    if !viewModel.isStartupNotice {\n                        VStack(alignment: .leading, spacing: 4) {",
             to: "\n                // ── Right: Action Button"
         )
         expect(metadataRowsSource != nil, "metadata rows remain in the collapsed toast")
@@ -311,8 +464,15 @@ struct InteractionWiringTests {
             "clipboard diagnostics never interpolate raw clipboard text"
         )
         expect(
-            clipboardSource.contains("pollInterval: TimeInterval = 0.075"),
-            "clipboard polling uses the 75ms responsiveness interval"
+            clipboardSource.contains("firstResponsePollInterval: TimeInterval = 0.025")
+                && clipboardSource.contains("steadyStatePollInterval: TimeInterval = 0.075")
+                && clipboardSource.contains(
+                    "scheduleTimer(withTimeInterval: firstResponsePollInterval)"
+                )
+                && clipboardSource.contains(
+                    "scheduleTimer(withTimeInterval: steadyStatePollInterval)"
+                ),
+            "clipboard polling boosts the first response before returning to the 75ms interval"
         )
         expect(
             clipboardSource.contains("LitheClipboardMetadata(pasteboard: pasteboard)"),

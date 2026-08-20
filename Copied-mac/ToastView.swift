@@ -356,6 +356,7 @@ struct ToastView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     // ── Preview or Result (crossfade) ──────────
                     Button {
+                        guard !viewModel.isStartupNotice else { return }
                         onCommand(.expand)
                     } label: {
                         ZStack(alignment: .leading) {
@@ -399,6 +400,7 @@ struct ToastView: View {
                         )
                     }
                     .buttonStyle(.plain)
+                    .allowsHitTesting(!viewModel.isStartupNotice)
                     .onHover { hovering in
                         isPreviewHovered = hovering
                         isResultHovered = hovering
@@ -406,39 +408,41 @@ struct ToastView: View {
                     .animation(.easeInOut(duration: 0.15), value: isPreviewHovered)
                     .animation(.easeInOut(duration: 0.15), value: isResultHovered)
 
-                    VStack(alignment: .leading, spacing: 4) {
-                        AutoScrollingMetadataRow(
-                            isCardHovered: isCardHovered,
-                            resetToken: AnyHashable(viewModel.sourceAppName)
-                        ) {
-                            HStack(spacing: 4) {
-                                Text(String(localized: "复制自"))
-                                    .font(.system(size: 12, weight: .medium))
-                                    .foregroundStyle(.secondary)
-                                if let icon = viewModel.sourceAppIcon {
-                                    Image(nsImage: icon)
-                                        .resizable()
-                                        .aspectRatio(contentMode: .fit)
-                                        .frame(width: 16, height: 16)
-                                }
-                                Text(viewModel.sourceAppName)
-                                    .font(.system(size: 12, weight: .medium))
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-
-                        if !viewModel.detailInfo.isEmpty {
+                    if !viewModel.isStartupNotice {
+                        VStack(alignment: .leading, spacing: 4) {
                             AutoScrollingMetadataRow(
                                 isCardHovered: isCardHovered,
-                                resetToken: AnyHashable(viewModel.detailInfo)
+                                resetToken: AnyHashable(viewModel.sourceAppName)
                             ) {
-                                Text(viewModel.detailInfo)
-                                    .font(.system(size: 12, weight: .medium))
-                                    .foregroundStyle(.secondary)
+                                HStack(spacing: 4) {
+                                    Text(String(localized: "复制自"))
+                                        .font(.system(size: 12, weight: .medium))
+                                        .foregroundStyle(.secondary)
+                                    if let icon = viewModel.sourceAppIcon {
+                                        Image(nsImage: icon)
+                                            .resizable()
+                                            .aspectRatio(contentMode: .fit)
+                                            .frame(width: 16, height: 16)
+                                    }
+                                    Text(viewModel.sourceAppName)
+                                        .font(.system(size: 12, weight: .medium))
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+
+                            if !viewModel.detailInfo.isEmpty {
+                                AutoScrollingMetadataRow(
+                                    isCardHovered: isCardHovered,
+                                    resetToken: AnyHashable(viewModel.detailInfo)
+                                ) {
+                                    Text(viewModel.detailInfo)
+                                        .font(.system(size: 12, weight: .medium))
+                                        .foregroundStyle(.secondary)
+                                }
                             }
                         }
+                        .allowsHitTesting(false)
                     }
-                    .allowsHitTesting(false)
                 }
 
                 // ── Right: Action Button ──────────────────────────
@@ -566,11 +570,13 @@ struct ToastView: View {
         }
         .coordinateSpace(name: "ToastRoot")
         .contextMenu {
-            ToastContextMenuContent(
-                viewModel: viewModel,
-                onCommand: onCommand,
-                searchText: searchContextText
-            )
+            if !viewModel.isStartupNotice {
+                ToastContextMenuContent(
+                    viewModel: viewModel,
+                    onCommand: onCommand,
+                    searchText: searchContextText
+                )
+            }
         }
         .onChange(of: viewModel.asyncThumbnail) {
             onNeedsLayout?()

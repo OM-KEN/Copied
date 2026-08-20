@@ -17,7 +17,7 @@ DMG 背景图：放 `.build/dmg_background.png`（440×240），由 `dmg_setting
 ```
 CopiedApp.swift             MenuBarExtra + reopen 设置桥接 + AppDelegate + Settings
 ApplicationRelauncher.swift 授权完成后的非激活新实例启动 + 旧实例退出
-ClipboardMonitor.swift      每 0.075s 轮询 NSPasteboard.changeCount（含黑名单过滤门）
+ClipboardMonitor.swift      启动首响应 0.025s、首次有效读取/同一不可读写入 3 次/60s 后 0.075s 轮询（含黑名单过滤门）
 LitheIntegration.swift      Lithe Bundle/剪贴板契约 + 图片文件资格判断 + 非激活打开
 ClipboardTextPolicy.swift   长文本阈值与纯文本主操作策略
 PopupPresentationSettings.swift  默认/轻打扰模式偏好 + 内容映射 + 视觉呈现策略
@@ -26,6 +26,7 @@ CopySoundFeedback.swift     复制系统声音选择、默认值与异步串行�
 GlobalMouseEventCoordinator.swift  共享 CGEventTap + 系统设置暂停 + 权限失效保护
 CopyGestureManager.swift    左+右 → ⌘C 手势（双路径 + R_UP 兜底）
 DetectionRegistry.swift     全局检测器注册中心 + 优先级管道 + 限流
+EntityDetectorWarmUp.swift  URL/电话/日期实体检测器的固定合成候选预热
 MathExpressionEvaluator.swift  公式统一词法/解析 + Decimal 求值 + 精确/近似格式化
 ContentKind.swift           统一类型标识（struct + 静态常量）
 AppLanguage.swift           当前 Bundle 界面语言策略（英文环境过滤英文单词检测）
@@ -56,7 +57,7 @@ LightReminderController.swift 仅提醒模式浮标（NSWindow + NSHostingView +
 TypeSettingsView.swift      设置 → 智能识别 Tab（ContentKind 开关 + 插件管理）
 SettingsView.swift           设置（弹窗模式/声音/开机启动/搜索引擎/快速触发/高级仅提醒/智能识别/手势/黑名单 + 底部退出入口）
 FilePreviewGenerator.swift  QLThumbnailGenerator 异步缩略图
-SourceAppDetector.swift     NSWorkspace.frontmostApplication（含 bundleIdentifier）
+SourceAppDetector.swift     NSWorkspace.frontmostApplication（含 bundleIdentifier + App 图标缓存/预取）
 Localizable.xcstrings       String Catalog（zh-Hans 源语言 + en / zh-Hant）
 build.sh                    swiftc + xcstringstool + actool + codesign
 run-tests.sh                统一运行现有与弹窗交互测试
@@ -65,6 +66,8 @@ run-tests.sh                统一运行现有与弹窗交互测试
 UserDefaults 键：`searchEngine`, `launchAtLogin`, `isPaused`, `copyGestureEnabled`, `lightReminderEnabled`, `copyFeedbackSound`, `popupPresentationMode`, `popupShowShortPlainText`, `popupShowLongPlainText`, `popupShowImages`, `popupShowFiles`, `popupDisabledKindIDs`, `keyboardQuickTriggerModifier`, `keyboardQuickTriggerMode`, `mouseQuickTriggerButton`, `automaticUpdateRemindersEnabled`, `contentKindPriorities`, `disabledContentKinds`, `installedPlugins`, `popupFilterBlockedApps`。
 
 **数据流**：`ClipboardMonitor` → `DetectionRegistry.detectAll()` → `SourceAppDetector.detect()` → `AppFilterSettings.shouldShowPopup()` 来源过滤门 → `CopySoundFeedback` 投递异步播放 → `PopupPresentationPolicy.shouldPresent()` 视觉筛选门 → 视觉去重 → 分支：仅提醒模式 → `LightReminderController.show()`，完整卡片 → `ToastWindowController.show()` → `ToastViewModel` → `ToastView`
+
+**启动首响应预热**：App 必须先由 `ClipboardMonitor.start()` 捕获当前 `changeCount`，再以固定合成内容预热实体检测、完整检测管道和前台 App 图标，最后通过标准 `ToastPanel` 的生产布局、`orderFront` 与入场动画显示一次 1s“Copied 已启动”。启动提示不得读取或写入剪贴板、播放声音、参与视觉去重、解析 Action、启用快速触发或显示来源/详情/右键菜单；真实复制到达时必须递增 `dismissGeneration` 并立即重建窗口替换，旧定时器和退场回调不得关闭新 Toast。
 
 **Lithe 图片压缩**：仅当剪贴板文件全部为本地普通 JPG/JPEG/PNG、Launch Services 能定位 `com.lithe.app`，且内容不带 Lithe 生成标记时，`ActionResolver` 才把“压缩”设为主操作并同时加入右键菜单。纯位图、混合或不支持的文件选择不触发；Lithe 回写 `com.lithe.generated-files` 与 `com.lithe.request-id`，Copied 用前者阻止压缩回环、用后者区分不同请求的视觉去重。打开 Lithe 时不得激活 App 或写入最近项目。
 
@@ -110,7 +113,7 @@ SwiftUI `Button` 是鼠标 `ToastCommand` 的唯一来源；禁止恢复窗口�
 
 ### 剪贴板检测
 
-每 75ms 检查一次 `NSPasteboard.changeCount`；不要在没有端到端 CPU 与延迟测量时继续缩短。用 `pasteboard.types` 判断内容类别，不用 `readObjects`。缩略图策略：`QLThumbnailGenerator` 异步 + SF Symbol 降级。详见 `ClipboardMonitor.swift`。
+启动后先每 25ms 检查一次 `NSPasteboard.changeCount`，首次有效读取、同一不可读写入尝试 3 次或 60s 后恢复 75ms；有限重试可避免来源 App 首次分阶段写入时被永久跳过。不要在没有端到端 CPU 与延迟测量时继续缩短。用 `pasteboard.types` 判断内容类别，不用 `readObjects`。缩略图策略：`QLThumbnailGenerator` 异步 + SF Symbol 降级。详见 `ClipboardMonitor.swift`。
 
 生产诊断日志不得写入 `ClipboardContent.preview`、`rawText` 或其他剪贴板正文；只记录内容类型、计数和非敏感状态。需要内容级复现时使用明确的合成测试数据。
 

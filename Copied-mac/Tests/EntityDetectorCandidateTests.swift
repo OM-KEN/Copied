@@ -19,6 +19,7 @@ enum EntityDetectorCandidateTests {
         testURLCandidateBoundaries()
         testPhoneCandidateBoundaries()
         testDateCandidateBoundaries()
+        testFirstResponseWarmUpCandidates()
 
         print("EntityDetectorCandidateTests: \(total - failures)/\(total) passed")
         guard failures == 0 else { exit(1) }
@@ -191,6 +192,13 @@ enum EntityDetectorCandidateTests {
             !DateTimeDetector.isPlausibleCandidate(textualOverLimit),
             "textual date candidate above its limit is rejected"
         )
+    }
+
+    private static func testFirstResponseWarmUpCandidates() {
+        let result = EntityDetectorWarmUp.perform()
+        expect(result.matchedURL, "first-response warm-up runs a matching URL candidate")
+        expect(result.matchedPhoneNumber, "first-response warm-up runs a matching phone candidate")
+        expect(result.matchedDate, "first-response warm-up runs a matching date candidate")
     }
 
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {

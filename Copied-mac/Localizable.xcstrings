@@ -1,6 +1,13 @@
 {
   "sourceLanguage": "zh-Hans",
   "strings": {
+    "Copied 已启动": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Copied is ready" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "Copied 已启动" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "Copied 已啟動" } }
+      }
+    },
     "退出并重新打开": {
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Quit and Reopen" } },

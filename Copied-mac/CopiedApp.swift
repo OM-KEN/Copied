@@ -2,6 +2,17 @@ import SwiftUI
 import AppKit
 import ServiceManagement
 
+enum FirstResponseWarmUp {
+    private static let detectionPipelineCandidate = "这是 Copied 首次响应预热文本"
+
+    static func perform(using toastController: ToastWindowController) {
+        EntityDetectorWarmUp.perform()
+        _ = DetectionRegistry.shared.detectAll(in: detectionPipelineCandidate)
+        let source = SourceAppDetector.detect(for: nil)
+        toastController.showStartupNotice(using: source)
+    }
+}
+
 enum SettingsNavigation {
     static let showAboutNotification = Notification.Name("CopiedShowAboutSettings")
     static let showSettingsNotification = Notification.Name("CopiedShowSettings")
@@ -155,9 +166,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Pre-warm DictionaryServices asynchronously with synthetic input.
         DictionaryLookupService.scheduleWarmUp()
 
-        // Pre-warm NSDataDetector (lazy init ~20ms — do it now, not on first copy)
-        _ = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
-
         // Register all built-in content detectors
         DetectionRegistry.shared.registerBuiltInDetectors()
 
@@ -169,6 +177,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         monitor = ClipboardMonitor(toastController: toastController!)
         monitor?.start()
         NSLog("Copied: monitor started")
+
+        // Capture changeCount first so writes during the synchronous warm-up remain observable.
+        FirstResponseWarmUp.perform(using: toastController!)
 
         // Sync login item with system state
         // Rebuild 后签名变化可能使 macOS 清掉注册记录，此时 UserDefaults 仍为 true
@@ -216,6 +227,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let application = notification.userInfo?[NSWorkspace.applicationUserInfoKey]
             as? NSRunningApplication
         updateGlobalMouseEventTapSuspension(for: application?.bundleIdentifier)
+        SourceAppDetector.prepareIcon(for: application)
     }
 
     private func updateGlobalMouseEventTapSuspension(for bundleIdentifier: String?) {

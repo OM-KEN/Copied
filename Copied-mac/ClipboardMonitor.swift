@@ -37,7 +37,13 @@ final class ClipboardMonitor {
     private var lastHash: Int = 0
     private var lastShowTime: Date = .distantPast
     private let dedupWindow: TimeInterval = 0.5
-    private let pollInterval: TimeInterval = 0.075
+    private let firstResponsePollInterval: TimeInterval = 0.025
+    private let steadyStatePollInterval: TimeInterval = 0.075
+    private let firstResponseBoostDuration: TimeInterval = 60
+    private let maxUnreadableReadAttempts = 3
+    private var firstResponseBoostDeadline: TimeInterval?
+    private var unreadableChangeCount: Int?
+    private var unreadableReadAttempts = 0
 
     weak var toastController: ToastWindowController?
 
@@ -47,9 +53,17 @@ final class ClipboardMonitor {
 
     func start() {
         lastChangeCount = NSPasteboard.general.changeCount
+        unreadableChangeCount = nil
+        unreadableReadAttempts = 0
+        firstResponseBoostDeadline = ProcessInfo.processInfo.systemUptime
+            + firstResponseBoostDuration
+        scheduleTimer(withTimeInterval: firstResponsePollInterval)
+    }
+
+    private func scheduleTimer(withTimeInterval interval: TimeInterval) {
         timer?.invalidate()
         timer = Timer.scheduledTimer(
-            withTimeInterval: pollInterval,
+            withTimeInterval: interval,
             repeats: true
         ) { [weak self] _ in
             self?.checkClipboard()
@@ -59,6 +73,9 @@ final class ClipboardMonitor {
     func stop() {
         timer?.invalidate()
         timer = nil
+        firstResponseBoostDeadline = nil
+        unreadableChangeCount = nil
+        unreadableReadAttempts = 0
     }
 
     // MARK: - Private
@@ -68,14 +85,21 @@ final class ClipboardMonitor {
 
         let pasteboard = NSPasteboard.general
         let currentCount = pasteboard.changeCount
-        guard currentCount != lastChangeCount else { return }
-        lastChangeCount = currentCount
+        guard currentCount != lastChangeCount else {
+            finishFirstResponseBoostIfExpired()
+            return
+        }
         NSLog("Copied: clipboard change detected (count=\(currentCount))")
 
         guard let content = readClipboardContent(pasteboard) else {
             NSLog("Copied: readClipboardContent returned nil (types=\(pasteboard.types ?? []))")
+            recordUnreadableRead(for: currentCount)
             return
         }
+        lastChangeCount = currentCount
+        unreadableChangeCount = nil
+        unreadableReadAttempts = 0
+        finishFirstResponseBoost()
 
         let source = SourceAppDetector.detect(for: content)
 
@@ -144,6 +168,32 @@ final class ClipboardMonitor {
                 self.toastController?.show(content: content, source: source)
             }
         }
+    }
+
+    private func recordUnreadableRead(for changeCount: Int) {
+        if unreadableChangeCount == changeCount {
+            unreadableReadAttempts += 1
+        } else {
+            unreadableChangeCount = changeCount
+            unreadableReadAttempts = 1
+        }
+        guard unreadableReadAttempts >= maxUnreadableReadAttempts else { return }
+        lastChangeCount = changeCount
+        unreadableChangeCount = nil
+        unreadableReadAttempts = 0
+        finishFirstResponseBoost()
+    }
+
+    private func finishFirstResponseBoostIfExpired() {
+        guard let deadline = firstResponseBoostDeadline,
+              ProcessInfo.processInfo.systemUptime >= deadline else { return }
+        finishFirstResponseBoost()
+    }
+
+    private func finishFirstResponseBoost() {
+        guard firstResponseBoostDeadline != nil else { return }
+        firstResponseBoostDeadline = nil
+        scheduleTimer(withTimeInterval: steadyStatePollInterval)
     }
 
     /// Parse clipboard using actual pasteboard types, not guesswork from readObjects.

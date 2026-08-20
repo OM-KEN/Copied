@@ -11,7 +11,7 @@ final class ToastWindowController {
     private var expandedTextFrameInHosting: CGRect?
     private var expandedTextSurfaceRequestedVisible = false
     private var dismissTimer: Timer?
-    private let viewModel = ToastViewModel()
+    private var viewModel = ToastViewModel()
     private let commandDispatcher = ToastCommandDispatcher<any ClipboardAction>()
 
     private var isDismissing = false
@@ -27,21 +27,51 @@ final class ToastWindowController {
         return coordinator
     }()
     private let displayDuration: TimeInterval = 3.0
+    private let startupNoticeDuration: TimeInterval = 1.0
 
     private var isExpandingOrCollapsing = false
     private var currentContent: ClipboardContent?
+    private var hasShownStartupNotice = false
+    private var pausesDismissWhileHovered = true
+
+    func showStartupNotice(using source: SourceAppInfo) {
+        guard !hasShownStartupNotice else { return }
+        hasShownStartupNotice = true
+        pauseDismissTimer()
+        viewModel.configureStartupNotice(source: source)
+        currentContent = nil
+        presentConfiguredToast(
+            autoDismissAfter: startupNoticeDuration,
+            pausesDismissWhileHovered: false,
+            startsQuickTrigger: false
+        )
+    }
 
     func show(content: ClipboardContent, source: SourceAppInfo) {
         removeAllMonitors()
+        pauseDismissTimer()
         viewModel.configure(with: content, source: source)
         viewModel.showsUpdateReminder = AppUpdateService.shared
             .shouldAttachUpdateReminderToStandardToast()
         currentContent = content
+        presentConfiguredToast(
+            autoDismissAfter: displayDuration,
+            pausesDismissWhileHovered: true,
+            startsQuickTrigger: true
+        )
+    }
 
+    private func presentConfiguredToast(
+        autoDismissAfter duration: TimeInterval,
+        pausesDismissWhileHovered: Bool,
+        startsQuickTrigger: Bool
+    ) {
+        self.pausesDismissWhileHovered = pausesDismissWhileHovered
         isDismissing = false
         isExpandingOrCollapsing = false
         dismissGeneration += 1
         contentView?.layer?.filters = nil
+        contentView?.layer?.removeAnimation(forKey: "dismissBlurAnim")
         // Always recreate window for fresh Space association.
         // Fullscreen Spaces can lose track of reused windows after
         // extended use, causing the toast to silently not appear.
@@ -55,15 +85,7 @@ final class ToastWindowController {
         expandedTextSurfaceRequestedVisible = false
         createWindow()
 
-        let toastCard = ToastView(
-            viewModel: viewModel,
-            onHoverChanged: { [weak self] hovering in self?.handleHoverChanged(hovering) },
-            onCommand: { [weak self] command in self?.handleCommand(command) },
-            onExpandedTextFrameChanged: { [weak self] frame in
-                DispatchQueue.main.async { self?.updateExpandedTextFrame(frame) }
-            },
-            onNeedsLayout: { [weak self] in DispatchQueue.main.async { self?.updateWindowSize() } },
-        )
+        let toastCard = makeToastView()
 
         let newHosting = ToastHostingView(rootView: AnyView(toastCard))
         newHosting.wantsLayer = true
@@ -103,9 +125,27 @@ final class ToastWindowController {
             AppUpdateService.shared.recordUpdateReminderDisplayed()
         }
 
-        if isMouseInsideWindow() {} else { startDismissTimer() }
+        if pausesDismissWhileHovered, isMouseInsideWindow() {
+            pauseDismissTimer()
+        } else {
+            startDismissTimer(after: duration)
+        }
 
-        quickTriggerCoordinator.start(context: makeQuickTriggerContext())
+        if startsQuickTrigger {
+            quickTriggerCoordinator.start(context: makeQuickTriggerContext())
+        }
+    }
+
+    private func makeToastView() -> ToastView {
+        ToastView(
+            viewModel: viewModel,
+            onHoverChanged: { [weak self] hovering in self?.handleHoverChanged(hovering) },
+            onCommand: { [weak self] command in self?.handleCommand(command) },
+            onExpandedTextFrameChanged: { [weak self] frame in
+                DispatchQueue.main.async { self?.updateExpandedTextFrame(frame) }
+            },
+            onNeedsLayout: { [weak self] in DispatchQueue.main.async { self?.updateWindowSize() } },
+        )
     }
 
     // MARK: - Quick trigger
@@ -131,6 +171,7 @@ final class ToastWindowController {
                     && !self.isDismissing
                     && !self.isExpandingOrCollapsing
                     && !self.viewModel.isExpanded
+                    && !self.viewModel.isStartupNotice
                     && self.quickTriggerAction() != nil
             }
         )
@@ -192,6 +233,13 @@ final class ToastWindowController {
     }
 
     private func executeCommand(_ command: ToastCommand<any ClipboardAction>) {
+        if viewModel.isStartupNotice {
+            if case .dismiss = command {
+                handleDismiss()
+            }
+            return
+        }
+
         switch command {
         case .performPrimary:
             handlePerformAction(quickTriggerAction())
@@ -353,7 +401,7 @@ final class ToastWindowController {
     }
 
     private func handleHoverChanged(_ hovering: Bool) {
-        guard !isDismissing else { return }
+        guard !isDismissing, pausesDismissWhileHovered else { return }
         if hovering { pauseDismissTimer() } else { startDismissTimer() }
     }
 
@@ -392,14 +440,20 @@ final class ToastWindowController {
         pauseDismissTimer()
     }
 
-    func startDismissTimer() {
+    func startDismissTimer(after duration: TimeInterval? = nil) {
         dismissTimer?.invalidate()
         guard !viewModel.isExpanded else {
             dismissTimer = nil
             return
         }
-        dismissTimer = Timer.scheduledTimer(withTimeInterval: displayDuration, repeats: false) { [weak self] _ in
-            guard let self, !self.isDismissing else { return }
+        let generation = dismissGeneration
+        dismissTimer = Timer.scheduledTimer(
+            withTimeInterval: duration ?? displayDuration,
+            repeats: false
+        ) { [weak self] _ in
+            guard let self,
+                  self.dismissGeneration == generation,
+                  !self.isDismissing else { return }
             self.isDismissing = true
             self.viewModel.cancelAsyncThumbnail()
             self.dismissToast(animated: true)
@@ -619,6 +673,7 @@ final class ToastWindowController {
     }
 
     func dismissToast(animated: Bool) {
+        let releasesPresentationAfterDismiss = viewModel.isStartupNotice
         let shouldHideSurfaceImmediately = ToastDismissSurfacePolicy.shouldHideImmediately(
             animated: animated,
             isExpanded: viewModel.isExpanded
@@ -664,13 +719,38 @@ final class ToastWindowController {
                 self.window?.orderOut(nil)
                 self.isDismissing = false
                 self.removeAllMonitors()
+                if releasesPresentationAfterDismiss {
+                    self.releaseStartupNoticePresentation()
+                }
             }
         } else {
             dismissGeneration += 1
             contentView?.layer?.filters = nil
             window?.orderOut(nil)
             isDismissing = false
+            if releasesPresentationAfterDismiss {
+                releaseStartupNoticePresentation()
+            }
         }
+    }
+
+    private func releaseStartupNoticePresentation() {
+        releasePresentationSurfaces()
+        viewModel = ToastViewModel()
+        currentContent = nil
+        pausesDismissWhileHovered = true
+    }
+
+    private func releasePresentationSurfaces() {
+        hostingView?.removeFromSuperview()
+        hostingView = nil
+        window = nil
+        contentView = nil
+        expandedTextScrollView = nil
+        expandedTextView = nil
+        expandedBottomBarControlsHostingView = nil
+        expandedTextFrameInHosting = nil
+        expandedTextSurfaceRequestedVisible = false
     }
 
     private func removeAllMonitors() {
