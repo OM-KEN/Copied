@@ -36,6 +36,7 @@ SOURCES=(
     PluginAction.swift
     PluginLoader.swift
     DetectionRegistry.swift
+    EntityDetectorWarmUp.swift
     MathExpressionEvaluator.swift
     Detectors/ColorDetector.swift
     Detectors/URLDetector.swift

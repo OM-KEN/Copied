@@ -31,6 +31,7 @@ swiftc -parse-as-library \
     Detectors/URLDetector.swift \
     Detectors/PhoneNumberDetector.swift \
     Detectors/DateTimeDetector.swift \
+    EntityDetectorWarmUp.swift \
     Tests/EntityDetectorCandidateTests.swift \
     -framework AppKit \
     -o "$TEST_BUILD_DIR/EntityDetectorCandidateTests"

@@ -28,6 +28,7 @@ final class ToastViewModel {
     var resultOverlay: ResultOverlay? = nil
     var rawContent: ClipboardContent? = nil
     var isExpanded = false
+    var isStartupNotice = false
 
     // ── Async thumbnail (Quick Look) ──────────────────────
     var asyncThumbnail: NSImage? = nil
@@ -101,6 +102,8 @@ final class ToastViewModel {
     }
 
     var iconSymbolName: String {
+        if isStartupNotice { return "checkmark.circle.fill" }
+
         // 1. Color swatch replaces icon
         if detectedColor != nil { return "" }
 
@@ -132,6 +135,7 @@ final class ToastViewModel {
         // Cancel any in-flight async thumbnail from previous content
         cancelAsyncThumbnail()
         asyncThumbnail = nil
+        isStartupNotice = false
 
         previewText = content.preview
         contentType = content.type
@@ -190,6 +194,28 @@ final class ToastViewModel {
 
         // Trigger async Quick Look thumbnail for non-image single files
         loadAsyncThumbnail()
+    }
+
+    func configureStartupNotice(source: SourceAppInfo) {
+        cancelAsyncThumbnail()
+        asyncThumbnail = nil
+
+        previewText = String(localized: "Copied 已启动")
+        contentType = .text
+        sourceAppName = source.name
+        sourceAppIcon = source.icon
+        sourceBundleID = nil
+        detailInfo = ""
+        thumbnailImage = nil
+        primaryAction = nil
+        quickTriggerVisualState = .idle
+        menuActions = []
+        showsUpdateReminder = false
+        detectedColor = nil
+        resultOverlay = nil
+        rawContent = nil
+        isExpanded = false
+        isStartupNotice = true
     }
 
     // MARK: - Async thumbnail (Quick Look)

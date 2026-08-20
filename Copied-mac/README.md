@@ -35,7 +35,7 @@ pip3 install 'dmgbuild>=1.6.5'   # 首次需安装
 
 将 `.build/dmg_background.png`（440×240）放入项目根目录可自定义 DMG 背景。
 
-首次启动后，将 App 拖入 `/Applications` 以获得稳定权限。菜单栏出现剪贴板图标即开始工作；再次打开 Copied 会显示设置窗口，设置页底部可直接退出 App。
+首次启动后，将 App 拖入 `/Applications` 以获得稳定权限。Copied 启动时会短暂显示一次“Copied 已启动”，同时预热首次复制所需的弹窗路径；它不会改写剪贴板或播放复制声音。菜单栏出现剪贴板图标即开始工作；再次打开 Copied 会显示设置窗口，设置页底部可直接退出 App。
 
 ## 使用
 
@@ -64,7 +64,7 @@ pip3 install 'dmgbuild>=1.6.5'   # 首次需安装
 ```
 CopiedApp.swift             — 入口：MenuBarExtra + reopen 设置桥接 + AppDelegate + Settings
 ApplicationRelauncher.swift — 辅助功能授权后的安全退出并重新打开
-ClipboardMonitor.swift      — 每 75ms 轮询 NSPasteboard + 内容解析 + 黑名单过滤
+ClipboardMonitor.swift      — 启动首响应 25ms、随后 75ms 轮询 NSPasteboard + 内容解析 + 黑名单过滤
 LitheIntegration.swift      — Lithe 安装检测、图片资格判断与防回环剪贴板契约
 ClipboardTextPolicy.swift   — 长文本阈值与纯文本主操作策略
 PopupPresentationSettings.swift — 默认/轻打扰模式偏好与视觉呈现策略
@@ -73,6 +73,7 @@ CopySoundFeedback.swift     — 复制系统声音选择、默认值与异步串
 GlobalMouseEventCoordinator.swift — 共享全局鼠标 Event Tap + 系统设置暂停 + 权限失效保护
 CopyGestureManager.swift    — 左右键手势 + ⌘C 模拟
 DetectionRegistry.swift     — 全局检测器注册中心 + 优先级管道
+EntityDetectorWarmUp.swift  — 启动时预热 URL、电话和日期实体检测
 MathExpressionEvaluator.swift — 公式统一解析、Decimal 求值与精确/近似格式化
 ContentKind.swift           — 统一类型标识
 AppLanguage.swift           — 界面语言相关的检测可用性策略
@@ -87,7 +88,7 @@ QuickTriggerModifierKeyPolicy.swift — 按实际键码处理修饰键状态与�
 QuickTriggerCoordinator.swift — 键盘/侧键快速触发监听、生命周期与上下文保护
 AppUpdateService.swift      — GitHub Releases 版本检查、缓存与提醒节流
 FilePreviewGenerator.swift  — QLThumbnailGenerator 异步文件缩略图
-SourceAppDetector.swift     — NSWorkspace 前台 App 检测（含 bundleIdentifier）
+SourceAppDetector.swift     — NSWorkspace 前台 App 检测（含 bundleIdentifier 与图标缓存）
 ToastPanel.swift            — nonactivating NSPanel + first-mouse hosting / 原生展开文本
 ToastCommand.swift          — 弹窗内部命令与单次分发
 ToastWindowController.swift — ToastPanel、展开文本分层与快速触发命令路由（标准模式）
