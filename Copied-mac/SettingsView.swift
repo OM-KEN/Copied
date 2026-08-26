@@ -50,6 +50,8 @@ struct SettingsView: View {
     @State private var accessibilityRequestGeneration = 0
     @State private var showRelaunchErrorAlert = false
     @State private var relaunchErrorMessage = ""
+    @State private var showFeedbackOptions = false
+    @State private var feedbackOpenErrorMessage: String?
     @AppStorage(AppUpdateService.automaticRemindersKey)
     private var automaticUpdateRemindersEnabled = true
     @ObservedObject private var updateService = AppUpdateService.shared
@@ -289,6 +291,28 @@ struct SettingsView: View {
         } message: {
             Text(verbatim: relaunchErrorMessage)
         }
+        .confirmationDialog(
+            "选择反馈方式",
+            isPresented: $showFeedbackOptions,
+            titleVisibility: .visible
+        ) {
+            Button("发送邮件") { openFeedbackEmail() }
+            Button("提交 GitHub Issue") { openGitHubFeedback() }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("邮件适合不便公开的信息；GitHub Issue 适合公开追踪的问题和建议。")
+        }
+        .alert(
+            "无法打开反馈渠道",
+            isPresented: Binding(
+                get: { feedbackOpenErrorMessage != nil },
+                set: { if !$0 { feedbackOpenErrorMessage = nil } }
+            )
+        ) {
+            Button("好", role: .cancel) {}
+        } message: {
+            Text(verbatim: feedbackOpenErrorMessage ?? "")
+        }
     }
 
     private var quitFooter: some View {
@@ -352,8 +376,42 @@ struct SettingsView: View {
                         }
                     ))
                 }
+
+                Section("支持与反馈") {
+                    Button {
+                        showFeedbackOptions = true
+                    } label: {
+                        HStack {
+                            Label("问题反馈…", systemImage: "exclamationmark.bubble")
+                            Spacer()
+                            Text("邮件或 GitHub")
+                                .foregroundStyle(.secondary)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
             }
             .formStyle(.grouped)
+        }
+    }
+
+    private func openFeedbackEmail() {
+        let environment = FeedbackEnvironment.current(appVersion: AppVersion.currentString)
+        guard let url = FeedbackSupport.emailURL(for: environment),
+              NSWorkspace.shared.open(url) else {
+            feedbackOpenErrorMessage = String(
+                format: String(localized: "无法打开邮件应用，请手动发送至 %@。"),
+                FeedbackSupport.recipient
+            )
+            return
+        }
+    }
+
+    private func openGitHubFeedback() {
+        guard NSWorkspace.shared.open(FeedbackSupport.githubIssueChooserURL) else {
+            feedbackOpenErrorMessage = String(localized: "无法打开 GitHub，请稍后重试。")
+            return
         }
     }
 

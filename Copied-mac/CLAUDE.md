@@ -46,6 +46,7 @@ QuickTriggerModifierKeyPolicy.swift  按实际 keyCode 维护左右修饰键状�
 QuickTriggerCoordinator.swift  键盘/侧键快速触发监听、生命周期与上下文守卫
 MouseButtonRecordingStateMachine.swift  侧键录制状态与取消/绑定决策
 AppUpdateService.swift      GitHub Releases 检查、缓存、节流与提醒状态
+FeedbackSupport.swift       问题反馈邮件模板、安全环境信息 + GitHub Issue 入口
 ToastPanel.swift            nonactivating NSPanel + first-mouse hosting + 原生展开文本
 ToastCommand.swift          弹窗内部命令 + 同步防重入分发
 ToastWindowController.swift ToastPanel + Action + 展开文本分层 + 快速触发 Context/Command 路由
@@ -191,6 +192,10 @@ rebuild 后签名变化会使 macOS 清掉 `SMAppService` 登录项注册记录�
 `VERSION` 是构建版本单一来源，`build.sh` 写入 Bundle 版本。只检查 GitHub 最新稳定 Release；成功检查每天最多一次、失败一小时后重试，更新入口打开 GitHub，不做应用内安装。完整卡片可显示更新入口，仅提醒浮标不叠加更新提醒。
 
 GitHub Release 的 DMG 资产名固定为 `Copied-<VERSION>.dmg`，版本前不带 `v`（例如 `Copied-3.3.0.dmg`）。`create-dmg.sh` 可继续生成 `.build/Copied.dmg`，但发布流程必须在上传前按 `VERSION` 改名，并通过 Release API 核对资产名、大小和 SHA-256。
+
+### 问题反馈
+
+设置 → 关于的“问题反馈”先让用户选择邮件或 GitHub Issue。邮件交给默认邮件 App，收件人为 `omken.feedback@gmail.com`，只预填 Copied 版本、macOS 版本和芯片架构；禁止读取或附带剪贴板内容、文件路径、用户设置、日志、设备名称或其他私人数据。GitHub 打开仓库的 Issue 模板选择页。两种渠道均不得由 Copied 自动提交，必须保留用户检查与确认步骤。
 
 ### 菜单栏
 

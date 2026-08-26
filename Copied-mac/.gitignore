@@ -6,6 +6,7 @@ Tests/*
 !Tests/QuickTriggerCoordinatorTests.swift
 !Tests/AppUpdateModelsTests.swift
 !Tests/AppUpdateServiceTests.swift
+!Tests/FeedbackSupportTests.swift
 !Tests/ApplicationRelauncherTests.swift
 !Tests/MetadataAutoScrollMetricsTests.swift
 !Tests/InteractionWiringTests.swift

@@ -2905,6 +2905,248 @@
           }
         }
       }
+    },
+    "[Copied][问题反馈] v%@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[Copied][Feedback] v%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[Copied][问题反馈] v%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[Copied][問題回饋] v%@"
+          }
+        }
+      }
+    },
+    "支持与反馈": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Support & Feedback"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "支持与反馈"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "支援與回饋"
+          }
+        }
+      }
+    },
+    "问题反馈…": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send Feedback…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "问题反馈…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "問題回饋⋯"
+          }
+        }
+      }
+    },
+    "邮件或 GitHub": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Email or GitHub"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "邮件或 GitHub"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "電子郵件或 GitHub"
+          }
+        }
+      }
+    },
+    "选择反馈方式": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose Feedback Method"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择反馈方式"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選擇回饋方式"
+          }
+        }
+      }
+    },
+    "邮件适合不便公开的信息；GitHub Issue 适合公开追踪的问题和建议。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use email for information you prefer not to share publicly; use GitHub Issues for publicly trackable bugs and suggestions."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "邮件适合不便公开的信息；GitHub Issue 适合公开追踪的问题和建议。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "電子郵件適合不便公開的資訊；GitHub Issue 適合公開追蹤的問題與建議。"
+          }
+        }
+      }
+    },
+    "提交 GitHub Issue": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Submit a GitHub Issue"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提交 GitHub Issue"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提交 GitHub Issue"
+          }
+        }
+      }
+    },
+    "无法打开反馈渠道": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't Open Feedback Channel"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法打开反馈渠道"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法開啟回饋管道"
+          }
+        }
+      }
+    },
+    "无法打开邮件应用，请手动发送至 %@。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't open the email app. Please send your message manually to %@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法打开邮件应用，请手动发送至 %@。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法開啟郵件 App，請手動寄送至 %@。"
+          }
+        }
+      }
+    },
+    "无法打开 GitHub，请稍后重试。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't open GitHub. Please try again later."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法打开 GitHub，请稍后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法開啟 GitHub，請稍後再試。"
+          }
+        }
+      }
+    },
+    "请在下方描述问题或建议：\n\n【问题描述】\n\n\n【复现步骤（如适用）】\n1.\n2.\n\n【预期结果】\n\n\n【补充信息】\n\n\n---\n以下信息由 Copied 自动生成：\nCopied 版本：%1$@\nmacOS 版本：%2$@\n芯片架构：%3$@\n不包含剪贴板内容、文件路径、设置或日志。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Describe your issue or suggestion below:\n\n[Description]\n\n\n[Steps to Reproduce, if applicable]\n1.\n2.\n\n[Expected Result]\n\n\n[Additional Information]\n\n\n---\nAutomatically generated by Copied:\nCopied version: %1$@\nmacOS version: %2$@\nArchitecture: %3$@\nDoes not include clipboard contents, file paths, settings, or logs."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请在下方描述问题或建议：\n\n【问题描述】\n\n\n【复现步骤（如适用）】\n1.\n2.\n\n【预期结果】\n\n\n【补充信息】\n\n\n---\n以下信息由 Copied 自动生成：\nCopied 版本：%1$@\nmacOS 版本：%2$@\n芯片架构：%3$@\n不包含剪贴板内容、文件路径、设置或日志。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請在下方描述問題或建議：\n\n【問題描述】\n\n\n【重現步驟（如適用）】\n1.\n2.\n\n【預期結果】\n\n\n【補充資訊】\n\n\n---\n以下資訊由 Copied 自動產生：\nCopied 版本：%1$@\nmacOS 版本：%2$@\n晶片架構：%3$@\n不包含剪貼簿內容、檔案路徑、設定或日誌。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

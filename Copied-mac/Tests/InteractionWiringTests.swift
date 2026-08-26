@@ -332,6 +332,13 @@ struct InteractionWiringTests {
             "the settings footer uses the native bar background style"
         )
         expect(
+            settingsSource.contains("Section(\"支持与反馈\")")
+                && settingsSource.contains("Label(\"问题反馈…\"")
+                && settingsSource.contains("Button(\"发送邮件\")")
+                && settingsSource.contains("Button(\"提交 GitHub Issue\")"),
+            "About offers email and GitHub feedback channels"
+        )
+        expect(
             settingsSource.contains("Picker(\"弹窗模式\"")
                 && settingsSource.contains("Button(\"自定义…\")")
                 && settingsSource.contains("Picker(\"声音\""),

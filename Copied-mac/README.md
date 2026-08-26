@@ -13,7 +13,8 @@
 - **轻打扰模式** — 菜单栏一键筛选视觉弹窗，可按普通长短文本、图片、文件和识别类型自定义；高级设置还可改为鼠标旁的仅提醒图标
 - **声音反馈** — 默认用半音量 Frog 确认每次复制，异步播放不阻塞卡片显示，可在通用设置中更换系统声音或关闭
 - **原生多语言** — 完全跟随 macOS，支持简体中文、繁体中文和英文
-- **干净** — 零第三方依赖；除检查 GitHub Releases 更新外不联网，CPU ≈ 0%
+- **问题反馈** — 在“设置 → 关于”中选择邮件或 GitHub，邮件只预填版本、macOS 和芯片架构
+- **干净** — 零第三方依赖；Copied 自身仅为检查 GitHub Releases 发起网络请求，反馈由用户确认后交给邮件应用或浏览器，CPU ≈ 0%
 
 ## 安装
 
@@ -87,6 +88,7 @@ KeyboardShortcutSettings.swift — 快速触发修饰键、双击/单击模式�
 QuickTriggerModifierKeyPolicy.swift — 按实际键码处理修饰键状态与冲突
 QuickTriggerCoordinator.swift — 键盘/侧键快速触发监听、生命周期与上下文保护
 AppUpdateService.swift      — GitHub Releases 版本检查、缓存与提醒节流
+FeedbackSupport.swift       — 问题反馈邮件模板、安全环境信息与 GitHub Issue 入口
 FilePreviewGenerator.swift  — QLThumbnailGenerator 异步文件缩略图
 SourceAppDetector.swift     — NSWorkspace 前台 App 检测（含 bundleIdentifier 与图标缓存）
 ToastPanel.swift            — nonactivating NSPanel + first-mouse hosting / 原生展开文本
@@ -97,7 +99,7 @@ ToastView.swift             — SwiftUI 卡片 + 展开查看全文 + 色块 + �
 MetadataAutoScrollMetrics.swift — 来源与详情标签的溢出滚动参数
 ToastViewModel.swift        — @Observable 模型（含展开状态管理）
 RelativeDateDescription.swift — 日期/时间详情的日历语义与本地化格式化
-SettingsView.swift          — 设置页（含弹窗模式、仅提醒高级项、快速触发、软件更新、关于页与退出入口）
+SettingsView.swift          — 设置页（含弹窗模式、仅提醒高级项、快速触发、软件更新、问题反馈与退出入口）
 Copied.icon                 — Liquid Glass 分层图标
 Copied.svg                  — 菜单栏 template 图标
 Localizable.xcstrings       — 简中、繁中、英文 String Catalog

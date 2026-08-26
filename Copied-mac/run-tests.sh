@@ -87,6 +87,12 @@ swiftc -parse-as-library \
 "$TEST_BUILD_DIR/AppUpdateServiceTests"
 
 swiftc -parse-as-library \
+    FeedbackSupport.swift \
+    Tests/FeedbackSupportTests.swift \
+    -o "$TEST_BUILD_DIR/FeedbackSupportTests"
+"$TEST_BUILD_DIR/FeedbackSupportTests"
+
+swiftc -parse-as-library \
     ApplicationRelauncher.swift \
     Tests/ApplicationRelauncherTests.swift \
     -framework AppKit \
