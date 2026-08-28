@@ -20,6 +20,8 @@ struct PopupPresentationSettingsTests {
         colorKindsShareOnePreference()
         allModeIgnoresFilters()
         newKindIsEnabledByDefault()
+        candidateDecisionSupportsEarlyOut()
+        partialFileClassificationFailsClosed()
         restoreDefaultsPreservesMode()
         print("PopupPresentationSettingsTests: PASS")
     }
@@ -405,6 +407,56 @@ struct PopupPresentationSettingsTests {
                 preferences: settings
             ),
             "a newly introduced kind is enabled until explicitly disabled"
+        )
+    }
+
+    private static func candidateDecisionSupportsEarlyOut() {
+        let kinds: Set<String> = ["url", "colorHex"]
+        expect(
+            PopupPresentationPolicy.candidateDecision(
+                preferences: preferences(
+                    showShortPlainText: true,
+                    showLongPlainText: true,
+                    showImages: true,
+                    showFiles: true
+                ),
+                availableKindIDs: kinds
+            ) == .allAllowed,
+            "all enabled candidates should be immediately allowed"
+        )
+        expect(
+            PopupPresentationPolicy.candidateDecision(
+                preferences: preferences(
+                    showShortPlainText: false,
+                    showLongPlainText: false,
+                    showImages: false,
+                    showFiles: false,
+                    disabledKindIDs: kinds
+                ),
+                availableKindIDs: kinds
+            ) == .allDenied,
+            "all disabled candidates should be immediately denied"
+        )
+    }
+
+    private static func partialFileClassificationFailsClosed() {
+        let split = preferences(showImages: true, showFiles: false)
+        expect(
+            !PopupPresentationPolicy.shouldPresentFiles(
+                allFilesAreImages: nil,
+                classificationIsComplete: false,
+                preferences: split
+            ),
+            "partial file classification must fail closed when toggles differ"
+        )
+        let commonAllow = preferences(showImages: true, showFiles: true)
+        expect(
+            PopupPresentationPolicy.shouldPresentFiles(
+                allFilesAreImages: nil,
+                classificationIsComplete: false,
+                preferences: commonAllow
+            ),
+            "equal enabled toggles can safely allow partial classification"
         )
     }
 

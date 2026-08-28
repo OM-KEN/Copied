@@ -5,6 +5,61 @@ TEST_BUILD_DIR=".build/tests"
 mkdir -p "$TEST_BUILD_DIR"
 
 swiftc -parse-as-library \
+    ClipboardPipeline.swift \
+    PluginActionTemplate.swift \
+    ContentKind.swift \
+    ContentDetection.swift \
+    ClipboardDetectionDisplayFacts.swift \
+    RelativeDateDescription.swift \
+    AppLanguage.swift \
+    DetectionRegistry.swift \
+    MathExpressionEvaluator.swift \
+    Detectors/ColorDetector.swift \
+    Detectors/URLDetector.swift \
+    Detectors/PhoneNumberDetector.swift \
+    Detectors/EmailDetector.swift \
+    Detectors/FilePathDetector.swift \
+    Detectors/MathExpressionDetector.swift \
+    Detectors/DateTimeDetector.swift \
+    Detectors/ChineseCharDetector.swift \
+    Detectors/EnglishPhraseDetector.swift \
+    Detectors/HTMLDetector.swift \
+    Detectors/SwiftDetector.swift \
+    Detectors/PythonDetector.swift \
+    Detectors/JavaScriptDetector.swift \
+    Detectors/CSSDetector.swift \
+    Detectors/CodeDetector.swift \
+    FilePreviewGenerator.swift \
+    Tests/ClipboardPipelineTests.swift \
+    -framework AppKit \
+    -framework CoreGraphics \
+    -framework QuickLookThumbnailing \
+    -o "$TEST_BUILD_DIR/ClipboardPipelineTests"
+"$TEST_BUILD_DIR/ClipboardPipelineTests"
+
+swiftc -parse-as-library \
+    ClipboardPipeline.swift \
+    ClipboardContentEnrichment.swift \
+    Tests/ClipboardBaseReaderTests.swift \
+    -framework AppKit \
+    -framework CoreGraphics \
+    -framework ImageIO \
+    -o "$TEST_BUILD_DIR/ClipboardBaseReaderTests"
+"$TEST_BUILD_DIR/ClipboardBaseReaderTests"
+
+swiftc -parse-as-library \
+    Tests/InstantClipboardFeedbackTests.swift \
+    -o "$TEST_BUILD_DIR/InstantClipboardFeedbackTests"
+"$TEST_BUILD_DIR/InstantClipboardFeedbackTests"
+
+swiftc -parse-as-library \
+    TemporaryTextExport.swift \
+    Tests/TemporaryTextExportTests.swift \
+    -framework AppKit \
+    -o "$TEST_BUILD_DIR/TemporaryTextExportTests"
+"$TEST_BUILD_DIR/TemporaryTextExportTests"
+
+swiftc -parse-as-library \
     PluginRuntimeSafety.swift \
     Tests/PluginSecurityTests.swift \
     -o "$TEST_BUILD_DIR/PluginSecurityTests"
@@ -124,6 +179,7 @@ swiftc -parse-as-library \
 "$TEST_BUILD_DIR/CopyGesturePermissionPolicyTests"
 
 swiftc -parse-as-library \
+    ClipboardPipeline.swift \
     ClipboardTextPolicy.swift \
     ToastCommand.swift \
     ToastPanel.swift \

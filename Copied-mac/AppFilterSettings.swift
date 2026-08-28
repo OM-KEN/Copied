@@ -14,15 +14,21 @@ struct AppFilterEntry: Codable, Identifiable, Equatable {
 final class AppFilterSettings {
     static let shared = AppFilterSettings()
 
-    private let blockedKey = "popupFilterBlockedApps"
+    private static let blockedKey = "popupFilterBlockedApps"
+    private var cachedBlockedApps: [AppFilterEntry]
 
-    private init() {}
+    private init() {
+        cachedBlockedApps = Self.loadEntries(forKey: Self.blockedKey)
+    }
 
     // ── Blocked Apps ────────────────────────────────────────
 
     var blockedApps: [AppFilterEntry] {
-        get { loadEntries(forKey: blockedKey) }
-        set { saveEntries(newValue, forKey: blockedKey) }
+        get { cachedBlockedApps }
+        set {
+            cachedBlockedApps = newValue
+            saveEntries(newValue, forKey: Self.blockedKey)
+        }
     }
 
     func addToBlocked(_ entry: AppFilterEntry) {
@@ -69,7 +75,7 @@ final class AppFilterSettings {
 
     // ── Persistence Helpers ──────────────────────────────────
 
-    private func loadEntries(forKey key: String) -> [AppFilterEntry] {
+    private static func loadEntries(forKey key: String) -> [AppFilterEntry] {
         guard let data = UserDefaults.standard.data(forKey: key) else { return [] }
         return (try? JSONDecoder().decode([AppFilterEntry].self, from: data)) ?? []
     }

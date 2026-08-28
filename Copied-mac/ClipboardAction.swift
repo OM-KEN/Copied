@@ -307,6 +307,7 @@ enum ActionResolver {
 
         if let invocation = LitheCompressionEligibility.invocation(
             for: content.fileURLs,
+            selectionIsComplete: !content.fileSelectionWasTruncated,
             isGeneratedByLithe: content.litheMetadata.isGeneratedByLithe,
             client: litheClient
         ) {

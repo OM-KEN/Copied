@@ -12,12 +12,17 @@ enum ExpandedTextLayoutMetrics {
     static let lineSpacing: CGFloat = 4
 
     static var textWidth: CGFloat { cardWidth - horizontalInset * 2 }
+    static var maximumDocumentHeight: CGFloat {
+        let maximumLineHeight = ceil(font.ascender - font.descender + lineSpacing)
+        return CGFloat(ClipboardExpandedTextPolicy.maximumUTF16Count)
+            * maximumLineHeight + topInset + bottomReservedHeight
+    }
 
     static func textHeight(for text: String) -> CGFloat {
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineSpacing = lineSpacing
         let bounds = (text as NSString).boundingRect(
-            with: NSSize(width: textWidth, height: CGFloat.greatestFiniteMagnitude),
+            with: NSSize(width: textWidth, height: maximumDocumentHeight),
             options: [.usesLineFragmentOrigin, .usesFontLeading],
             attributes: [.font: font, .paragraphStyle: paragraph]
         )
@@ -34,7 +39,10 @@ enum ExpandedTextLayoutMetrics {
 
     static func documentHeight(viewportHeight: CGFloat, usedTextMaxY: CGFloat) -> CGFloat {
         let bottomTextSpacing = bottomReservedHeight - bottomBarVisualHeight
-        return max(viewportHeight, ceil(usedTextMaxY) + topInset + bottomTextSpacing)
+        return min(
+            max(viewportHeight, ceil(usedTextMaxY) + topInset + bottomTextSpacing),
+            maximumDocumentHeight
+        )
     }
 
     static func attributedText(_ text: String) -> NSAttributedString {

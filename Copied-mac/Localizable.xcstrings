@@ -1,6 +1,104 @@
 {
   "sourceLanguage": "zh-Hans",
   "strings": {
+    "已复制": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Copied" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "已复制" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "已複製" } }
+      }
+    },
+    "正在读取内容…": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Reading content…" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "正在读取内容…" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "正在讀取內容…" } }
+      }
+    },
+    "已复制，但 Copied 无法显示内容": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Copied, but Copied can’t display the content" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "已复制，但 Copied 无法显示内容" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "已複製，但 Copied 無法顯示內容" } }
+      }
+    },
+    "已复制，正在读取内容": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Copied, reading content" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "已复制，正在读取内容" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "已複製，正在讀取內容" } }
+      }
+    },
+    "图片过大，无法预览": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Image is too large to preview" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "图片过大，无法预览" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "圖片太大，無法預覽" } }
+      }
+    },
+    "图片无法预览": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Image can’t be previewed" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "图片无法预览" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "圖片無法預覽" } }
+      }
+    },
+    "超过4096个文件": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "More than 4,096 files" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "超过4096个文件" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "超過 4,096 個檔案" } }
+      }
+    },
+    "正在计算文件夹大小…": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Calculating folder size…" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "正在计算文件夹大小…" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "正在計算資料夾大小…" } }
+      }
+    },
+    "正在计算文件大小…": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Calculating file size…" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "正在计算文件大小…" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "正在計算檔案大小…" } }
+      }
+    },
+    "文件夹大小不可用": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Folder size unavailable" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "文件夹大小不可用" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "資料夾大小無法取得" } }
+      }
+    },
+    "文件信息不可用": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "File information unavailable" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "文件信息不可用" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "檔案資訊無法取得" } }
+      }
+    },
+    "至少 %@": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "At least %1$@" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "至少 %1$@" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "至少 %1$@" } }
+      }
+    },
+    "预览已截断": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Preview truncated" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "预览已截断" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "預覽已截斷" } }
+      }
+    },
+    "预览已截断，文本编辑中可查看全文": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Preview truncated; open in TextEdit to view the full text" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "预览已截断，文本编辑中可查看全文" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "預覽已截斷，可在文字編輯中查看全文" } }
+      }
+    },
     "Copied 已启动": {
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Copied is ready" } },

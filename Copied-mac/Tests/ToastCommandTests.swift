@@ -169,6 +169,16 @@ struct ToastCommandTests {
             ) == viewportHeight,
             "short native text does not create unnecessary scrolling"
         )
+        let cap = ExpandedTextLayoutMetrics.maximumDocumentHeight
+        expect(cap.isFinite && cap > viewportHeight,
+               "native text document-height cap is not finite")
+        expect(
+            ExpandedTextLayoutMetrics.documentHeight(
+                viewportHeight: viewportHeight,
+                usedTextMaxY: cap * 2
+            ) == cap,
+            "native text document height exceeds the 65,536-derived cap"
+        )
     }
 
     private static func expandedWindowKeepsContentTopAlignedAndReservesShadowOutset() {

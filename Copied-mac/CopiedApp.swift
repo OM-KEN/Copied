@@ -163,6 +163,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSLog("Copied: applicationDidFinishLaunching")
 
+        TemporaryTextExport.cleanupExpiredFiles()
+
         // Pre-warm DictionaryServices asynchronously with synthetic input.
         DictionaryLookupService.scheduleWarmUp()
 
