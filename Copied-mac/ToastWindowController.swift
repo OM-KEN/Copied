@@ -30,7 +30,6 @@ final class ToastWindowController {
     }()
     private let displayDuration: TimeInterval = 3.0
     private let startupNoticeDuration: TimeInterval = 1.0
-    private let failureDuration: TimeInterval = 2.0
     private let minimumActionableDuration: TimeInterval = 1.5
 
     private var isExpandingOrCollapsing = false
@@ -145,6 +144,7 @@ final class ToastWindowController {
               viewModel.revision == revision,
               viewModel.isContentReady else { return }
         viewModel.applyActions(primary: primary, menu: menu)
+        DispatchQueue.main.async { [weak self] in self?.updateWindowSize() }
         quickTriggerContextGeneration &+= 1
         if primary != nil {
             refreshQuickTriggerContextIfEligible()
@@ -160,7 +160,7 @@ final class ToastWindowController {
         if isMouseInsideWindow() {
             pauseDismissTimer()
         } else {
-            startDismissTimer(after: failureDuration)
+            startDismissTimer(after: displayDuration)
         }
     }
 

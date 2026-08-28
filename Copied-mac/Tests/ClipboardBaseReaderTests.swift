@@ -172,19 +172,33 @@ enum ClipboardBaseReaderTests {
         ClipboardFileEnricher.enrich(content: fileContent(url: directory)) {
             directoryUpdates.append($0)
         }
-        let directoryStates = directoryUpdates.compactMap { update -> Bool? in
-            guard case let .fileFacts(_, _, _, _, _, _, detailIsLoading) = update else {
+        let directoryFacts = directoryUpdates.compactMap { update -> (String, Bool)? in
+            guard case let .fileFacts(_, detail, _, _, _, _, detailIsLoading) = update else {
                 return nil
             }
-            return detailIsLoading
+            return (detail, detailIsLoading)
         }
-        try expect(directoryStates.first == true && directoryStates.last == false,
+        try expect(directoryFacts.first?.1 == true && directoryFacts.last?.1 == false,
                    "directory detail-loading state did not reach a terminal update")
+        try expect(directoryFacts.first?.0.contains(where: \Character.isNumber) == true
+                   && directoryFacts.first?.0.contains("正在") == false,
+                   "directory size progress did not start with a numeric value")
+        try expect(directoryFacts.count >= 2,
+                   "directory size progress did not emit before its terminal value")
 
         var packageUpdates: [ClipboardEnrichmentUpdate] = []
         ClipboardFileEnricher.enrich(content: fileContent(url: package)) {
             packageUpdates.append($0)
         }
+        guard let firstPackage = packageUpdates.first,
+              case let .fileFacts(_, firstPackageDetail, _, _, _, _, firstPackageLoading)
+                = firstPackage else {
+            throw Failure.failed("package enrichment emitted no initial file facts")
+        }
+        try expect(firstPackageLoading
+                   && firstPackageDetail.contains(where: \Character.isNumber)
+                   && !firstPackageDetail.contains("正在"),
+                   "package size progress did not start with a numeric value")
         guard let finalPackage = packageUpdates.last,
               case let .fileFacts(
                 _, detail, typeLabel, icon, allImages, complete, detailIsLoading

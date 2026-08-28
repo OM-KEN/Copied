@@ -109,10 +109,9 @@ final class ToastViewModel {
     var typeLabel: String { displayTypeLabel }
 
     var iconSymbolName: String {
-        if phase == .startup || phase == .pending || phase == .loading {
+        if phase == .startup || phase == .pending || phase == .loading || phase == .failure {
             return "checkmark.circle.fill"
         }
-        if phase == .failure { return "exclamationmark.circle" }
         if detectedColor != nil { return "" }
         return displayIconSymbolName
     }
@@ -136,7 +135,7 @@ final class ToastViewModel {
 
     func configureFailure() {
         phase = .failure
-        previewText = String(localized: "已复制，但 Copied 无法显示内容")
+        previewText = String(localized: "已复制")
         detailInfo = ""
         primaryAction = nil
         menuActions = []
@@ -197,7 +196,6 @@ final class ToastViewModel {
         guard phase == .ready else { return }
         primaryAction = primary
         menuActions = menu
-        contentTransitionID &+= 1
     }
 
     func configureStartupNotice(source: SourceAppInfo) {

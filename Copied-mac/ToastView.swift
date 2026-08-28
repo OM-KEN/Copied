@@ -358,9 +358,7 @@ struct ToastView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-                .id(viewModel.contentTransitionID)
                 .transition(.opacity)
-                .frame(width: 64, height: 64)
                 .allowsHitTesting(false)
                 .animation(
                     reduceMotion ? nil : .easeInOut(duration: 0.14),
@@ -378,7 +376,7 @@ struct ToastView: View {
                                 .font(.system(size: 14, weight: .medium))
                                 .foregroundStyle(.primary)
                                 .lineLimit(1)
-                                .id("preview-\(viewModel.contentTransitionID)")
+                                .id("preview-\(viewModel.previewText)")
                                 .transition(.opacity)
                                 .opacity(viewModel.resultOverlay == nil ? 1.0 : 0)
                                 .background {
@@ -402,7 +400,7 @@ struct ToastView: View {
                                     }
                                 }
                                 .frame(maxHeight: 200)
-                                .id("result-\(viewModel.contentTransitionID)")
+                                .id("result-\(viewModel.resultOverlayDisplayText)")
                                 .transition(.opacity)
                                 .opacity(viewModel.resultOverlay != nil ? 1.0 : 0)
                                 .background {
@@ -456,22 +454,19 @@ struct ToastView: View {
                                 ) {
                                     let showsProgress = (viewModel.phase == .loading
                                         || viewModel.detailIsLoading) && !reduceMotion
-                                    HStack(spacing: 5) {
-                                        ZStack {
-                                            if showsProgress {
-                                                ProgressView()
-                                                    .controlSize(.mini)
-                                                    .accessibilityHidden(true)
-                                            }
-                                        }
-                                        .frame(width: 12, height: 12)
+                                    HStack(spacing: 4) {
                                         Text(viewModel.detailInfo)
                                             .font(.system(size: 12, weight: .medium))
                                             .foregroundStyle(.secondary)
                                             .lineLimit(1)
+                                        if showsProgress {
+                                            ProgressView()
+                                                .controlSize(.mini)
+                                                .accessibilityHidden(true)
+                                        }
                                     }
                                 }
-                                .id("detail-\(viewModel.contentTransitionID)")
+                                .id("detail-\(viewModel.detailInfo)")
                                 .transition(.opacity)
                             }
                         }
@@ -523,8 +518,6 @@ struct ToastView: View {
                                 }
                             }
                         }
-                        .id("result-action-\(viewModel.contentTransitionID)")
-                        .transition(.opacity)
                     }
                 } else if let action = viewModel.primaryAction {
                     Button {
@@ -543,7 +536,6 @@ struct ToastView: View {
                                 .font(.system(size: 12, weight: .medium))
                                 .lineLimit(1)
                                 .truncationMode(.tail)
-                                .frame(maxWidth: 96)
                         }
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)
@@ -570,19 +562,8 @@ struct ToastView: View {
                             }
                         }
                     }
-                    .id("primary-action-\(viewModel.contentTransitionID)")
-                    .transition(.opacity)
                 }
             }
-            .frame(
-                width: 328,
-                height: viewModel.resultOverlay == nil ? 64 : nil,
-                alignment: .leading
-            )
-            .animation(
-                reduceMotion ? nil : .easeInOut(duration: 0.14),
-                value: viewModel.contentTransitionID
-            )
             .padding(16)
             }
 
@@ -636,6 +617,9 @@ struct ToastView: View {
         .onChange(of: viewModel.resultOverlay) {
             onNeedsLayout?()
         }
+        .onChange(of: viewModel.contentTransitionID) {
+            onNeedsLayout?()
+        }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(accessibilityStatus)
     }
@@ -681,7 +665,7 @@ struct ToastView: View {
         case .ready:
             return "\(viewModel.previewText)，\(String(localized: "复制自")) \(viewModel.sourceAppName)"
         case .failure:
-            return String(localized: "已复制，但 Copied 无法显示内容")
+            return String(localized: "已复制")
         }
     }
 }

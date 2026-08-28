@@ -18,6 +18,7 @@ DMG 背景图：放 `.build/dmg_background.png`（440×240），由 `dmg_setting
 CopiedApp.swift             MenuBarExtra + reopen 设置桥接 + AppDelegate + Settings
 ApplicationRelauncher.swift 授权完成后的非激活新实例启动 + 旧实例退出
 ClipboardMonitor.swift      启动首响应 0.025s、首次有效读取/同一不可读写入 3 次/60s 后 0.075s 轮询（含黑名单过滤门）
+ClipboardContentEnrichment.swift  后台补齐文件/图片信息 + 文件夹/包体大小数值进度
 LitheIntegration.swift      Lithe Bundle/剪贴板契约 + 图片文件资格判断 + 非激活打开
 ClipboardTextPolicy.swift   长文本阈值与纯文本主操作策略
 PopupPresentationSettings.swift  默认/轻打扰模式偏好 + 内容映射 + 视觉呈现策略
@@ -115,6 +116,10 @@ SwiftUI `Button` 是鼠标 `ToastCommand` 的唯一来源；禁止恢复窗口�
 ### 剪贴板检测
 
 启动后先每 25ms 检查一次 `NSPasteboard.changeCount`，首次有效读取、同一不可读写入尝试 3 次或 60s 后恢复 75ms；有限重试可避免来源 App 首次分阶段写入时被永久跳过。不要在没有端到端 CPU 与延迟测量时继续缩短。用 `pasteboard.types` 判断内容类别，不用 `readObjects`。缩略图策略：`QLThumbnailGenerator` 异步 + SF Symbol 降级。详见 `ClipboardMonitor.swift`。
+
+默认模式或轻打扰的全允许路径必须在观察到新 `changeCount` 后同步 `showPending`，再提交任何剪贴板正文读取；base、enrichment 与 Action 到达后按固有内容重新 fitting，禁止用固定整卡/普通图标/短按钮宽高掩盖异步尺寸变化。Action 更新不得紧接一次无内容变化的 `applyEnrichment`，也不得通过共享动态 `.id` 重建交互按钮。连续 3 次仍不可读时显示普通“已复制”+ `checkmark.circle.fill`，并复用 3 秒 `displayDuration`，不显示错误长文案。
+
+文件夹和无法直接取得大小的包文件使用后台有界遍历：首条详情立即显示数值下界，之后最多每 250ms 且仅在格式化值变化时更新；最终精确值或“至少”下界立即发布并关闭 loading。`ProgressView` 只在 loading 时位于数值右侧，完成后不得保留固定空槽；文件软截止到达时保留最后数值下界并移除 loading，不得覆盖成“文件信息不可用”。
 
 生产诊断日志不得写入 `ClipboardContent.preview`、`rawText` 或其他剪贴板正文；只记录内容类型、计数和非敏感状态。需要内容级复现时使用明确的合成测试数据。
 

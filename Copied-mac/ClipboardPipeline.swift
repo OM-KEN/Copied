@@ -378,7 +378,9 @@ enum ClipboardDirectorySizeCalculator {
         maximumEntryCount: Int = maximumEntryCount,
         maximumDuration: TimeInterval = maximumDuration,
         now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
-        shouldCancel: @escaping () -> Bool = { false }
+        shouldCancel: @escaping () -> Bool = { false },
+        progressUpdateInterval: TimeInterval = 0.25,
+        onProgress: (Int64) -> Void = { _ in }
     ) -> ClipboardDirectorySizeResult {
         guard !shouldCancel() else { return .cancelled }
         let started = now()
@@ -404,6 +406,7 @@ enum ClipboardDirectorySizeCalculator {
 
         var total: Int64 = 0
         var entryCount = 0
+        var lastProgressTime = started
         for case let fileURL as URL in enumerator {
             if shouldCancel() { return .cancelled }
             if entryCount >= maximumEntryCount || now() - started >= maximumDuration {
@@ -437,6 +440,12 @@ enum ClipboardDirectorySizeCalculator {
             let (next, overflow) = total.addingReportingOverflow(Int64(size))
             if overflow { return .atLeast(total) }
             total = next
+            let currentTime = now()
+            if progressUpdateInterval <= 0
+                || currentTime - lastProgressTime >= progressUpdateInterval {
+                onProgress(total)
+                lastProgressTime = currentTime
+            }
         }
         if shouldCancel() { return .cancelled }
         return hadError ? .atLeast(total) : .exact(total)

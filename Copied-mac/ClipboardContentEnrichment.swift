@@ -351,6 +351,7 @@ enum ClipboardImageEnricher {
 }
 
 enum ClipboardFileEnricher {
+    private static let progressUpdateInterval: TimeInterval = 0.25
     private static let imageExtensions: Set<String> = [
         "jpg", "jpeg", "png", "gif", "bmp", "tiff", "tif", "heic", "heif", "webp",
     ]
@@ -366,6 +367,26 @@ enum ClipboardFileEnricher {
             guard !shouldCancel() else { return false }
             emit(update)
             return true
+        }
+
+        var lastFileSizeProgressDetail: String?
+        func emitFileSizeProgress(
+            _ size: Int64,
+            typeLabel: String,
+            iconSymbolName: String
+        ) -> Bool {
+            let detail = String(localized: "至少 \(formattedByteCount(size))")
+            guard detail != lastFileSizeProgressDetail else { return true }
+            lastFileSizeProgressDetail = detail
+            return emitIfActive(.fileFacts(
+                revision: content.revision,
+                detail: detail,
+                typeLabel: typeLabel,
+                iconSymbolName: iconSymbolName,
+                allFilesAreImages: false,
+                classificationIsComplete: true,
+                detailIsLoading: true
+            ))
         }
 
         if content.fileSelectionWasTruncated {
@@ -420,18 +441,20 @@ enum ClipboardFileEnricher {
 
         if values.isDirectory == true && values.isPackage != true
             && values.isSymbolicLink != true {
-            guard emitIfActive(.fileFacts(
-                revision: content.revision,
-                detail: String(localized: "正在计算文件夹大小…"),
-                typeLabel: String(localized: "文件夹"),
-                iconSymbolName: "folder",
-                allFilesAreImages: false,
-                classificationIsComplete: true,
-                detailIsLoading: true
-            )) else { return }
+            let folderLabel = String(localized: "文件夹")
+            guard emitFileSizeProgress(0, typeLabel: folderLabel, iconSymbolName: "folder")
+            else { return }
             let result = ClipboardDirectorySizeCalculator.calculate(
                 at: url,
-                shouldCancel: shouldCancel
+                shouldCancel: shouldCancel,
+                progressUpdateInterval: progressUpdateInterval,
+                onProgress: { size in
+                    _ = emitFileSizeProgress(
+                        size,
+                        typeLabel: folderLabel,
+                        iconSymbolName: "folder"
+                    )
+                }
             )
             let detail: String
             switch result {
@@ -447,7 +470,7 @@ enum ClipboardFileEnricher {
             _ = emitIfActive(.fileFacts(
                 revision: content.revision,
                 detail: detail,
-                typeLabel: String(localized: "文件夹"),
+                typeLabel: folderLabel,
                 iconSymbolName: "folder",
                 allFilesAreImages: false,
                 classificationIsComplete: true,
@@ -492,18 +515,19 @@ enum ClipboardFileEnricher {
             return
         }
 
-        guard emitIfActive(.fileFacts(
-            revision: content.revision,
-            detail: String(localized: "正在计算文件大小…"),
-            typeLabel: typeLabel,
-            iconSymbolName: "document",
-            allFilesAreImages: false,
-            classificationIsComplete: true,
-            detailIsLoading: true
-        )) else { return }
+        guard emitFileSizeProgress(0, typeLabel: typeLabel, iconSymbolName: "document")
+        else { return }
         let packageResult = ClipboardDirectorySizeCalculator.calculate(
             at: url,
-            shouldCancel: shouldCancel
+            shouldCancel: shouldCancel,
+            progressUpdateInterval: progressUpdateInterval,
+            onProgress: { size in
+                _ = emitFileSizeProgress(
+                    size,
+                    typeLabel: typeLabel,
+                    iconSymbolName: "document"
+                )
+            }
         )
         let packageDetail: String
         switch packageResult {
@@ -530,6 +554,7 @@ enum ClipboardFileEnricher {
     private static func formattedByteCount(_ count: Int64) -> String {
         let formatter = ByteCountFormatter()
         formatter.countStyle = .file
+        formatter.allowsNonnumericFormatting = false
         return formatter.string(fromByteCount: count)
     }
 }

@@ -160,6 +160,8 @@ enum InstantClipboardFeedbackTests {
                    "late Action has no minimum actionable lifetime")
         try expect(actions.contains("refreshQuickTriggerContextIfEligible"),
                    "Quick Trigger is not started at Action readiness")
+        try expect(controller.contains("displayDuration: TimeInterval = 3.0"),
+                   "ordinary feedback lifetime is not three seconds")
         try expect(controller.contains("quickTriggerContextGeneration"),
                    "dismissGeneration is still the Quick Trigger identity")
 
@@ -167,8 +169,19 @@ enum InstantClipboardFeedbackTests {
         try expect(view.contains(".allowsHitTesting(viewModel.canExpand)"), "Pending can expand")
         try expect(view.contains("if viewModel.isContentReady"), "Pending exposes a context menu")
         try expect(view.contains("reduceMotion ? nil"), "Reduce Motion does not disable loading transitions")
-        try expect(view.contains("height: viewModel.resultOverlay == nil ? 64 : nil"),
-                   "ordinary card geometry is not fixed while result overlay remains dynamic")
+        try expect(!view.contains("width: 328")
+                   && !view.contains("height: viewModel.resultOverlay == nil ? 64 : nil")
+                   && !view.contains(".frame(maxWidth: 96)"),
+                   "collapsed content is forced away from its native intrinsic geometry")
+        try expect(!view.contains(".id(\"primary-action-")
+                   && !view.contains(".id(\"result-action-"),
+                   "interactive Action buttons are recreated during content enrichment")
+        try expect(!view.contains(".id(viewModel.contentTransitionID)")
+                   && view.contains(".id(\"preview-\\(viewModel.previewText)\")")
+                   && view.contains(".id(\"detail-\\(viewModel.detailInfo)\")"),
+                   "unrelated toast content still rebuilds on every enrichment update")
+        try expect(view.contains(".onChange(of: viewModel.contentTransitionID)"),
+                   "intrinsic content changes do not request a panel relayout")
         try expect(view.contains("viewModel.currentExpandedTextWasTruncated"),
                    "current expanded-content truncation hint is missing")
 
@@ -211,10 +224,42 @@ enum InstantClipboardFeedbackTests {
             from: "func showFailure",
             to: "func dismissSilently"
         )
-        try expect(showFailure.contains("startDismissTimer(after: failureDuration)"),
-                   "default failure is not kept visible for the failure lifetime")
-        try expect(controller.contains("failureDuration: TimeInterval = 2.0"),
-                   "default failure lifetime is not two seconds")
+        try expect(showFailure.contains("startDismissTimer(after: displayDuration)"),
+                   "default failure does not use the ordinary readable lifetime")
+        try expect(!controller.contains("failureDuration"),
+                   "default failure still has a separate shorter lifetime")
+
+        let failureViewModel = try source("ToastViewModel.swift")
+        let failureConfiguration = try section(
+            failureViewModel,
+            from: "func configureFailure()",
+            to: "func configure(with content:"
+        )
+        try expect(failureConfiguration.contains("String(localized: \"已复制\")")
+                   && !failureConfiguration.contains("无法显示内容")
+                   && !failureViewModel.contains("exclamationmark.circle"),
+                   "unreadable clipboard feedback is not the ordinary copied confirmation")
+        let applyActions = try section(
+            failureViewModel,
+            from: "func applyActions(",
+            to: "func configureStartupNotice"
+        )
+        try expect(!applyActions.contains("contentTransitionID"),
+                   "Action readiness still rebuilds unrelated content views")
+
+        let toastView = try source("ToastView.swift")
+        let accessibilityStatus = try section(
+            toastView,
+            from: "private var accessibilityStatus",
+            to: "// MARK: - Menu Action Button"
+        )
+        try expect(!accessibilityStatus.contains("无法显示内容"),
+                   "unreadable clipboard accessibility still announces an error")
+        let localization = try source("Localizable.xcstrings")
+        try expect(!localization.contains("已复制，但 Copied 无法显示内容")
+                   && !localization.contains("正在计算文件夹大小…")
+                   && !localization.contains("正在计算文件大小…"),
+                   "retired copy-feedback strings remain in the active catalog")
 
         let detection = try source("ClipboardDetectionDisplayFacts.swift")
         try expect(detection.contains("ClipboardDetectionDisplayFacts"),
@@ -413,6 +458,16 @@ enum InstantClipboardFeedbackTests {
                    && bitmapTimeout.contains("handleFileThumbnailSoftDeadline")
                    && !fileThumbnailTimeout.contains("applyDegradedDetail("),
                    "file thumbnail timeout overwrites file detail with an image error")
+        let fileSizeTimeout = try section(
+            monitor,
+            from: "private func handleFileSoftDeadline",
+            to: "private func handleBitmapSoftDeadline"
+        )
+        try expect(fileSizeTimeout.contains("content.detailIsLoading")
+                   && fileSizeTimeout.contains("content.detailIsLoading = false")
+                   && fileSizeTimeout.contains("session.storePayload(content)")
+                   && fileSizeTimeout.contains("toastController?.applyEnrichment"),
+                   "file-size timeout discards its last numeric lower bound")
         let refresh = try section(
             monitor,
             from: "private func refreshCachedSettings()",
@@ -424,8 +479,27 @@ enum InstantClipboardFeedbackTests {
         let view = try source("ToastView.swift")
         try expect(view.contains("viewModel.detailIsLoading")
                    && view.contains(".accessibilityHidden(true)")
-                   && view.contains(".frame(width: 12, height: 12)"),
-                   "detail loading lacks an accessible, geometry-stable progress slot")
+                   && view.contains("if showsProgress")
+                   && !view.contains(".frame(width: 12, height: 12)"),
+                   "detail loading permanently reserves space after loading finishes")
+        try expect(index(of: "Text(viewModel.detailInfo)", in: view)
+                   < index(of: "if showsProgress", in: view),
+                   "detail progress still shifts the final size text away from its native leading edge")
+
+        try expect(!fileEnricher.contains("正在计算文件夹大小")
+                   && !fileEnricher.contains("正在计算文件大小")
+                   && fileEnricher.contains("progressUpdateInterval"),
+                   "file-size enrichment still uses prose placeholders instead of bounded numeric progress")
+
+        let reducer = try section(
+            monitor,
+            from: "private func reduce(",
+            to: "private func updateIsWithinDeadline"
+        )
+        try expect(reducer.contains("var shouldApplyEnrichment = true")
+                   && reducer.contains("shouldApplyEnrichment = false")
+                   && reducer.contains("isActivePresentationVisible, shouldApplyEnrichment"),
+                   "Action updates are immediately replaced by a redundant content enrichment")
 
         let panel = try source("ToastPanel.swift")
         try expect(panel.contains("maximumDocumentHeight")
@@ -480,6 +554,8 @@ enum InstantClipboardFeedbackTests {
                        "temporary diagnostics remain in \(file)")
             try expect(!text.contains(formerRevisionField),
                        "temporary diagnostic revision remains in \(file)")
+            try expect(!text.contains("ToastLayoutDiagnostics"),
+                       "temporary toast layout diagnostics remain in \(file)")
         }
         try expect(!FileManager.default.fileExists(
             atPath: ["InstantClipboardFeedback", "Diagnostics.swift"].joined()
@@ -487,6 +563,11 @@ enum InstantClipboardFeedbackTests {
                    "temporary logger file remains")
         try expect(!FileManager.default.fileExists(atPath: "Tests/InstantClipboardFeedbackDiagnosticHarness.swift"),
                    "temporary diagnostic harness remains")
+        try expect(!FileManager.default.fileExists(
+            atPath: FileManager.default.temporaryDirectory
+                .appendingPathComponent("Copied-toast-layout-diagnostics.log").path
+        ),
+                   "temporary toast layout log remains")
     }
 
     private static func source(_ path: String) throws -> String {

@@ -46,6 +46,7 @@ enum ClipboardPipelineTests {
         try testSoftDeadlineCanBeCancelled()
         try testGraphemeSafeTruncation()
         try testDirectoryOverflowAndPartialBudget()
+        try testDirectoryProgressReporting()
         try testDirectorySkipsHiddenAndSymlinkTargets()
         try testImageSafetyBounds()
         try testDetectionDisplayFacts()
@@ -217,6 +218,28 @@ enum ClipboardPipelineTests {
         )
         try expect(cancelled == .cancelled,
                    "directory traversal ignored cooperative cancellation")
+    }
+
+    private static func testDirectoryProgressReporting() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "Copied-directory-progress-test-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: root) }
+        for index in 0..<3 {
+            try Data([1]).write(to: root.appendingPathComponent("\(index)"))
+        }
+
+        var progress: [Int64] = []
+        let result = ClipboardDirectorySizeCalculator.calculate(
+            at: root,
+            progressUpdateInterval: 0,
+            onProgress: { progress.append($0) }
+        )
+        try expect(result == .exact(3), "progress reporting changed the final directory size")
+        try expect(progress == [1, 2, 3],
+                   "directory progress was not monotonic or did not report each test update")
     }
 
     private static func testDirectorySkipsHiddenAndSymlinkTargets() throws {

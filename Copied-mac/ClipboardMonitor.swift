@@ -542,6 +542,7 @@ final class ClipboardMonitor {
               revisionGate.accept(update.revision),
               var content = activeContent else { return }
 
+        var shouldApplyEnrichment = true
         switch update {
         case let .analysis(_, detections):
             content.detections = detections
@@ -555,6 +556,7 @@ final class ClipboardMonitor {
             }
             analysisIsReady = true
         case let .actions(_, primary, menu):
+            shouldApplyEnrichment = false
             if isActivePresentationVisible {
                 toastController?.applyActions(
                     primary: primary,
@@ -589,7 +591,7 @@ final class ClipboardMonitor {
 
         activeContent = content
         session.storePayload(content)
-        if isActivePresentationVisible {
+        if isActivePresentationVisible, shouldApplyEnrichment {
             toastController?.applyEnrichment(content, revision: session.revision)
         }
 
@@ -627,7 +629,16 @@ final class ClipboardMonitor {
     private func handleFileSoftDeadline(session: ClipboardLoadSession) {
         guard activeSession === session, session.accepts(session.revision) else { return }
         fileDeadlineExpired = true
-        applyDegradedDetail(String(localized: "文件信息不可用"), session: session)
+        if var content = activeContent, content.detailIsLoading {
+            content.detailIsLoading = false
+            activeContent = content
+            session.storePayload(content)
+            if isActivePresentationVisible {
+                toastController?.applyEnrichment(content, revision: session.revision)
+            }
+        } else {
+            applyDegradedDetail(String(localized: "文件信息不可用"), session: session)
+        }
         failClosedIfClassificationIsPending(session: session)
     }
 

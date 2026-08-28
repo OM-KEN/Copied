@@ -15,13 +15,6 @@
         "zh-Hant": { "stringUnit": { "state": "translated", "value": "正在讀取內容…" } }
       }
     },
-    "已复制，但 Copied 无法显示内容": {
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Copied, but Copied can’t display the content" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "已复制，但 Copied 无法显示内容" } },
-        "zh-Hant": { "stringUnit": { "state": "translated", "value": "已複製，但 Copied 無法顯示內容" } }
-      }
-    },
     "已复制，正在读取内容": {
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Copied, reading content" } },
@@ -48,20 +41,6 @@
         "en": { "stringUnit": { "state": "translated", "value": "More than 4,096 files" } },
         "zh-Hans": { "stringUnit": { "state": "translated", "value": "超过4096个文件" } },
         "zh-Hant": { "stringUnit": { "state": "translated", "value": "超過 4,096 個檔案" } }
-      }
-    },
-    "正在计算文件夹大小…": {
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Calculating folder size…" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "正在计算文件夹大小…" } },
-        "zh-Hant": { "stringUnit": { "state": "translated", "value": "正在計算資料夾大小…" } }
-      }
-    },
-    "正在计算文件大小…": {
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Calculating file size…" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "正在计算文件大小…" } },
-        "zh-Hant": { "stringUnit": { "state": "translated", "value": "正在計算檔案大小…" } }
       }
     },
     "文件夹大小不可用": {
