@@ -205,8 +205,29 @@ struct InteractionWiringTests {
             productionShowSource?.contains("pauseDismissTimer()") == true
                 && productionShowSource?.contains("viewModel.configure(with: content, source: source)") == true
                 && productionShowSource?.contains("currentContent = content") == true
-                && productionShowSource?.contains("startsQuickTrigger: true") == true,
-            "a real copy cancels the startup timer, installs real content, and enables normal quick trigger wiring"
+                && productionShowSource?.contains("startsQuickTrigger: false") == true,
+            "classified low-interruption content installs without enabling Quick Trigger before Action readiness"
+        )
+        let pendingSource = section(
+            in: toastControllerSource,
+            from: "func showPending(revision:",
+            to: "func applyBaseContent"
+        )
+        expect(
+            pendingSource?.contains("viewModel.configurePending") == true
+                && pendingSource?.contains(".now() + 0.05") == true
+                && pendingSource?.contains("startsQuickTrigger: false") == true,
+            "new revisions synchronously show non-interactive Pending then transition to loading"
+        )
+        let actionReadySource = section(
+            in: toastControllerSource,
+            from: "func applyActions(",
+            to: "func showFailure"
+        )
+        expect(
+            actionReadySource?.contains("refreshQuickTriggerContextIfEligible()") == true
+                && actionReadySource?.contains("ensureMinimumActionableTime()") == true,
+            "Action readiness starts Quick Trigger and guarantees its minimum usable lifetime"
         )
         let sharedPresentationSource = section(
             in: toastControllerSource,
@@ -235,7 +256,7 @@ struct InteractionWiringTests {
         expect(
             toastControllerSource.contains("private let startupNoticeDuration: TimeInterval = 1.0")
                 && toastControllerSource.contains("guard !isDismissing, pausesDismissWhileHovered else { return }")
-                && toastControllerSource.contains("self.dismissGeneration == generation")
+                && toastControllerSource.contains("self.dismissTimerGeneration == generation")
                 && toastControllerSource.contains(
                     "let releasesPresentationAfterDismiss = viewModel.isStartupNotice"
                 )
@@ -251,13 +272,11 @@ struct InteractionWiringTests {
         let startupConfigurationSource = section(
             in: toastViewModelSource,
             from: "func configureStartupNotice(source: SourceAppInfo)",
-            to: "// MARK: - Async thumbnail"
+            to: "func cancelAsyncThumbnail()"
         )
         expect(
-            startupConfigurationSource?.contains("primaryAction = nil") == true
-                && startupConfigurationSource?.contains("menuActions = []") == true
-                && startupConfigurationSource?.contains("rawContent = nil") == true
-                && startupConfigurationSource?.contains("isStartupNotice = true") == true
+            startupConfigurationSource?.contains("resetForNewPresentation()") == true
+                && startupConfigurationSource?.contains("phase = .startup") == true
                 && startupConfigurationSource?.contains("ActionResolver") == false,
             "startup notice receives a dedicated configuration without clipboard actions"
         )
@@ -266,9 +285,10 @@ struct InteractionWiringTests {
             encoding: .utf8
         )
         expect(
-            startupToastViewSource.contains("guard !viewModel.isStartupNotice else { return }")
+            startupToastViewSource.contains("guard viewModel.canExpand else { return }")
                 && startupToastViewSource.contains("if !viewModel.isStartupNotice {")
-                && startupToastViewSource.contains(".allowsHitTesting(!viewModel.isStartupNotice)"),
+                && startupToastViewSource.contains(".allowsHitTesting(viewModel.canExpand)")
+                && startupToastViewSource.contains("if viewModel.isContentReady"),
             "startup notice cannot expand and hides source metadata and usable context-menu content"
         )
         let localizationSource = try! String(
@@ -462,6 +482,10 @@ struct InteractionWiringTests {
         }
 
         let clipboardSource = try! String(contentsOfFile: "ClipboardMonitor.swift", encoding: .utf8)
+        let enrichmentSource = try! String(
+            contentsOfFile: "ClipboardContentEnrichment.swift",
+            encoding: .utf8
+        )
         expect(
             !clipboardSource.contains("preview=\\(content.preview"),
             "clipboard diagnostics never interpolate preview text"
@@ -482,34 +506,33 @@ struct InteractionWiringTests {
             "clipboard polling boosts the first response before returning to the 75ms interval"
         )
         expect(
-            clipboardSource.contains("LitheClipboardMetadata(pasteboard: pasteboard)"),
+            enrichmentSource.contains("LitheClipboardMetadata(pasteboard: pasteboard)"),
             "clipboard parsing records Lithe's private marker and request ID"
         )
         expect(
             appearsInOrder(
                 [
                     "AppFilterSettings.shared.shouldShowPopup",
-                    "CopySoundFeedback.playConfiguredSound()",
-                    "PopupPresentationPolicy.shouldPresent(",
-                    "let isVisualDuplicate =",
-                    "self.lastHash = content.hashValue",
-                    "self.lastShowTime = now",
-                    "self.toastController?.show",
+                    "candidateDecision != .allDenied",
+                    "toastController?.showPending",
+                    "submitBaseRead(session: session)",
+                    "CopySoundFeedback.play(selection:",
+                    "tryPresentLowInterruption(session: session)",
                 ],
                 in: clipboardSource
             ),
-            "blacklist, sound, popup policy, dedup state, and display stay ordered"
+            "blacklist, visual candidate policy, first frame, successful-read sound, and filtering stay ordered"
         )
         expect(
-            clipboardSource.contains("textLength = content.rawText?.count ?? 0")
-                && clipboardSource.contains("primaryKindID = content.contentKind?.id"),
-            "popup policy receives raw text length and the primary kind ID"
+            clipboardSource.contains("textLength: content.textLength")
+                && clipboardSource.contains("primaryKindID: content.contentKind?.id"),
+            "low-interruption policy receives base text length and the async primary kind ID"
         )
         expect(
-            clipboardSource.contains("fileURLs.allSatisfy(Self.isImageFile)")
-                && clipboardSource.contains(".isRegularFileKey")
-                && clipboardSource.contains("values.isRegularFile == true"),
-            "image-file mapping uses the whole selection and rejects image-named directories"
+            enrichmentSource.contains("values.isRegularFile == true")
+                && enrichmentSource.contains("classificationIsComplete")
+                && clipboardSource.contains("shouldPresentFiles("),
+            "async whole-selection image-file classification fails closed when incomplete"
         )
 
         let popupFilterSource = try! String(
@@ -629,6 +652,15 @@ struct InteractionWiringTests {
             var lookupCount = 0
             let client = installedClient(lookupCount: { lookupCount += 1 })
 
+            expect(
+                LitheCompressionEligibility.invocation(
+                    for: [png],
+                    selectionIsComplete: false,
+                    isGeneratedByLithe: false,
+                    client: client
+                ) == nil,
+                "truncated file selections never produce a partial Lithe action"
+            )
             expect(
                 LitheCompressionEligibility.invocation(
                     for: [png, gif],

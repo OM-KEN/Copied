@@ -58,6 +58,7 @@ private final class RecordingSoundPlayer: CopySoundPlaying {
 struct CopySoundFeedbackTests {
     static func main() {
         testSelectionPolicy()
+        testDispatchGateOnlyClaimsOncePerCopy()
         testPlaybackReturnsBeforeQueuedWorkRuns()
         testPlaybackRunsSeriallyAndReplacesTheActiveSound()
 
@@ -93,6 +94,28 @@ struct CopySoundFeedbackTests {
         expect(
             CopySoundFeedback.playbackVolume == 0.5,
             "copy feedback uses half volume"
+        )
+    }
+
+    private static func testDispatchGateOnlyClaimsOncePerCopy() {
+        var gate = CopySoundDispatchGate()
+        expect(
+            gate.claim(selection: "Frog") == "Frog",
+            "the first terminal outcome claims the configured sound"
+        )
+        expect(
+            gate.claim(selection: "Tink") == nil,
+            "later readable, failure, or timeout outcomes cannot replay the same copy sound"
+        )
+
+        var gateWithoutSelection = CopySoundDispatchGate()
+        expect(
+            gateWithoutSelection.claim(selection: nil) == nil,
+            "an absent selection does not dispatch a sound"
+        )
+        expect(
+            gateWithoutSelection.claim(selection: "Frog") == "Frog",
+            "an absent selection does not consume the copy's single dispatch"
         )
     }
 

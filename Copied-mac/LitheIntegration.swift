@@ -69,10 +69,12 @@ enum LitheCompressionEligibility {
 
     static func invocation(
         for fileURLs: [URL]?,
+        selectionIsComplete: Bool = true,
         isGeneratedByLithe: Bool,
         client: LitheApplicationClient
     ) -> LitheInvocation? {
-        guard !isGeneratedByLithe,
+        guard selectionIsComplete,
+              !isGeneratedByLithe,
               let fileURLs,
               !fileURLs.isEmpty,
               fileURLs.allSatisfy(isSupportedRegularImage),

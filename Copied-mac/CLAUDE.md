@@ -18,6 +18,7 @@ DMG 背景图：放 `.build/dmg_background.png`（440×240），由 `dmg_setting
 CopiedApp.swift             MenuBarExtra + reopen 设置桥接 + AppDelegate + Settings
 ApplicationRelauncher.swift 授权完成后的非激活新实例启动 + 旧实例退出
 ClipboardMonitor.swift      启动首响应 0.025s、首次有效读取/同一不可读写入 3 次/60s 后 0.075s 轮询（含黑名单过滤门）
+ClipboardContentEnrichment.swift  后台补齐文件/图片信息 + 文件夹/包体大小数值进度
 LitheIntegration.swift      Lithe Bundle/剪贴板契约 + 图片文件资格判断 + 非激活打开
 ClipboardTextPolicy.swift   长文本阈值与纯文本主操作策略
 PopupPresentationSettings.swift  默认/轻打扰模式偏好 + 内容映射 + 视觉呈现策略
@@ -72,9 +73,9 @@ UserDefaults 键：`searchEngine`, `launchAtLogin`, `isPaused`, `copyGestureEnab
 
 **Lithe 图片压缩**：仅当剪贴板文件全部为本地普通 JPG/JPEG/PNG、Launch Services 能定位 `com.lithe.app`，且内容不带 Lithe 生成标记时，`ActionResolver` 才把“压缩”设为主操作并同时加入右键菜单。纯位图、混合或不支持的文件选择不触发；Lithe 回写 `com.lithe.generated-files` 与 `com.lithe.request-id`，Copied 用前者阻止压缩回环、用后者区分不同请求的视觉去重。打开 Lithe 时不得激活 App 或写入最近项目。
 
-复制声音默认 Frog，固定使用 `AVAudioPlayer` 的 0.5 音量；设置试听与实际复制共用专用串行队列，声音文件的载入、停止和播放均不阻塞主线程，可选择其他系统声音或 `none`。声音在来源过滤后、视觉去重前投递，因此 500ms 内重复复制相同内容仍会逐次发声；暂停、不可读内容和黑名单来源无声。
+复制声音默认 Frog，固定使用 `AVAudioPlayer` 的 0.5 音量；设置试听与实际复制共用专用串行队列，声音文件的载入、停止和播放均不阻塞主线程，可选择其他系统声音或 `none`。声音在来源过滤后、视觉去重前投递；每个 revision 由门控最多投递一次，成功读取、连续 3 次不可读或硬超时的首个终态均提供听觉确认，因此 500ms 内重复复制相同内容仍会逐次发声；暂停和黑名单来源无声。
 
-**插件系统**：声明式 JSON + 正则，不执行代码。目录为 `~/Library/Application Support/Copied/Plugins/`，只从设置手动安装；规则支持 `multiline`、`menuOnly`，无默认插件。只扫描插件根目录的直接 `.copiedplugin` 子目录，拒绝目录符号链接和不安全 identifier。卸载必须枚举根目录内的安全插件目录、读取 manifest 并精确匹配 identifier，再删除实际目录；禁止根据 identifier 拼接删除路径。通用检测熔断由 `DetectionRegistry` 管理，插件正则另由 `PluginRuntimeSafety` 主动限制。
+**插件系统**：声明式 JSON + 正则，不执行代码。目录为 `~/Library/Application Support/Copied/Plugins/`，只从设置手动安装；规则支持 `multiline`、`menuOnly`，无默认插件。只扫描插件根目录的直接 `.copiedplugin` 子目录，拒绝目录符号链接和不安全 identifier。卸载必须枚举根目录内的安全插件目录、读取 manifest 并精确匹配 identifier，再删除实际目录；禁止根据 identifier 拼接删除路径。通用检测熔断由 `DetectionRegistry` 管理，插件正则另由 `PluginRuntimeSafety` 主动限制。插件 manifest 的空 `label` 或空 `icon` 表示“不覆盖该展示字段”；分析 enrichment 必须分别保留 base content 已有的类型标签和图标，禁止用空字符串清掉基础视觉。
 
 ### 轻打扰模式（PopupPresentationPolicy）
 
@@ -102,7 +103,7 @@ macOS 26+ 用 `.glassEffect(in: .rect(cornerRadius: cardCornerRadius))`；旧系
 
 非 key 窗口用 `.stroke(.primary.opacity(0.15))` 补偿边缘高光。每次 `show()` 必须重建窗口；复用窗口在全屏 Space 长时间运行后可能无法 `orderFront`。
 
-退场动画必须启用 `layerUsesCoreImageFilters`，让 `CIFilter.name` 匹配 keyPath，并覆盖动画回调、`cancelDismiss()`、非动画 dismiss 三条清理路径。
+退场动画必须启用 `layerUsesCoreImageFilters`，让 `CIFilter.name` 匹配 keyPath，并覆盖动画回调、`cancelDismiss()`、非动画 dismiss 三条清理路径。已显示的缩略图必须保留到窗口 `orderOut` 后再清空；旧退场回调仍由 `dismissGeneration` 拦截，禁止清掉新 Toast 的缩略图。
 
 ### 鼠标交互
 
@@ -115,6 +116,10 @@ SwiftUI `Button` 是鼠标 `ToastCommand` 的唯一来源；禁止恢复窗口�
 ### 剪贴板检测
 
 启动后先每 25ms 检查一次 `NSPasteboard.changeCount`，首次有效读取、同一不可读写入尝试 3 次或 60s 后恢复 75ms；有限重试可避免来源 App 首次分阶段写入时被永久跳过。不要在没有端到端 CPU 与延迟测量时继续缩短。用 `pasteboard.types` 判断内容类别，不用 `readObjects`。缩略图策略：`QLThumbnailGenerator` 异步 + SF Symbol 降级。详见 `ClipboardMonitor.swift`。
+
+默认模式或轻打扰的全允许路径必须在观察到新 `changeCount` 后同步 `showPending`，再提交任何剪贴板正文读取；base、enrichment 与 Action 到达后按固有内容重新 fitting，禁止用固定整卡/普通图标/短按钮宽高掩盖异步尺寸变化。Action 更新不得紧接一次无内容变化的 `applyEnrichment`，也不得通过共享动态 `.id` 重建交互按钮。连续 3 次仍不可读时显示普通“已复制”+ `checkmark.circle.fill`，并复用 3 秒 `displayDuration`，不显示错误长文案。
+
+文件夹和无法直接取得大小的包文件使用后台有界遍历：首条详情立即显示数值下界，之后最多每 250ms 且仅在格式化值变化时更新；最终精确值或“至少”下界立即发布并关闭 loading。`ProgressView` 只在 loading 时位于数值右侧，完成后不得保留固定空槽；当前 macOS 的不定进度环在深色玻璃卡片上仍可能按黑色绘制，深色外观只对该原生控件应用 `colorInvert()`，浅色外观保留系统原样；文件软截止到达时保留最后数值下界并移除 loading，不得覆盖成“文件信息不可用”。
 
 生产诊断日志不得写入 `ClipboardContent.preview`、`rawText` 或其他剪贴板正文；只记录内容类型、计数和非敏感状态。需要内容级复现时使用明确的合成测试数据。
 
@@ -159,9 +164,11 @@ rebuild 后签名变化会使 macOS 清掉 `SMAppService` 登录项注册记录�
 
 `ExpandedTextView` 固定宽 360、总高最多 300pt；主 host 只预留几何空间，controller 分层安装原生 `NSTextView/NSScrollView` 和独立按钮 host。正文视口必须从卡片顶边开始、在底栏上方结束；顶部两角按 `cardCornerRadius - horizontalInset` 裁切以贴合卡片外轮廓，但不得重新引入顶部位置偏移。`CALayer.isGeometryFlipped=true` 时视觉顶部对应 `minY` 两角，非 flipped 时对应 `maxY` 两角。初始 12pt 顶距放进可滚动正文的 `textContainerInset`，文档高度取 `NSLayoutManager.usedRect` 再加顶部 12pt 与底部 10pt。底栏高 54pt、左右内边距 16pt，两端按钮圆角 8pt，`updateWindowSize` 上限 340pt；`expandedText` 优先级为结果覆盖层 > 原文 > 文件名+路径。
 
+超过 2,048 UTF-16 单元的展开文本禁止在点击路径同步执行全文 `boundingRect`：几何层先直接预留 300pt 最大高度，经原有展开过渡显示原生 loading 和“正在准备预览…”，再在下一次主队列调度中安装并布局 `NSTextView`。loading 只在原生正文布局完成后结束；期间正文 surface 隐藏、底栏全部禁用，展开/收起/关闭和新 Toast 必须通过 generation 状态使过期任务失效。同一展开文本的原生文档高度需要缓存，收起后再次展开不得重复布局；Reduce Motion 下保留 loading 文案但隐藏旋转动画，深色外观的系统进度环保持可读。
+
 展开态在 `NSPanel` 左右和底部额外保留 16pt 透明阴影边界；顶部不留边界，以免 WindowServer 将窗口约束到屏幕顶边后让展开卡片下移。SwiftUI hosting 保持原尺寸并整体内移，原生正文与底栏继续通过 hosting 坐标换算同步定位，禁止在 SwiftUI 根视图上加 padding 代替窗口边界。
 
-展开期间暂停全部快速触发。展开完成后 Panel 默认成为 key、原生正文成为 first responder，并通过 responder chain 支持拖选、⌘C 和右键菜单；收起时主动 resign key。底栏按钮保持 non-key、无独立背景，统一使用 macOS 原生 bordered 样式，不强制 Liquid Glass；空白区域不响应点击，右下角提供明确的关闭按钮，禁止坐标命中，Escape 无操作。TextEdit 使用 UUID 临时文件并防重入。
+展开期间暂停全部快速触发。展开完成后 Panel 默认成为 key、原生正文成为 first responder，并通过 responder chain 支持拖选、⌘C 和右键菜单；收起时主动 resign key。底栏按钮保持 non-key、无独立背景，不强制 Liquid Glass；普通预览左侧使用纯文字“在文本编辑中打开”的原生 bordered 按钮，预览被截断时只把同一位置改为纯文字“在文本编辑中查看全部”的 bordered prominent 按钮，不添加图标或独立“预览已截断”提示。空白区域不响应点击，右下角提供明确的关闭按钮，禁止坐标命中，Escape 无操作。TextEdit 使用 UUID 临时文件、防重入并接收未截断全文。
 
 展开期间不得启动自动关闭计时器；鼠标移出后保持展开，只有手动关闭、收起或打开 TextEdit 才结束展开态。收起完成后必须按窗口几何位置同步计时器：指针仍在折叠卡片内则保持暂停，已移出才重新开始 3 秒计时；不得依赖视图切换期间可能失效的 hover 回调。
 

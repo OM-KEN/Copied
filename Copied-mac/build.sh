@@ -16,12 +16,16 @@ if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
 fi
 
 SOURCES=(
+    ClipboardPipeline.swift
+    ClipboardContentEnrichment.swift
+    TemporaryTextExport.swift
     CopyGesturePermissionPolicy.swift
     CopyGestureEventSequence.swift
     MouseButtonRecordingStateMachine.swift
     AppLanguage.swift
     ContentKind.swift
     ContentDetection.swift
+    ClipboardDetectionDisplayFacts.swift
     RelativeDateDescription.swift
     KeyboardShortcutSettings.swift
     QuickTriggerModifierKeyPolicy.swift
@@ -112,6 +116,7 @@ swiftc \
     -framework SwiftUI \
     -framework AppKit \
     -framework QuickLookThumbnailing \
+    -framework ImageIO \
     -framework ServiceManagement \
     "${SOURCES[@]}"
 

@@ -92,6 +92,37 @@ struct PopupPresentationPreferences: Equatable {
 }
 
 enum PopupPresentationPolicy {
+    enum CandidateDecision: Equatable {
+        case allAllowed
+        case allDenied
+        case needsClassification
+    }
+
+    static func candidateDecision(
+        preferences: PopupPresentationPreferences,
+        availableKindIDs: Set<String>
+    ) -> CandidateDecision {
+        guard preferences.mode == .lowInterruption else { return .allAllowed }
+        let ordinaryAllAllowed = preferences.showShortPlainText
+            && preferences.showLongPlainText
+            && preferences.showImages
+            && preferences.showFiles
+        if ordinaryAllAllowed && preferences.disabledKindIDs.isEmpty {
+            return .allAllowed
+        }
+
+        let disabled = Set(preferences.disabledKindIDs.map(normalizedKindID))
+        let allKindsDenied = Set(availableKindIDs.map(normalizedKindID)).isSubset(of: disabled)
+        if !preferences.showShortPlainText,
+           !preferences.showLongPlainText,
+           !preferences.showImages,
+           !preferences.showFiles,
+           allKindsDenied {
+            return .allDenied
+        }
+        return .needsClassification
+    }
+
     static func presentationContentType(
         sourceContentType: PopupPresentationSourceContentType,
         fileURLCount: Int,
@@ -124,14 +155,27 @@ enum PopupPresentationPolicy {
             return preferences.showFiles
         case .text:
             if let primaryKindID {
-                return !preferences.disabledKindIDs.contains(
-                    normalizedKindID(primaryKindID)
-                )
+                let disabled = Set(preferences.disabledKindIDs.map(normalizedKindID))
+                return !disabled.contains(normalizedKindID(primaryKindID))
             }
             return textLength >= ClipboardTextPolicy.longTextThreshold
                 ? preferences.showLongPlainText
                 : preferences.showShortPlainText
         }
+    }
+
+    /// Unknown or partial file classification is denied when image/file toggles disagree.
+    static func shouldPresentFiles(
+        allFilesAreImages: Bool?,
+        classificationIsComplete: Bool,
+        preferences: PopupPresentationPreferences
+    ) -> Bool {
+        guard preferences.mode == .lowInterruption else { return true }
+        guard classificationIsComplete, let allFilesAreImages else {
+            return preferences.showImages == preferences.showFiles
+                && preferences.showFiles
+        }
+        return allFilesAreImages ? preferences.showImages : preferences.showFiles
     }
 
     static func normalizedKindID(_ kindID: String) -> String {

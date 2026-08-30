@@ -1,5 +1,10 @@
 import SwiftUI
 
+enum ToastEntranceStyle: Equatable {
+    case standard
+    case rapidReplacement
+}
+
 private struct MetadataWidthReader: View {
     let onWidthChanged: (CGFloat) -> Void
 
@@ -276,6 +281,7 @@ private struct AutoScrollingMetadataRow<Content: View>: View {
 
 struct ToastView: View {
     let viewModel: ToastViewModel
+    let entranceStyle: ToastEntranceStyle
     let onHoverChanged: (Bool) -> Void
     let onCommand: (ToastCommand<any ClipboardAction>) -> Void
     let onExpandedTextFrameChanged: (CGRect?) -> Void
@@ -289,6 +295,8 @@ struct ToastView: View {
     @State private var isResultHovered = false
     @State private var fallbackMaterialReady = false
     @State private var isCardHovered = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var colorScheme
 
     static let cardCornerRadius: CGFloat = 32
 
@@ -312,6 +320,7 @@ struct ToastView: View {
             if viewModel.isExpanded {
                 ExpandedTextView(
                     rawText: viewModel.expandedText,
+                    isLoading: viewModel.isExpandedTextLoading,
                     onTextFrameChanged: onExpandedTextFrameChanged
                 )
             } else {
@@ -351,12 +360,17 @@ struct ToastView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+                .transition(.opacity)
                 .allowsHitTesting(false)
+                .animation(
+                    reduceMotion ? nil : .easeInOut(duration: 0.14),
+                    value: viewModel.contentTransitionID
+                )
 
                 VStack(alignment: .leading, spacing: 8) {
                     // ── Preview or Result (crossfade) ──────────
                     Button {
-                        guard !viewModel.isStartupNotice else { return }
+                        guard viewModel.canExpand else { return }
                         onCommand(.expand)
                     } label: {
                         ZStack(alignment: .leading) {
@@ -364,6 +378,8 @@ struct ToastView: View {
                                 .font(.system(size: 14, weight: .medium))
                                 .foregroundStyle(.primary)
                                 .lineLimit(1)
+                                .id("preview-\(viewModel.previewText)")
+                                .transition(.opacity)
                                 .opacity(viewModel.resultOverlay == nil ? 1.0 : 0)
                                 .background {
                                     if isPreviewHovered && viewModel.resultOverlay == nil {
@@ -372,8 +388,9 @@ struct ToastView: View {
                                     }
                                 }
 
-                            if let overlay = viewModel.resultOverlay {
-                                let lines = overlay.displayText.components(separatedBy: "\n")
+                            if viewModel.resultOverlay != nil {
+                                let lines = viewModel.resultOverlayDisplayText
+                                    .components(separatedBy: "\n")
                                 ScrollView(.vertical) {
                                     VStack(alignment: .leading, spacing: 4) {
                                         ForEach(lines.indices, id: \.self) { i in
@@ -385,6 +402,8 @@ struct ToastView: View {
                                     }
                                 }
                                 .frame(maxHeight: 200)
+                                .id("result-\(viewModel.resultOverlayDisplayText)")
+                                .transition(.opacity)
                                 .opacity(viewModel.resultOverlay != nil ? 1.0 : 0)
                                 .background {
                                     if isResultHovered && viewModel.resultOverlay != nil {
@@ -400,7 +419,7 @@ struct ToastView: View {
                         )
                     }
                     .buttonStyle(.plain)
-                    .allowsHitTesting(!viewModel.isStartupNotice)
+                    .allowsHitTesting(viewModel.canExpand)
                     .onHover { hovering in
                         isPreviewHovered = hovering
                         isResultHovered = hovering
@@ -435,10 +454,30 @@ struct ToastView: View {
                                     isCardHovered: isCardHovered,
                                     resetToken: AnyHashable(viewModel.detailInfo)
                                 ) {
-                                    Text(viewModel.detailInfo)
-                                        .font(.system(size: 12, weight: .medium))
-                                        .foregroundStyle(.secondary)
+                                    let showsProgress = (viewModel.phase == .loading
+                                        || viewModel.detailIsLoading) && !reduceMotion
+                                    HStack(spacing: 4) {
+                                        Text(viewModel.detailInfo)
+                                            .font(.system(size: 12, weight: .medium))
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(1)
+                                        if showsProgress {
+                                            Group {
+                                                if colorScheme == .dark {
+                                                    ProgressView()
+                                                        .controlSize(.mini)
+                                                        .colorInvert()
+                                                } else {
+                                                    ProgressView()
+                                                        .controlSize(.mini)
+                                                }
+                                            }
+                                            .accessibilityHidden(true)
+                                        }
+                                    }
                                 }
+                                .id("detail-\(viewModel.detailInfo)")
+                                .transition(.opacity)
                             }
                         }
                         .allowsHitTesting(false)
@@ -505,6 +544,8 @@ struct ToastView: View {
                             .frame(height: 14)
                             Text(action.title)
                                 .font(.system(size: 12, weight: .medium))
+                                .lineLimit(1)
+                                .truncationMode(.tail)
                         }
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)
@@ -562,6 +603,8 @@ struct ToastView: View {
         .entranceAnimation(
             animateIn: $animateIn,
             fallbackMaterialReady: $fallbackMaterialReady,
+            reduceMotion: reduceMotion,
+            style: entranceStyle,
             onDismiss: { onCommand(.dismiss) }
         )
         .onHover { hovering in
@@ -570,7 +613,7 @@ struct ToastView: View {
         }
         .coordinateSpace(name: "ToastRoot")
         .contextMenu {
-            if !viewModel.isStartupNotice {
+            if viewModel.isContentReady {
                 ToastContextMenuContent(
                     viewModel: viewModel,
                     onCommand: onCommand,
@@ -584,6 +627,11 @@ struct ToastView: View {
         .onChange(of: viewModel.resultOverlay) {
             onNeedsLayout?()
         }
+        .onChange(of: viewModel.contentTransitionID) {
+            onNeedsLayout?()
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(accessibilityStatus)
     }
 
     // ── Helpers ────────────────────────────────────────────
@@ -614,6 +662,21 @@ struct ToastView: View {
             return String(raw.prefix(100))
         }
         return viewModel.previewText
+    }
+
+    private var accessibilityStatus: String {
+        switch viewModel.phase {
+        case .startup:
+            return viewModel.previewText
+        case .pending:
+            return String(localized: "已复制")
+        case .loading:
+            return String(localized: "已复制，正在读取内容")
+        case .ready:
+            return "\(viewModel.previewText)，\(String(localized: "复制自")) \(viewModel.sourceAppName)"
+        case .failure:
+            return String(localized: "已复制")
+        }
     }
 }
 
@@ -679,10 +742,40 @@ private struct ToastContextMenuContent: View {
 
 // MARK: - Expanded Text View
 
+private struct ExpandedTextLoadingView: View {
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        VStack(spacing: 8) {
+            if !reduceMotion {
+                Group {
+                    if colorScheme == .dark {
+                        ProgressView()
+                            .controlSize(.small)
+                            .colorInvert()
+                    } else {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
+                }
+                .accessibilityHidden(true)
+            }
+
+            Text("正在准备预览…")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.secondary)
+        }
+        .allowsHitTesting(false)
+        .accessibilityElement(children: .combine)
+    }
+}
+
 /// Expanded controls remain SwiftUI-owned. The transparent body reserves the
 /// exact layout used by the sibling AppKit text surface in ToastWindowController.
 private struct ExpandedTextView: View {
     let rawText: String
+    let isLoading: Bool
     let onTextFrameChanged: (CGRect?) -> Void
 
     var body: some View {
@@ -691,6 +784,15 @@ private struct ExpandedTextView: View {
                 width: ExpandedTextLayoutMetrics.cardWidth,
                 height: ExpandedTextLayoutMetrics.totalHeight(for: rawText)
             )
+            .overlay(alignment: .top) {
+                if isLoading {
+                    ExpandedTextLoadingView()
+                        .frame(
+                            width: ExpandedTextLayoutMetrics.textWidth,
+                            height: ExpandedTextLayoutMetrics.viewportHeight(for: rawText)
+                        )
+                }
+            }
             .overlay {
                 GeometryReader { proxy in
                     let cardFrame = proxy.frame(in: .named("ToastRoot"))
@@ -712,6 +814,7 @@ private struct ExpandedTextView: View {
 }
 
 struct ExpandedBottomBarControlsView: View {
+    let viewModel: ToastViewModel
     let onHoverChanged: (Bool) -> Void
     let onCommand: (ToastCommand<any ClipboardAction>) -> Void
 
@@ -722,8 +825,18 @@ struct ExpandedBottomBarControlsView: View {
 
     private var controls: some View {
         HStack(spacing: 8) {
-            Button("在文本编辑中打开") { onCommand(.editInTextEdit) }
+            if viewModel.currentExpandedTextWasTruncated {
+                Button("在文本编辑中查看全部") {
+                    onCommand(.editInTextEdit)
+                }
+                .buttonStyle(.borderedProminent)
                 .buttonBorderShape(.roundedRectangle(radius: 8))
+                .disabled(viewModel.isTextExportInProgress)
+            } else {
+                Button("在文本编辑中打开") { onCommand(.editInTextEdit) }
+                    .buttonBorderShape(.roundedRectangle(radius: 8))
+                    .disabled(viewModel.isTextExportInProgress)
+            }
             Spacer(minLength: 8)
             Button("收起") { onCommand(.collapse) }
                 .buttonBorderShape(.roundedRectangle(radius: 8))
@@ -735,6 +848,7 @@ struct ExpandedBottomBarControlsView: View {
             width: ExpandedTextLayoutMetrics.cardWidth,
             height: ExpandedTextLayoutMetrics.bottomBarVisualHeight
         )
+        .disabled(viewModel.isExpandedTextLoading || viewModel.isExpandedTransitioning)
         .onHover(perform: onHoverChanged)
     }
 }
@@ -760,12 +874,15 @@ extension View {
     fileprivate func entranceAnimation(
         animateIn: Binding<Bool>,
         fallbackMaterialReady: Binding<Bool>,
+        reduceMotion: Bool,
+        style: ToastEntranceStyle,
         onDismiss: @escaping () -> Void
     ) -> some View {
+        let usesStandardMotion = style == .standard
         self
-            .scaleEffect(animateIn.wrappedValue ? 1 : 0.2)
-            .offset(y: animateIn.wrappedValue ? 0 : -56)
-            .blur(radius: animateIn.wrappedValue ? 0 : 12)
+            .scaleEffect(animateIn.wrappedValue || !usesStandardMotion ? 1 : 0.2)
+            .offset(y: animateIn.wrappedValue || !usesStandardMotion ? 0 : -56)
+            .blur(radius: animateIn.wrappedValue || !usesStandardMotion ? 0 : 12)
             .opacity(animateIn.wrappedValue ? 1 : 0)
             .padding(.top, 20)
             .padding(.bottom, 12)
@@ -778,9 +895,16 @@ extension View {
                 .buttonStyle(.plain)
             }
             .onAppear {
-                withAnimation(.interpolatingSpring(
-                    mass: 1.2, stiffness: 120, damping: 14, initialVelocity: 3
-                )) {
+                let animation: Animation? = if reduceMotion {
+                    nil
+                } else if usesStandardMotion {
+                    .interpolatingSpring(
+                        mass: 1.2, stiffness: 120, damping: 14, initialVelocity: 3
+                    )
+                } else {
+                    .easeOut(duration: 0.08)
+                }
+                withAnimation(animation) {
                     animateIn.wrappedValue = true
                 }
                 if #available(macOS 26, *) { return }  // glassEffect 已处理，无需材质降级

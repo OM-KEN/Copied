@@ -12,6 +12,16 @@ protocol CopySoundPlaying: AnyObject {
 
 extension AVAudioPlayer: CopySoundPlaying {}
 
+struct CopySoundDispatchGate {
+    private var hasClaimed = false
+
+    mutating func claim(selection: String?) -> String? {
+        guard !hasClaimed, let selection else { return nil }
+        hasClaimed = true
+        return selection
+    }
+}
+
 final class CopySoundPlaybackEngine: @unchecked Sendable {
     typealias PlayerFactory = @Sendable (URL) throws -> any CopySoundPlaying
 

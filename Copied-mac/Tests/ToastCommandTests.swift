@@ -14,6 +14,23 @@ private enum TestAction: Equatable {
     case secondary
 }
 
+private final class LockedTestValue<Value>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: Value
+
+    init(_ value: Value) {
+        storage = value
+    }
+
+    func set(_ value: Value) {
+        lock.withLock { storage = value }
+    }
+
+    func get() -> Value {
+        lock.withLock { storage }
+    }
+}
+
 @main
 struct ToastCommandTests {
     static func main() {
@@ -25,6 +42,7 @@ struct ToastCommandTests {
         panelConfigurationSupportsNonactivatingFirstMouse()
         expandedTextSurfaceScopesKeyBehavior()
         expandedTextMetricsAreBounded()
+        pathologicalExpandedTextGeometryReturnsWithinWatchdog()
         expandedTextDocumentReservesBottomBarClearance()
         expandedWindowKeepsContentTopAlignedAndReservesShadowOutset()
         expandedTextTopCornersFollowLayerGeometry()
@@ -146,6 +164,25 @@ struct ToastCommandTests {
         )
     }
 
+    private static func pathologicalExpandedTextGeometryReturnsWithinWatchdog() {
+        let pathological = String(repeating: "aaaaaaaaaaaaaaa\n", count: 4_096)
+        expect(pathological.utf16.count == 65_536, "pathological fixture reaches the display bound")
+
+        let completion = DispatchSemaphore(value: 0)
+        let measuredHeight = LockedTestValue<CGFloat?>(nil)
+        DispatchQueue(label: "com.copied.tests.expanded-text-watchdog").async {
+            measuredHeight.set(ExpandedTextLayoutMetrics.totalHeight(for: pathological))
+            completion.signal()
+        }
+
+        let finished = completion.wait(timeout: .now() + 1) == .success
+        expect(finished, "pathological expanded geometry returns within one second")
+        expect(
+            measuredHeight.get() == ExpandedTextLayoutMetrics.maxTotalHeight,
+            "pathological expanded geometry uses the maximum shell height"
+        )
+    }
+
     private static func expandedTextDocumentReservesBottomBarClearance() {
         let viewportHeight: CGFloat = 288
         let usedTextMaxY: CGFloat = 605
@@ -168,6 +205,16 @@ struct ToastCommandTests {
                 usedTextMaxY: 100
             ) == viewportHeight,
             "short native text does not create unnecessary scrolling"
+        )
+        let cap = ExpandedTextLayoutMetrics.maximumDocumentHeight
+        expect(cap.isFinite && cap > viewportHeight,
+               "native text document-height cap is not finite")
+        expect(
+            ExpandedTextLayoutMetrics.documentHeight(
+                viewportHeight: viewportHeight,
+                usedTextMaxY: cap * 2
+            ) == cap,
+            "native text document height exceeds the 65,536-derived cap"
         )
     }
 

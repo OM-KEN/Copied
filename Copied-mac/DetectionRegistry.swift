@@ -38,6 +38,7 @@ final class DetectionRegistry {
 
     // ── 状态 ────────────────────────────────────────────────
 
+    private let stateLock = NSLock()
     private var detectors: [any ContentDetectorProtocol] = []
 
     /// 熔断冷却截止时间。
@@ -47,26 +48,42 @@ final class DetectionRegistry {
     private var throttleCounts: [String: Int] = [:]
 
     /// 被自动禁用的类型 ID 集合。
-    private(set) var disabledKinds: Set<String> = []
+    private var automaticallyDisabledKinds: Set<String> = []
+
+    var disabledKinds: Set<String> {
+        stateLock.withLock { automaticallyDisabledKinds }
+    }
 
     /// 用户手动禁用的类型 ID 集合（持久化）。
     var userDisabledKinds: Set<String> {
         get {
-            let arr = UserDefaults.standard.stringArray(forKey: "disabledContentKinds") ?? []
-            return Set(arr)
+            stateLock.withLock {
+                let values = UserDefaults.standard.stringArray(
+                    forKey: "disabledContentKinds"
+                ) ?? []
+                return Set(values)
+            }
         }
         set {
-            UserDefaults.standard.set(Array(newValue), forKey: "disabledContentKinds")
+            stateLock.withLock {
+                UserDefaults.standard.set(Array(newValue), forKey: "disabledContentKinds")
+            }
         }
     }
 
     /// 用户自定义优先级（持久化）。
     var userPriorities: [String: Int] {
         get {
-            UserDefaults.standard.dictionary(forKey: "contentKindPriorities") as? [String: Int] ?? [:]
+            stateLock.withLock {
+                UserDefaults.standard.dictionary(
+                    forKey: "contentKindPriorities"
+                ) as? [String: Int] ?? [:]
+            }
         }
         set {
-            UserDefaults.standard.set(newValue, forKey: "contentKindPriorities")
+            stateLock.withLock {
+                UserDefaults.standard.set(newValue, forKey: "contentKindPriorities")
+            }
         }
     }
 
@@ -75,9 +92,10 @@ final class DetectionRegistry {
     /// 所有注册过的 ContentKind（包括已禁用的），去重。
     /// 用于 Settings UI 展示完整列表。
     var allRegisteredKinds: [ContentKind] {
+        let detectorSnapshot = stateLock.withLock { detectors }
         var seen: Set<String> = []
         var kinds: [ContentKind] = []
-        for detector in detectors {
+        for detector in detectorSnapshot {
             guard !seen.contains(detector.kind.id) else { continue }
             seen.insert(detector.kind.id)
             kinds.append(detector.kind)
@@ -88,54 +106,90 @@ final class DetectionRegistry {
     /// 所有活跃的检测器，按有效优先级降序排列。
     /// 被禁用/熔断冷却中的检测器排在末尾（仍会被遍历，但 detectAll 会跳过）。
     var activeDetectors: [any ContentDetectorProtocol] {
-        detectors
+        let snapshot = stateLock.withLock {
+            (
+                detectors: detectors,
+                throttledUntil: throttledUntil,
+                automaticallyDisabled: automaticallyDisabledKinds,
+                userDisabled: Set(
+                    UserDefaults.standard.stringArray(
+                        forKey: "disabledContentKinds"
+                    ) ?? []
+                ),
+                priorities: UserDefaults.standard.dictionary(
+                    forKey: "contentKindPriorities"
+                ) as? [String: Int] ?? [:]
+            )
+        }
+        let now = Date()
+        return snapshot.detectors
             .filter {
                 AppLanguage.isContentKindAvailable($0.kind)
-                    && !userDisabledKinds.contains($0.kind.id)
-                    && !disabledKinds.contains($0.kind.id)
+                    && !snapshot.userDisabled.contains($0.kind.id)
+                    && !snapshot.automaticallyDisabled.contains($0.kind.id)
             }
             .sorted { lhs, rhs in
-                let lhsThrottled = throttledUntil[lhs.kind.id].map { $0 > Date() } ?? false
-                let rhsThrottled = throttledUntil[rhs.kind.id].map { $0 > Date() } ?? false
+                let lhsThrottled = snapshot.throttledUntil[lhs.kind.id].map { $0 > now } ?? false
+                let rhsThrottled = snapshot.throttledUntil[rhs.kind.id].map { $0 > now } ?? false
                 if lhsThrottled != rhsThrottled { return !lhsThrottled }  // 未熔断的优先
-                return effectivePriority(for: lhs) > effectivePriority(for: rhs)
+                return effectivePriority(for: lhs, priorities: snapshot.priorities)
+                    > effectivePriority(for: rhs, priorities: snapshot.priorities)
             }
     }
 
     // MARK: - Registration
 
     func register(_ detector: any ContentDetectorProtocol) {
-        detectors.append(detector)
+        stateLock.withLock { detectors.append(detector) }
     }
 
     func unregister(kind: ContentKind) {
-        detectors.removeAll { $0.kind.id == kind.id }
+        stateLock.withLock {
+            detectors.removeAll { $0.kind.id == kind.id }
+        }
     }
 
     /// 卸载指定插件的所有检测器。
     func unregisterPlugin(identifier: String) {
-        detectors.removeAll { detector in
-            if case .plugin(let id) = detector.kind.source, id == identifier {
-                return true
+        stateLock.withLock {
+            detectors.removeAll { detector in
+                if case .plugin(let id) = detector.kind.source, id == identifier {
+                    return true
+                }
+                return false
             }
-            return false
         }
     }
 
     /// 启用/禁用一个类型。
     func setEnabled(_ enabled: Bool, kindID: String) {
-        if enabled {
-            userDisabledKinds.remove(kindID)
-            disabledKinds.remove(kindID)
-            throttleCounts[kindID] = 0
-            throttledUntil.removeValue(forKey: kindID)
-        } else {
-            userDisabledKinds.insert(kindID)
+        stateLock.withLock {
+            var userDisabled = Set(
+                UserDefaults.standard.stringArray(forKey: "disabledContentKinds") ?? []
+            )
+            if enabled {
+                userDisabled.remove(kindID)
+                automaticallyDisabledKinds.remove(kindID)
+                throttleCounts[kindID] = 0
+                throttledUntil.removeValue(forKey: kindID)
+            } else {
+                userDisabled.insert(kindID)
+            }
+            UserDefaults.standard.set(
+                Array(userDisabled),
+                forKey: "disabledContentKinds"
+            )
         }
     }
 
     func isEnabled(kindID: String) -> Bool {
-        !userDisabledKinds.contains(kindID) && !disabledKinds.contains(kindID)
+        stateLock.withLock {
+            let userDisabled = Set(
+                UserDefaults.standard.stringArray(forKey: "disabledContentKinds") ?? []
+            )
+            return !userDisabled.contains(kindID)
+                && !automaticallyDisabledKinds.contains(kindID)
+        }
     }
 
     // MARK: - Detection
@@ -158,7 +212,9 @@ final class DetectionRegistry {
             }
 
             // 熔断 2: 冷却期未过
-            if let until = throttledUntil[detector.kind.id], Date() < until {
+            if stateLock.withLock({
+                throttledUntil[detector.kind.id].map { Date() < $0 } ?? false
+            }) {
                 continue
             }
 
@@ -168,19 +224,27 @@ final class DetectionRegistry {
 
             if elapsed > Self.detectorTimeout {
                 // 超时 → 熔断
-                throttledUntil[detector.kind.id] = Date().addingTimeInterval(Self.throttleCooldown)
-                throttleCounts[detector.kind.id, default: 0] += 1
+                let wasAutoDisabled = stateLock.withLock { () -> Bool in
+                    throttledUntil[detector.kind.id] = Date()
+                        .addingTimeInterval(Self.throttleCooldown)
+                    throttleCounts[detector.kind.id, default: 0] += 1
+                    if throttleCounts[detector.kind.id, default: 0]
+                        >= Self.maxConsecutiveThrottles {
+                        automaticallyDisabledKinds.insert(detector.kind.id)
+                        return true
+                    }
+                    return false
+                }
                 NSLog("Copied: throttled '\(detector.kind.id)' (\(String(format: "%.1f", elapsed * 1000))ms)")
 
-                if throttleCounts[detector.kind.id, default: 0] >= Self.maxConsecutiveThrottles {
-                    disabledKinds.insert(detector.kind.id)
+                if wasAutoDisabled {
                     NSLog("Copied: auto-disabled '\(detector.kind.id)' after \(Self.maxConsecutiveThrottles) throttles")
                 }
                 continue
             }
 
             // 成功 → 重置连续熔断计数
-            throttleCounts[detector.kind.id] = 0
+            stateLock.withLock { throttleCounts[detector.kind.id] = 0 }
 
             if let detection = detection {
                 results.append(detection)
@@ -217,7 +281,10 @@ final class DetectionRegistry {
     // MARK: - Helpers
 
     /// 获取检测器的有效优先级（用户覆盖 > 默认）。
-    private func effectivePriority(for detector: any ContentDetectorProtocol) -> Int {
-        userPriorities[detector.kind.id] ?? detector.priority
+    private func effectivePriority(
+        for detector: any ContentDetectorProtocol,
+        priorities: [String: Int]
+    ) -> Int {
+        priorities[detector.kind.id] ?? detector.priority
     }
 }
