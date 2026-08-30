@@ -10,6 +10,9 @@ final class ToastWindowController {
     private var expandedBottomBarControlsHostingView: ToastHostingView?
     private var expandedTextFrameInHosting: CGRect?
     private var expandedTextSurfaceRequestedVisible = false
+    private var deferredExpandedTextGeneration = 0
+    private var preparedExpandedText: String?
+    private var preparedExpandedTextDocumentHeight: CGFloat?
     private var dismissTimer: Timer?
     private var viewModel = ToastViewModel()
     private let commandDispatcher = ToastCommandDispatcher<any ClipboardAction>()
@@ -191,6 +194,7 @@ final class ToastWindowController {
         self.pausesDismissWhileHovered = pausesDismissWhileHovered
         isDismissing = false
         isExpandingOrCollapsing = false
+        resetExpandedTextLayoutState()
         dismissGeneration += 1
         dismissTimerGeneration &+= 1
         contentView?.layer?.filters = nil
@@ -399,7 +403,6 @@ final class ToastWindowController {
             // Regular actions: perform then dismiss.
             if !isDismissing {
                 isDismissing = true
-                viewModel.cancelAsyncThumbnail()
                 clearCurrentRevisionForDismissal()
                 dismissToast(animated: true)
             }
@@ -409,7 +412,17 @@ final class ToastWindowController {
     private func handleExpand() {
         guard viewModel.canExpand, !viewModel.isExpanded,
               !isExpandingOrCollapsing else { return }
+        let expandedText = viewModel.expandedText
+        let alreadyPrepared = preparedExpandedText == expandedText
+            && preparedExpandedTextDocumentHeight != nil
+        let requiresDeferredLayout = ExpandedTextLayoutMetrics.requiresDeferredLoading(
+            for: expandedText
+        ) && !alreadyPrepared
+        deferredExpandedTextGeneration &+= 1
+        let deferredGeneration = deferredExpandedTextGeneration
+        viewModel.isExpandedTextLoading = requiresDeferredLayout
         isExpandingOrCollapsing = true
+        viewModel.isExpandedTransitioning = true
         quickTriggerCoordinator.suspend()
         cancelDismiss()
         pauseDismissTimer()
@@ -428,14 +441,38 @@ final class ToastWindowController {
                 guard let self else { return }
                 self.removeWindowBlur()
                 self.isExpandingOrCollapsing = false
-                self.focusExpandedText()
+                self.viewModel.isExpandedTransitioning = false
+                if requiresDeferredLayout {
+                    self.scheduleDeferredExpandedTextLayout(generation: deferredGeneration)
+                } else {
+                    self.focusExpandedText()
+                }
             }
+        }
+    }
+
+    private func scheduleDeferredExpandedTextLayout(generation: Int) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self,
+                  self.deferredExpandedTextGeneration == generation,
+                  self.viewModel.isExpanded,
+                  self.viewModel.isExpandedTextLoading,
+                  !self.isExpandingOrCollapsing,
+                  !self.isDismissing,
+                  self.window?.isVisible == true,
+                  self.expandedTextFrameInHosting != nil else { return }
+            self.layoutExpandedTextSurface(allowWhileLoading: true)
+            self.viewModel.isExpandedTextLoading = false
+            self.expandedTextScrollView?.isHidden = self.expandedTextFrameInHosting == nil
+            self.focusExpandedText()
         }
     }
 
     private func handleCollapse() {
         guard viewModel.isExpanded, !isExpandingOrCollapsing else { return }
+        deferredExpandedTextGeneration &+= 1
         isExpandingOrCollapsing = true
+        viewModel.isExpandedTransitioning = true
         window?.resignKey()
 
         // Phase 1: blur + fade out
@@ -444,6 +481,7 @@ final class ToastWindowController {
             guard let self else { return }
             // Switch content while invisible
             self.setExpandedTextSurfaceVisible(false)
+            self.viewModel.isExpandedTextLoading = false
             self.viewModel.isExpanded = false
             self.updateWindowSize(animated: false)
 
@@ -452,6 +490,7 @@ final class ToastWindowController {
                 guard let self else { return }
                 self.removeWindowBlur()
                 self.isExpandingOrCollapsing = false
+                self.viewModel.isExpandedTransitioning = false
                 if self.isMouseInsideWindow() {
                     self.pauseDismissTimer()
                 } else {
@@ -547,7 +586,6 @@ final class ToastWindowController {
             }
             self.finishTextExportIfCurrent(token)
             self.isDismissing = true
-            self.viewModel.cancelAsyncThumbnail()
             self.clearCurrentRevisionForDismissal()
             self.dismissToast(animated: true)
         }
@@ -567,7 +605,6 @@ final class ToastWindowController {
     private func handleDismiss() {
         guard !isDismissing, !isExpandingOrCollapsing else { return }
         isDismissing = true
-        viewModel.cancelAsyncThumbnail()
         clearCurrentRevisionForDismissal()
         dismissToast(animated: true)
     }
@@ -620,7 +657,6 @@ final class ToastWindowController {
                   self.dismissTimerGeneration == generation,
                   !self.isDismissing else { return }
             self.isDismissing = true
-            self.viewModel.cancelAsyncThumbnail()
             self.clearCurrentRevisionForDismissal()
             self.dismissToast(animated: true)
         }
@@ -651,6 +687,7 @@ final class ToastWindowController {
     }
 
     private func clearCurrentRevisionForDismissal() {
+        deferredExpandedTextGeneration &+= 1
         cancelResourcesForCurrentRevision()
         currentRevision = nil
     }
@@ -661,6 +698,14 @@ final class ToastWindowController {
     }
 
     // MARK: - Window
+
+    private func resetExpandedTextLayoutState() {
+        deferredExpandedTextGeneration &+= 1
+        preparedExpandedText = nil
+        preparedExpandedTextDocumentHeight = nil
+        viewModel.isExpandedTextLoading = false
+        viewModel.isExpandedTransitioning = false
+    }
 
     private func installExpandedTextSurface() {
         guard let contentView else { return }
@@ -728,7 +773,7 @@ final class ToastWindowController {
         expandedBottomBarControlsHostingView = bottomBarControlsHosting
     }
 
-    private func layoutExpandedTextSurface() {
+    private func layoutExpandedTextSurface(allowWhileLoading: Bool = false) {
         guard viewModel.isExpanded,
               let contentView,
               let hostingView,
@@ -737,9 +782,6 @@ final class ToastWindowController {
               let textView = expandedTextView,
               let bottomBarControlsHosting = expandedBottomBarControlsHostingView else { return }
 
-        textView.textStorage?.setAttributedString(
-            ExpandedTextLayoutMetrics.attributedText(viewModel.expandedText)
-        )
         scrollView.frame = hostingView.convert(frameInHosting, to: contentView).integral
         let cardTop = frameInHosting.minY
         let bottomBarFrameInHosting = CGRect(
@@ -760,23 +802,37 @@ final class ToastWindowController {
             isGeometryFlipped: scrollView.layer?.isGeometryFlipped ?? scrollView.isFlipped
         )
 
+        guard allowWhileLoading || !viewModel.isExpandedTextLoading else { return }
+
         let viewportSize = scrollView.contentSize
         textView.setFrameSize(NSSize(width: viewportSize.width, height: viewportSize.height))
-        if let textContainer = textView.textContainer {
-            textContainer.containerSize = NSSize(
-                width: viewportSize.width,
-                height: ExpandedTextLayoutMetrics.maximumDocumentHeight
+        let expandedText = viewModel.expandedText
+        let documentHeight: CGFloat
+        if preparedExpandedText == expandedText,
+           let preparedExpandedTextDocumentHeight {
+            documentHeight = preparedExpandedTextDocumentHeight
+        } else {
+            textView.textStorage?.setAttributedString(
+                ExpandedTextLayoutMetrics.attributedText(expandedText)
             )
-            textContainer.widthTracksTextView = true
-            textView.layoutManager?.ensureLayout(for: textContainer)
+            if let textContainer = textView.textContainer {
+                textContainer.containerSize = NSSize(
+                    width: viewportSize.width,
+                    height: ExpandedTextLayoutMetrics.maximumDocumentHeight
+                )
+                textContainer.widthTracksTextView = true
+                textView.layoutManager?.ensureLayout(for: textContainer)
+            }
+            let usedTextRect = textView.textContainer.flatMap {
+                textView.layoutManager?.usedRect(for: $0)
+            } ?? .zero
+            documentHeight = ExpandedTextLayoutMetrics.documentHeight(
+                viewportHeight: viewportSize.height,
+                usedTextMaxY: usedTextRect.maxY
+            )
+            preparedExpandedText = expandedText
+            preparedExpandedTextDocumentHeight = documentHeight
         }
-        let usedTextRect = textView.textContainer.flatMap {
-            textView.layoutManager?.usedRect(for: $0)
-        } ?? .zero
-        let documentHeight = ExpandedTextLayoutMetrics.documentHeight(
-            viewportHeight: viewportSize.height,
-            usedTextMaxY: usedTextRect.maxY
-        )
         textView.setFrameSize(NSSize(width: viewportSize.width, height: documentHeight))
         scrollView.hasVerticalScroller = documentHeight > viewportSize.height + 0.5
         scrollView.contentView.scroll(to: .zero)
@@ -792,8 +848,13 @@ final class ToastWindowController {
         }
         if expandedTextSurfaceRequestedVisible && viewModel.isExpanded {
             layoutExpandedTextSurface()
-            expandedTextScrollView?.isHidden = false
+            expandedTextScrollView?.isHidden = viewModel.isExpandedTextLoading
             expandedBottomBarControlsHostingView?.isHidden = false
+            if viewModel.isExpandedTextLoading {
+                scheduleDeferredExpandedTextLayout(
+                    generation: deferredExpandedTextGeneration
+                )
+            }
         }
     }
 
@@ -802,7 +863,9 @@ final class ToastWindowController {
         if visible {
             layoutExpandedTextSurface()
         }
-        expandedTextScrollView?.isHidden = !visible || expandedTextFrameInHosting == nil
+        expandedTextScrollView?.isHidden = !visible
+            || expandedTextFrameInHosting == nil
+            || viewModel.isExpandedTextLoading
         expandedBottomBarControlsHostingView?.isHidden = !visible || expandedTextFrameInHosting == nil
     }
 
@@ -908,6 +971,7 @@ final class ToastWindowController {
                 self.contentView?.layer?.filters = nil
                 self.contentView?.layer?.removeAnimation(forKey: "dismissBlurAnim")
                 self.window?.orderOut(nil)
+                self.viewModel.cancelAsyncThumbnail()
                 self.isDismissing = false
                 self.removeAllMonitors()
                 if releasesPresentationAfterDismiss {
@@ -918,6 +982,7 @@ final class ToastWindowController {
             dismissGeneration += 1
             contentView?.layer?.filters = nil
             window?.orderOut(nil)
+            viewModel.cancelAsyncThumbnail()
             isDismissing = false
             if releasesPresentationAfterDismiss {
                 releaseStartupNoticePresentation()
@@ -934,6 +999,7 @@ final class ToastWindowController {
     }
 
     private func releasePresentationSurfaces() {
+        resetExpandedTextLayoutState()
         hostingView?.removeFromSuperview()
         hostingView = nil
         window = nil

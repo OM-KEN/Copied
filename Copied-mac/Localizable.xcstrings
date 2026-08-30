@@ -15,6 +15,13 @@
         "zh-Hant": { "stringUnit": { "state": "translated", "value": "正在讀取內容…" } }
       }
     },
+    "正在准备预览…": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Preparing preview…" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "正在准备预览…" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "正在準備預覽…" } }
+      }
+    },
     "已复制，正在读取内容": {
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Copied, reading content" } },
@@ -62,20 +69,6 @@
         "en": { "stringUnit": { "state": "translated", "value": "At least %1$@" } },
         "zh-Hans": { "stringUnit": { "state": "translated", "value": "至少 %1$@" } },
         "zh-Hant": { "stringUnit": { "state": "translated", "value": "至少 %1$@" } }
-      }
-    },
-    "预览已截断": {
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Preview truncated" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "预览已截断" } },
-        "zh-Hant": { "stringUnit": { "state": "translated", "value": "預覽已截斷" } }
-      }
-    },
-    "预览已截断，文本编辑中可查看全文": {
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Preview truncated; open in TextEdit to view the full text" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "预览已截断，文本编辑中可查看全文" } },
-        "zh-Hant": { "stringUnit": { "state": "translated", "value": "預覽已截斷，可在文字編輯中查看全文" } }
       }
     },
     "Copied 已启动": {
@@ -1787,6 +1780,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "在「文字編輯」中開啟"
+          }
+        }
+      }
+    },
+    "在文本编辑中查看全部": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "View All in TextEdit"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在文本编辑中查看全部"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在「文字編輯」中查看全部"
           }
         }
       }

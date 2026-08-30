@@ -296,6 +296,7 @@ struct ToastView: View {
     @State private var fallbackMaterialReady = false
     @State private var isCardHovered = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var colorScheme
 
     static let cardCornerRadius: CGFloat = 32
 
@@ -319,6 +320,7 @@ struct ToastView: View {
             if viewModel.isExpanded {
                 ExpandedTextView(
                     rawText: viewModel.expandedText,
+                    isLoading: viewModel.isExpandedTextLoading,
                     onTextFrameChanged: onExpandedTextFrameChanged
                 )
             } else {
@@ -460,9 +462,17 @@ struct ToastView: View {
                                             .foregroundStyle(.secondary)
                                             .lineLimit(1)
                                         if showsProgress {
-                                            ProgressView()
-                                                .controlSize(.mini)
-                                                .accessibilityHidden(true)
+                                            Group {
+                                                if colorScheme == .dark {
+                                                    ProgressView()
+                                                        .controlSize(.mini)
+                                                        .colorInvert()
+                                                } else {
+                                                    ProgressView()
+                                                        .controlSize(.mini)
+                                                }
+                                            }
+                                            .accessibilityHidden(true)
                                         }
                                     }
                                 }
@@ -732,10 +742,40 @@ private struct ToastContextMenuContent: View {
 
 // MARK: - Expanded Text View
 
+private struct ExpandedTextLoadingView: View {
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        VStack(spacing: 8) {
+            if !reduceMotion {
+                Group {
+                    if colorScheme == .dark {
+                        ProgressView()
+                            .controlSize(.small)
+                            .colorInvert()
+                    } else {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
+                }
+                .accessibilityHidden(true)
+            }
+
+            Text("正在准备预览…")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.secondary)
+        }
+        .allowsHitTesting(false)
+        .accessibilityElement(children: .combine)
+    }
+}
+
 /// Expanded controls remain SwiftUI-owned. The transparent body reserves the
 /// exact layout used by the sibling AppKit text surface in ToastWindowController.
 private struct ExpandedTextView: View {
     let rawText: String
+    let isLoading: Bool
     let onTextFrameChanged: (CGRect?) -> Void
 
     var body: some View {
@@ -744,6 +784,15 @@ private struct ExpandedTextView: View {
                 width: ExpandedTextLayoutMetrics.cardWidth,
                 height: ExpandedTextLayoutMetrics.totalHeight(for: rawText)
             )
+            .overlay(alignment: .top) {
+                if isLoading {
+                    ExpandedTextLoadingView()
+                        .frame(
+                            width: ExpandedTextLayoutMetrics.textWidth,
+                            height: ExpandedTextLayoutMetrics.viewportHeight(for: rawText)
+                        )
+                }
+            }
             .overlay {
                 GeometryReader { proxy in
                     let cardFrame = proxy.frame(in: .named("ToastRoot"))
@@ -776,14 +825,17 @@ struct ExpandedBottomBarControlsView: View {
 
     private var controls: some View {
         HStack(spacing: 8) {
-            Button("在文本编辑中打开") { onCommand(.editInTextEdit) }
+            if viewModel.currentExpandedTextWasTruncated {
+                Button("在文本编辑中查看全部") {
+                    onCommand(.editInTextEdit)
+                }
+                .buttonStyle(.borderedProminent)
                 .buttonBorderShape(.roundedRectangle(radius: 8))
                 .disabled(viewModel.isTextExportInProgress)
-            if viewModel.currentExpandedTextWasTruncated {
-                Text("预览已截断")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
-                    .accessibilityLabel("预览已截断，文本编辑中可查看全文")
+            } else {
+                Button("在文本编辑中打开") { onCommand(.editInTextEdit) }
+                    .buttonBorderShape(.roundedRectangle(radius: 8))
+                    .disabled(viewModel.isTextExportInProgress)
             }
             Spacer(minLength: 8)
             Button("收起") { onCommand(.collapse) }
@@ -796,6 +848,7 @@ struct ExpandedBottomBarControlsView: View {
             width: ExpandedTextLayoutMetrics.cardWidth,
             height: ExpandedTextLayoutMetrics.bottomBarVisualHeight
         )
+        .disabled(viewModel.isExpandedTextLoading || viewModel.isExpandedTransitioning)
         .onHover(perform: onHoverChanged)
     }
 }

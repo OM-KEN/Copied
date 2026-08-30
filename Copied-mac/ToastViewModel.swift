@@ -53,6 +53,8 @@ final class ToastViewModel {
     var expandedDisplayText = ""
     var expandedFullText = ""
     var expandedTextWasTruncated = false
+    var isExpandedTextLoading = false
+    var isExpandedTransitioning = false
     var isTextExportInProgress = false
 
     var asyncThumbnail: NSImage? {
@@ -232,6 +234,8 @@ final class ToastViewModel {
         expandedDisplayText = ""
         expandedFullText = ""
         expandedTextWasTruncated = false
+        isExpandedTextLoading = false
+        isExpandedTransitioning = false
         isTextExportInProgress = false
         contentTransitionID &+= 1
     }

@@ -79,6 +79,7 @@ final class ClipboardMonitor {
     private var activeLightReminderEnabled: Bool?
     private var activeCandidateDecision: PopupPresentationPolicy.CandidateDecision?
     private var activeSoundSelection: String?
+    private var activeSoundDispatchGate = CopySoundDispatchGate()
     private var activeLightReminderWasPresented = false
     private var activeContent: ClipboardContent?
     private var isActivePresentationVisible = false
@@ -246,6 +247,7 @@ final class ClipboardMonitor {
         activeLightReminderEnabled = nil
         activeCandidateDecision = nil
         activeSoundSelection = nil
+        activeSoundDispatchGate = CopySoundDispatchGate()
         activeLightReminderWasPresented = false
         activeContent = nil
         isActivePresentationVisible = false
@@ -301,10 +303,7 @@ final class ClipboardMonitor {
             }
         case let .content(_, content):
             session.cancelScheduledWorkItems()
-            if let activeSoundSelection {
-                // A changeCount alone is not enough: unreadable clipboard writes stay silent.
-                CopySoundFeedback.play(selection: activeSoundSelection)
-            }
+            playActiveCopySoundIfNeeded()
             finishFirstResponseBoost()
 
             // An already-shown light reminder and an all-denied visual policy need only
@@ -334,25 +333,33 @@ final class ClipboardMonitor {
 
     private func handleLoadFailure(session: ClipboardLoadSession) {
         guard activeSession === session else { return }
-        session.cancelScheduledWorkItems()
+        session.cancel()
+        playActiveCopySoundIfNeeded()
         finishFirstResponseBoost()
         if activePreferences?.mode == .all, activeLightReminderEnabled == false {
             toastController?.showFailure(revision: session.revision)
         } else {
             toastController?.dismissSilently(revision: session.revision)
-            session.cancel()
         }
     }
 
     private func handleLoadTimeout(session: ClipboardLoadSession) {
         guard activeSession === session, activeContent == nil else { return }
+        session.cancel()
+        playActiveCopySoundIfNeeded()
         if activePreferences?.mode == .all, activeLightReminderEnabled == false {
             toastController?.showFailure(revision: session.revision)
         } else {
             toastController?.dismissSilently(revision: session.revision)
         }
-        session.cancel()
         finishFirstResponseBoost()
+    }
+
+    private func playActiveCopySoundIfNeeded() {
+        guard let selection = activeSoundDispatchGate.claim(
+            selection: activeSoundSelection
+        ) else { return }
+        CopySoundFeedback.play(selection: selection)
     }
 
     private func scheduleEnrichment(
@@ -548,8 +555,12 @@ final class ClipboardMonitor {
             content.detections = detections
             content.contentKind = detections.first?.kind
             if let facts = ClipboardDetectionDisplayFacts.derive(from: detections) {
-                content.displayTypeLabel = facts.typeLabel
-                content.displayIconSymbolName = facts.iconSymbolName
+                if !facts.typeLabel.isEmpty {
+                    content.displayTypeLabel = facts.typeLabel
+                }
+                if !facts.iconSymbolName.isEmpty {
+                    content.displayIconSymbolName = facts.iconSymbolName
+                }
                 if let detail = facts.detailOverride {
                     content.detail = detail
                 }

@@ -8,6 +8,7 @@ enum ExpandedTextLayoutMetrics {
     static let bottomReservedHeight: CGFloat = 64
     static let bottomBarVisualHeight: CGFloat = 54
     static let maxTotalHeight: CGFloat = 300
+    static let deferredLoadingUTF16Threshold = 2_048
     static let font = NSFont.systemFont(ofSize: 14)
     static let lineSpacing: CGFloat = 4
 
@@ -16,6 +17,10 @@ enum ExpandedTextLayoutMetrics {
         let maximumLineHeight = ceil(font.ascender - font.descender + lineSpacing)
         return CGFloat(ClipboardExpandedTextPolicy.maximumUTF16Count)
             * maximumLineHeight + topInset + bottomReservedHeight
+    }
+
+    static func requiresDeferredLoading(for text: String) -> Bool {
+        text.utf16.count > deferredLoadingUTF16Threshold
     }
 
     static func textHeight(for text: String) -> CGFloat {
@@ -30,7 +35,8 @@ enum ExpandedTextLayoutMetrics {
     }
 
     static func totalHeight(for text: String) -> CGFloat {
-        min(textHeight(for: text) + topInset + bottomReservedHeight, maxTotalHeight)
+        guard !requiresDeferredLoading(for: text) else { return maxTotalHeight }
+        return min(textHeight(for: text) + topInset + bottomReservedHeight, maxTotalHeight)
     }
 
     static func viewportHeight(for text: String) -> CGFloat {
