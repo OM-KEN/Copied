@@ -38,7 +38,14 @@ private final class RegistryReentrantDetector: ContentDetectorProtocol {
 
 @main
 enum ClipboardPipelineTests {
+    private static let registryNotificationChildArgument = "--registry-notification-child"
+
     static func main() throws {
+        if CommandLine.arguments.contains(registryNotificationChildArgument) {
+            try testDetectionRegistryNotificationReentryChild()
+            return
+        }
+
         try testRevisionIdentity()
         try testRevisionGateRejectsABCUpdates()
         try testLatestOnlyLaneIsBounded()
@@ -49,7 +56,9 @@ enum ClipboardPipelineTests {
         try testDirectoryProgressReporting()
         try testDirectorySkipsHiddenAndSymlinkTargets()
         try testImageSafetyBounds()
+        try testBuiltInDetectionSkipsGenericCodeFallback()
         try testDetectionDisplayFacts()
+        try testDetectionRegistryNotificationReentry()
         try testDetectionRegistryConcurrentMutation()
         try testLateActionLifetime()
         try testQuickLookCancelsExactRequest()
@@ -318,8 +327,35 @@ enum ClipboardPipelineTests {
                    "date detection relative detail was not restored")
     }
 
-    private static func testDetectionRegistryConcurrentMutation() throws {
+    private static func testBuiltInDetectionSkipsGenericCodeFallback() throws {
         let registry = DetectionRegistry()
+        registry.registerBuiltInDetectors()
+
+        let registeredKindIDs = Set(registry.allRegisteredKinds.map(\.id))
+        try expect(!registeredKindIDs.contains(ContentKind.code.id),
+                   "generic code fallback is still registered")
+        for kind in [ContentKind.html, .swift, .python, .javascript, .css] {
+            try expect(registeredKindIDs.contains(kind.id),
+                       "specific language detector is missing: \(kind.id)")
+        }
+
+        let longProse = String(
+            repeating: "这是一段普通小说文字，for 表示英文介词。",
+            count: 3_000
+        )
+        try expect(longProse.utf8.count > DetectionRegistry.textLengthCutoff,
+                   "synthetic prose no longer exercises the oversized-text path")
+        let detections = registry.detectAll(in: longProse)
+        try expect(!detections.contains { $0.kind.id == ContentKind.code.id },
+                   "a lone natural-language keyword still becomes generic code")
+    }
+
+    private static func testDetectionRegistryConcurrentMutation() throws {
+        let suiteName = "com.copied.registry-tests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let registry = DetectionRegistry(defaults: defaults)
         let reentrant = RegistryReentrantDetector()
         reentrant.registry = registry
         registry.register(reentrant)
@@ -337,6 +373,9 @@ enum ClipboardPipelineTests {
             attributes: .concurrent
         )
         let group = DispatchGroup()
+        let toggledKindIDs = Set((0..<4).flatMap { worker in
+            (0..<100).map { "tests.registry.\(worker).\($0)" }
+        })
         for worker in 0..<4 {
             group.enter()
             queue.async {
@@ -349,6 +388,7 @@ enum ClipboardPipelineTests {
                         icon: "checkmark"
                     )
                     registry.register(RegistryNoopDetector(kind: kind, priority: index))
+                    registry.setEnabled(false, kindID: kind.id)
                     if index.isMultiple(of: 2) {
                         registry.unregister(kind: kind)
                     }
@@ -361,6 +401,113 @@ enum ClipboardPipelineTests {
         }
         try expect(group.wait(timeout: .now() + 8) == .success,
                    "concurrent registry mutation/read stress did not finish")
+        try expect(
+            Set(defaults.stringArray(forKey: "disabledContentKinds") ?? []) == toggledKindIDs,
+            "concurrent disables lost a persisted kind ID"
+        )
+
+        let enabledKindIDs = Set((0..<4).flatMap { worker in
+            stride(from: 0, to: 100, by: 2).map { "tests.registry.\(worker).\($0)" }
+        })
+        let enableGroup = DispatchGroup()
+        for kindID in enabledKindIDs {
+            enableGroup.enter()
+            queue.async {
+                registry.setEnabled(true, kindID: kindID)
+                _ = registry.activeDetectors
+                enableGroup.leave()
+            }
+        }
+        try expect(enableGroup.wait(timeout: .now() + 8) == .success,
+                   "concurrent registry enables did not finish")
+        try expect(
+            Set(defaults.stringArray(forKey: "disabledContentKinds") ?? [])
+                == toggledKindIDs.subtracting(enabledKindIDs),
+            "concurrent enables lost a persisted kind ID"
+        )
+
+        let pluginID = "tests.registry.uninstall"
+        let pluginKind = ContentKind(
+            id: pluginID,
+            category: .entity,
+            source: .plugin(pluginID),
+            label: "Test",
+            icon: "checkmark"
+        )
+        registry.register(RegistryNoopDetector(kind: pluginKind, priority: 1))
+        registry.setEnabled(false, kindID: pluginID)
+        registry.unregisterPlugin(identifier: pluginID)
+        registry.setEnabled(true, kindID: pluginID)
+        try expect(!registry.allRegisteredKinds.contains { $0.id == pluginID },
+                   "plugin uninstall sequence left its detector registered")
+        try expect(registry.isEnabled(kindID: pluginID),
+                   "plugin uninstall sequence left its disabled state persisted")
+    }
+
+    private static func testDetectionRegistryNotificationReentry() throws {
+        let executable = URL(
+            fileURLWithPath: CommandLine.arguments[0],
+            relativeTo: URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        ).standardizedFileURL
+        let process = Process()
+        let output = Pipe()
+        let completed = DispatchSemaphore(value: 0)
+        process.executableURL = executable
+        process.arguments = [registryNotificationChildArgument]
+        process.standardOutput = output
+        process.standardError = output
+        process.terminationHandler = { _ in completed.signal() }
+        try process.run()
+
+        let timeout: DispatchTimeInterval = ProcessInfo.processInfo.environment["TSAN_OPTIONS"] == nil
+            ? .seconds(2)
+            : .seconds(15)
+        guard completed.wait(timeout: .now() + timeout) == .success else {
+            process.terminate()
+            _ = completed.wait(timeout: .now() + 1)
+            throw TestFailure.failed(
+                "setEnabled deadlocked when a synchronous UserDefaults notification reread the registry"
+            )
+        }
+        let childOutput = String(
+            data: output.fileHandleForReading.readDataToEndOfFile(),
+            encoding: .utf8
+        ) ?? ""
+        try expect(process.terminationStatus == 0,
+                   "notification reentry child failed: \(childOutput)")
+    }
+
+    private static func testDetectionRegistryNotificationReentryChild() throws {
+        let suiteName = "com.copied.registry-notification-test.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let registry = DetectionRegistry(defaults: defaults)
+        registry.register(RegistryNoopDetector(
+            kind: ContentKind(
+                id: "tests.registry.notification",
+                category: .entity,
+                source: .plugin("tests"),
+                label: "Test",
+                icon: "checkmark"
+            ),
+            priority: 1
+        ))
+        let callback = DispatchSemaphore(value: 0)
+        let observer = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: defaults,
+            queue: .main
+        ) { _ in
+            _ = registry.allRegisteredKinds
+            _ = registry.activeDetectors
+            callback.signal()
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        registry.setEnabled(false, kindID: "tests.registry.notification")
+        try expect(callback.wait(timeout: .now()) == .success,
+                   "synthetic UserDefaults notification did not run synchronously")
     }
 
     private static func testLateActionLifetime() throws {

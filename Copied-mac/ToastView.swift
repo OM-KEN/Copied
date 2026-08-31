@@ -354,10 +354,12 @@ struct ToastView: View {
                             .font(.system(size: 32, weight: .medium))
                             .foregroundStyle(.secondary)
                             .environment(\.locale, Locale(identifier: "en"))
+                            .contentTransition(.opacity)
                     } else {
                         Image(systemName: viewModel.iconSymbolName)
                             .font(.system(size: 32, weight: .medium))
                             .foregroundStyle(.secondary)
+                            .contentTransition(.opacity)
                     }
                 }
                 .transition(.opacity)
@@ -449,15 +451,15 @@ struct ToastView: View {
                                 }
                             }
 
-                            if !viewModel.detailInfo.isEmpty {
+                            if !viewModel.metadataDetailText.isEmpty {
                                 AutoScrollingMetadataRow(
                                     isCardHovered: isCardHovered,
-                                    resetToken: AnyHashable(viewModel.detailInfo)
+                                    resetToken: AnyHashable(viewModel.metadataDetailText)
                                 ) {
                                     let showsProgress = (viewModel.phase == .loading
                                         || viewModel.detailIsLoading) && !reduceMotion
                                     HStack(spacing: 4) {
-                                        Text(viewModel.detailInfo)
+                                        Text(viewModel.metadataDetailText)
                                             .font(.system(size: 12, weight: .medium))
                                             .foregroundStyle(.secondary)
                                             .lineLimit(1)
@@ -476,7 +478,7 @@ struct ToastView: View {
                                         }
                                     }
                                 }
-                                .id("detail-\(viewModel.detailInfo)")
+                                .id("detail-\(viewModel.metadataDetailText)")
                                 .transition(.opacity)
                             }
                         }

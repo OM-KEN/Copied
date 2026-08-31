@@ -222,8 +222,16 @@ enum InstantClipboardFeedbackTests {
                    "interactive Action buttons are recreated during content enrichment")
         try expect(!view.contains(".id(viewModel.contentTransitionID)")
                    && view.contains(".id(\"preview-\\(viewModel.previewText)\")")
-                   && view.contains(".id(\"detail-\\(viewModel.detailInfo)\")"),
+                   && view.contains(".id(\"detail-\\(viewModel.metadataDetailText)\")"),
                    "unrelated toast content still rebuilds on every enrichment update")
+        try expect(view.contains(".contentTransition(.opacity)")
+                   && !view.contains(".contentTransition(.symbolEffect(.replace))"),
+                   "icon updates are not using the native opacity content transition")
+        let viewModel = try source("ToastViewModel.swift")
+        try expect(viewModel.contains("var metadataDetailText: String")
+                   && viewModel.contains("[typeLabel, detailInfo]")
+                   && view.contains("Text(viewModel.metadataDetailText)"),
+                   "the detected type label is still disconnected from toast metadata")
         try expect(view.contains(".onChange(of: viewModel.contentTransitionID)"),
                    "intrinsic content changes do not request a panel relayout")
         try expect(view.contains("viewModel.currentExpandedTextWasTruncated"),
@@ -551,7 +559,7 @@ enum InstantClipboardFeedbackTests {
                    && view.contains("if showsProgress")
                    && !view.contains(".frame(width: 12, height: 12)"),
                    "detail loading permanently reserves space after loading finishes")
-        try expect(index(of: "Text(viewModel.detailInfo)", in: view)
+        try expect(index(of: "Text(viewModel.metadataDetailText)", in: view)
                    < index(of: "if showsProgress", in: view),
                    "detail progress still shifts the final size text away from its native leading edge")
 

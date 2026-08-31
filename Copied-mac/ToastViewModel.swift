@@ -110,6 +110,12 @@ final class ToastViewModel {
 
     var typeLabel: String { displayTypeLabel }
 
+    var metadataDetailText: String {
+        [typeLabel, detailInfo]
+            .filter { !$0.isEmpty }
+            .joined(separator: " · ")
+    }
+
     var iconSymbolName: String {
         if phase == .startup || phase == .pending || phase == .loading || phase == .failure {
             return "checkmark.circle.fill"

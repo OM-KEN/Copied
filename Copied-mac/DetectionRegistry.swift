@@ -20,6 +20,8 @@ protocol ContentDetectorProtocol {
 final class DetectionRegistry {
     static let shared = DetectionRegistry()
 
+    private static let disabledKindsDefaultsKey = "disabledContentKinds"
+
     // ── 性能常量 ────────────────────────────────────────────
 
     /// 文本超过此值（字节数）→ 仅执行内置语言启发式检测。
@@ -39,6 +41,8 @@ final class DetectionRegistry {
     // ── 状态 ────────────────────────────────────────────────
 
     private let stateLock = NSLock()
+    private let disabledKindsMutationLock = NSLock()
+    private let defaults: UserDefaults
     private var detectors: [any ContentDetectorProtocol] = []
 
     /// 熔断冷却截止时间。
@@ -50,23 +54,23 @@ final class DetectionRegistry {
     /// 被自动禁用的类型 ID 集合。
     private var automaticallyDisabledKinds: Set<String> = []
 
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+    }
+
     var disabledKinds: Set<String> {
         stateLock.withLock { automaticallyDisabledKinds }
     }
 
     /// 用户手动禁用的类型 ID 集合（持久化）。
     var userDisabledKinds: Set<String> {
-        get {
-            stateLock.withLock {
-                let values = UserDefaults.standard.stringArray(
-                    forKey: "disabledContentKinds"
-                ) ?? []
-                return Set(values)
-            }
-        }
+        get { readUserDisabledKinds() }
         set {
-            stateLock.withLock {
-                UserDefaults.standard.set(Array(newValue), forKey: "disabledContentKinds")
+            disabledKindsMutationLock.withLock {
+                defaults.set(
+                    newValue.sorted(),
+                    forKey: Self.disabledKindsDefaultsKey
+                )
             }
         }
     }
@@ -74,17 +78,9 @@ final class DetectionRegistry {
     /// 用户自定义优先级（持久化）。
     var userPriorities: [String: Int] {
         get {
-            stateLock.withLock {
-                UserDefaults.standard.dictionary(
-                    forKey: "contentKindPriorities"
-                ) as? [String: Int] ?? [:]
-            }
+            defaults.dictionary(forKey: "contentKindPriorities") as? [String: Int] ?? [:]
         }
-        set {
-            stateLock.withLock {
-                UserDefaults.standard.set(newValue, forKey: "contentKindPriorities")
-            }
-        }
+        set { defaults.set(newValue, forKey: "contentKindPriorities") }
     }
 
     // MARK: - Kinds & Detectors
@@ -106,34 +102,28 @@ final class DetectionRegistry {
     /// 所有活跃的检测器，按有效优先级降序排列。
     /// 被禁用/熔断冷却中的检测器排在末尾（仍会被遍历，但 detectAll 会跳过）。
     var activeDetectors: [any ContentDetectorProtocol] {
+        let userDisabled = readUserDisabledKinds()
+        let priorities = userPriorities
         let snapshot = stateLock.withLock {
             (
                 detectors: detectors,
                 throttledUntil: throttledUntil,
-                automaticallyDisabled: automaticallyDisabledKinds,
-                userDisabled: Set(
-                    UserDefaults.standard.stringArray(
-                        forKey: "disabledContentKinds"
-                    ) ?? []
-                ),
-                priorities: UserDefaults.standard.dictionary(
-                    forKey: "contentKindPriorities"
-                ) as? [String: Int] ?? [:]
+                automaticallyDisabled: automaticallyDisabledKinds
             )
         }
         let now = Date()
         return snapshot.detectors
             .filter {
                 AppLanguage.isContentKindAvailable($0.kind)
-                    && !snapshot.userDisabled.contains($0.kind.id)
+                    && !userDisabled.contains($0.kind.id)
                     && !snapshot.automaticallyDisabled.contains($0.kind.id)
             }
             .sorted { lhs, rhs in
                 let lhsThrottled = snapshot.throttledUntil[lhs.kind.id].map { $0 > now } ?? false
                 let rhsThrottled = snapshot.throttledUntil[rhs.kind.id].map { $0 > now } ?? false
                 if lhsThrottled != rhsThrottled { return !lhsThrottled }  // 未熔断的优先
-                return effectivePriority(for: lhs, priorities: snapshot.priorities)
-                    > effectivePriority(for: rhs, priorities: snapshot.priorities)
+                return effectivePriority(for: lhs, priorities: priorities)
+                    > effectivePriority(for: rhs, priorities: priorities)
             }
     }
 
@@ -163,33 +153,33 @@ final class DetectionRegistry {
 
     /// 启用/禁用一个类型。
     func setEnabled(_ enabled: Bool, kindID: String) {
-        stateLock.withLock {
-            var userDisabled = Set(
-                UserDefaults.standard.stringArray(forKey: "disabledContentKinds") ?? []
-            )
-            if enabled {
-                userDisabled.remove(kindID)
+        if enabled {
+            stateLock.withLock {
                 automaticallyDisabledKinds.remove(kindID)
                 throttleCounts[kindID] = 0
                 throttledUntil.removeValue(forKey: kindID)
+            }
+        }
+        disabledKindsMutationLock.withLock {
+            var userDisabled = readUserDisabledKinds()
+            if enabled {
+                userDisabled.remove(kindID)
             } else {
                 userDisabled.insert(kindID)
             }
-            UserDefaults.standard.set(
-                Array(userDisabled),
-                forKey: "disabledContentKinds"
+            defaults.set(
+                userDisabled.sorted(),
+                forKey: Self.disabledKindsDefaultsKey
             )
         }
     }
 
     func isEnabled(kindID: String) -> Bool {
-        stateLock.withLock {
-            let userDisabled = Set(
-                UserDefaults.standard.stringArray(forKey: "disabledContentKinds") ?? []
-            )
-            return !userDisabled.contains(kindID)
-                && !automaticallyDisabledKinds.contains(kindID)
+        let isUserDisabled = readUserDisabledKinds().contains(kindID)
+        let isAutomaticallyDisabled = stateLock.withLock {
+            automaticallyDisabledKinds.contains(kindID)
         }
+        return !isUserDisabled && !isAutomaticallyDisabled
     }
 
     // MARK: - Detection
@@ -275,7 +265,7 @@ final class DetectionRegistry {
         register(PythonDetector())
         register(JavaScriptDetector())
         register(CSSDetector())
-        register(CodeDetector())
+        // 单个通用关键字不足以把普通文本判为代码，因此不注册 CodeDetector。
     }
 
     // MARK: - Helpers
@@ -286,5 +276,9 @@ final class DetectionRegistry {
         priorities: [String: Int]
     ) -> Int {
         priorities[detector.kind.id] ?? detector.priority
+    }
+
+    private func readUserDisabledKinds() -> Set<String> {
+        Set(defaults.stringArray(forKey: Self.disabledKindsDefaultsKey) ?? [])
     }
 }

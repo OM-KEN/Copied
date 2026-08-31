@@ -402,7 +402,7 @@ struct InteractionWiringTests {
             "source and detail each use an independent auto-scrolling row"
         )
         expect(
-            metadataRowsSource?.contains("if !viewModel.detailInfo.isEmpty") == true,
+            metadataRowsSource?.contains("if !viewModel.metadataDetailText.isEmpty") == true,
             "an empty detail does not create a second metadata row"
         )
         expect(
