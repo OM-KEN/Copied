@@ -30,11 +30,12 @@ open .build/Copied.app
 构建 DMG 安装包：
 
 ```bash
-pip3 install 'dmgbuild>=1.6.5'   # 首次需安装
+brew install python
+python3 -m pip install --upgrade --user --break-system-packages 'dmgbuild==1.6.7'
 ./create-dmg.sh                  # 生成 .build/Copied.dmg
 ```
 
-将 `.build/dmg_background.png`（440×240）放入项目根目录可自定义 DMG 背景。
+仓库中的 `dmg_background.png`（440×240）是 DMG 的固定背景源图；缺失时 `create-dmg.sh` 会停止打包。
 
 首次启动后，将 App 拖入 `/Applications` 以获得稳定权限。Copied 启动时会短暂显示一次“Copied 已启动”，同时预热首次复制所需的弹窗路径；它不会改写剪贴板或播放复制声音。菜单栏出现剪贴板图标即开始工作；再次打开 Copied 会显示设置窗口，设置页底部可直接退出 App。
 
@@ -109,6 +110,7 @@ Copied.svg                  — 菜单栏 template 图标
 Localizable.xcstrings       — 简中、繁中、英文 String Catalog
 build.sh                    — swiftc + xcstringstool + actool + codesign 一键构建
 run-tests.sh                — 统一运行全部自动测试
+dmg_background.png         — DMG 固定背景源图（440×240）
 create-dmg.sh               — DMG 安装包生成
 ```
 

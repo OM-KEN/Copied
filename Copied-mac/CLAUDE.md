@@ -12,13 +12,13 @@
 ```bash
 ./build.sh                     # swiftc + xcstringstool + actool + codesign → .build/Copied.app
 ./run-tests.sh                 # 统一测试入口
-./create-dmg.sh                # → .build/Copied.dmg（需 dmgbuild>=1.6.5）
+./create-dmg.sh                # → .build/Copied.dmg（需 Python 3.10+、dmgbuild==1.6.7）
 open .build/Copied.app
 ```
 
 - 运行需 macOS 14+；源码构建需 Xcode 26，项目没有 Xcode 工程。
 - macOS 26+ 使用 Liquid Glass，旧系统降级为毛玻璃材质。
-- DMG 背景图放在 `.build/dmg_background.png`（440×240）。macOS 26.2+ 的 Finder 可能不显示自定义背景；发布验收不得只依赖背景是否出现。
+- DMG 固定背景源图是仓库内的 `dmg_background.png`（440×240）；`create-dmg.sh` 必须直接使用它且缺失时停止，禁止依赖会被清理的 `.build/` 副本。必须使用 `dmgbuild==1.6.7`，避免旧版写入会被 macOS 26.2+ Finder 忽略的背景书签；发布验收需实际确认背景和图标布局。
 
 ## 核心结构与数据流
 
