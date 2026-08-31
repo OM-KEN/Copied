@@ -43,7 +43,7 @@ The optional left-and-right mouse gesture is disabled by default, but I strongly
   Displays a context-aware action such as opening a URL, revealing a file, calculating an expression, or searching.
 
 * **Rich content previews**
-  Previews text, word count, files, images, **CSS colors**, file sizes, image dimensions, and other useful metadata.
+  Previews text, character count, files, images, **CSS colors**, file sizes, image dimensions, and other useful metadata.
 
 * **Fast keyboard trigger**
   Click the action button or double-tap the configured modifier key, `Control ⌃` by default, while the toast is visible.
@@ -93,7 +93,7 @@ Examples:
 * Copy a calculation to see the result. Try → `111111111*111111111`
 * Copy a date or time to view contextual date information. Try → `Jan 1, 2077`
 * Copy a CSS color to preview it instantly. Try → `rgb(1, 102, 239)` or `#0166ef`
-* Copy text to search or copy text over 50 characters to save it separately. Try → `a​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​b` (There are a lot of Zero-Width Space hidden in here)
+* Copy text to search, or copy text with 50 characters or more to save it separately. Try → `a​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​b` (There are a lot of Zero-Width Space hidden in here)
 
 ## Supported Content
 
@@ -126,7 +126,7 @@ Copied includes settings for:
 * Smart recognition types
 * Copy gesture
 * App blacklist
-* Lightweight reminder mode
+* Low-interruption filtering and optional icon-only reminders
 * Plugins
 
 ## Plugins (Experimental)
@@ -154,7 +154,7 @@ cd Copied/Copied-mac
 ./build.sh
 ```
 
-On macOS 26 or later, the project can be built without an Xcode project file. Earlier supported macOS versions may require Xcode Command Line Tools.
+Building requires Xcode 26 for String Catalog and Liquid Glass icon compilation; no Xcode project file is used.
 
 ## Architecture
 
@@ -194,7 +194,7 @@ build.sh
 
 ## Privacy
 
-Copied processes copied content locally on your Mac. It does not send clipboard content to a remote service. Network access is only used to check GitHub Releases for updates.
+Copied processes copied content locally on your Mac and does not send clipboard content to a remote service. Copied itself only contacts GitHub Releases for update checks; user-initiated feedback is handed off to the default mail app or browser for review before sending.
 
 ## License
 

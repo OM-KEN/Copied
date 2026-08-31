@@ -18,7 +18,7 @@
 
 ## 安装
 
-需 macOS 14+（macOS 26+ 享受液态玻璃效果）。从源码构建：
+需 macOS 14+（macOS 26+ 享受液态玻璃效果）；源码构建需 Xcode 26。从源码构建：
 
 ```bash
 git clone <repo>
@@ -65,8 +65,11 @@ pip3 install 'dmgbuild>=1.6.5'   # 首次需安装
 ```
 CopiedApp.swift             — 入口：MenuBarExtra + reopen 设置桥接 + AppDelegate + Settings
 ApplicationRelauncher.swift — 辅助功能授权后的安全退出并重新打开
-ClipboardMonitor.swift      — 启动首响应 25ms、随后 75ms 轮询 NSPasteboard + 内容解析 + 黑名单过滤
-ClipboardContentEnrichment.swift — 后台补齐检测、文件/图片信息与渐进文件夹大小
+ClipboardMonitor.swift      — 启动首响应 25ms、随后 75ms 观察 NSPasteboard + revision 调度 + 黑名单过滤
+ClipboardPipeline.swift     — revision/session 生命周期、latest-only worker 与读取安全边界
+ClipboardContentEnrichment.swift — 后台补齐文件/图片信息与渐进文件夹大小
+ClipboardDetectionDisplayFacts.swift — 将异步检测归并为稳定展示事实
+TemporaryTextExport.swift   — TextEdit 私有临时文件导出与过期清理
 LitheIntegration.swift      — Lithe 安装检测、图片资格判断与防回环剪贴板契约
 ClipboardTextPolicy.swift   — 长文本阈值与纯文本主操作策略
 PopupPresentationSettings.swift — 默认/轻打扰模式偏好与视觉呈现策略
