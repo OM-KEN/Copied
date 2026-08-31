@@ -472,6 +472,14 @@ enum InstantClipboardFeedbackTests {
         try expect(monitor.contains("onRevisionResourcesShouldCancel")
                    && monitor.contains("session.cancel()"),
                    "Monitor does not connect command cancellation to the load session")
+        let monitorStop = try section(
+            monitor,
+            from: "func stop()",
+            to: "private func installDefaultsObserverIfNeeded"
+        )
+        try expect(monitorStop.contains("ClipboardDirectorySizeCoordinator.shared.cancelAll()")
+                   && !monitorStop.contains("ClipboardDirectorySizeCache.reset()"),
+                   "pausing monitoring does not stop active tasks or unexpectedly clears the cache")
         let baseRead = try section(
             monitor,
             from: "private func submitBaseRead",
@@ -500,6 +508,16 @@ enum InstantClipboardFeedbackTests {
         )
         try expect(fileSchedule.contains("shouldCancel: { !session.accepts(session.revision) }"),
                    "file enrichment is not cooperatively cancellable")
+        try expect(fileSchedule.contains("registerDirectorySizeObservation")
+                   && fileSchedule.contains("session.cancelSoftDeadline(deadlineToken)")
+                   && fileSchedule.contains("session.clearDirectorySizeObservation()"),
+                   "background directory terminal does not close its session deadline/observation")
+        guard let enrichmentCall = fileSchedule.range(of: "ClipboardFileEnricher.enrich(") else {
+            throw Failure.failed("file enrichment call is absent")
+        }
+        let afterEnrichmentCall = String(fileSchedule[enrichmentCall.lowerBound...])
+        try expect(afterEnrichmentCall.contains("finish()"),
+                   "fileLane remains occupied by a detached background directory task")
 
         let fileEnricher = try section(
             enrichment,
@@ -520,6 +538,29 @@ enum InstantClipboardFeedbackTests {
         try expect(fileEnricher.contains("values.isPackage == true, size == nil")
                    && fileEnricher.contains("let packageResult = ClipboardDirectorySizeCalculator.calculate"),
                    "root packages lack bounded size fallback")
+        let folderCachePath = try section(
+            fileEnricher,
+            from: "if values.isDirectory == true && values.isPackage != true",
+            to: "if shouldCancel() { return }"
+        )
+        try expect(
+            index(of: "directorySizeCoordinator.attach", in: folderCachePath)
+                < index(of: "emitFileSizeProgress(0", in: folderCachePath),
+            "folder task attach occurs after the initial loading update"
+        )
+        let packageCachePath = try section(
+            fileEnricher,
+            from: "guard values.isPackage == true, size == nil else",
+            to: "let packageResult = ClipboardDirectorySizeCalculator.calculate"
+        )
+        try expect(
+            index(of: "directorySizeCoordinator.attach", in: packageCachePath)
+                < index(of: "emitFileSizeProgress(0", in: packageCachePath),
+            "package task attach occurs after the initial loading update"
+        )
+        try expect(fileEnricher.contains("case .saturated:")
+                   && fileEnricher.contains("shouldCancel: shouldCancel"),
+                   "saturated third directory is not bound to session cancellation")
 
         let bitmapTimeout = try section(
             monitor,
@@ -763,11 +804,24 @@ enum InstantClipboardFeedbackTests {
         try expect(enrichment.contains("CGImageSourceCreateWithURL"), "file image metadata bypasses ImageIO")
 
         let pipeline = try source("ClipboardPipeline.swift")
-        try expect(pipeline.contains(".skipsHiddenFiles, .skipsPackageDescendants"),
-                   "directory traversal does not skip hidden/package descendants")
-        try expect(pipeline.contains("values.isPackage != true"), "packages are not handled as single items")
-        try expect(pipeline.contains("maximumEntryCount = 100_000"), "directory entry budget is absent")
+        try expect(pipeline.contains("options: []")
+                   && !pipeline.contains(".skipsHiddenFiles")
+                   && !pipeline.contains(".skipsPackageDescendants"),
+                   "directory traversal still skips hidden/package descendants")
+        try expect(pipeline.contains("if values.isDirectory == true { continue }"),
+                   "directory nodes are counted instead of only their leaf descendants")
+        try expect(pipeline.contains("values.totalFileSize ?? values.fileSize"),
+                   "leaf sizing does not prefer total size with a file-size fallback")
+        try expect(!pipeline.contains("maximumEntryCount"), "directory traversal still has an entry budget")
         try expect(pipeline.contains("maximumDuration: TimeInterval = 30"), "directory time budget is absent")
+        try expect(pipeline.contains("timeToLive: TimeInterval = 600")
+                   && pipeline.contains("maximumCachedResultCount = 32")
+                   && pipeline.contains("standardizedFileURL.path"),
+                   "directory size cache bounds or standardized key are absent")
+        try expect(pipeline.contains("maximumDetachedTaskCount = 2")
+                   && pipeline.contains("maximumDuration: TimeInterval = 30")
+                   && pipeline.contains("progressUpdateInterval: TimeInterval = 0.25"),
+                   "detached directory task bounds are absent")
 
         let preview = try source("FilePreviewGenerator.swift")
         try expect(preview.contains("let request: QLThumbnailGenerator.Request"),

@@ -52,9 +52,13 @@ enum ClipboardPipelineTests {
         try testSessionRetriesAndCancellation()
         try testSoftDeadlineCanBeCancelled()
         try testGraphemeSafeTruncation()
-        try testDirectoryOverflowAndPartialBudget()
+        try testDirectoryOverflowAndTimeBudget()
+        try testDirectorySizeCache()
+        try testDirectorySizeCoordinator()
+        try testDirectoryObservationCancellation()
         try testDirectoryProgressReporting()
-        try testDirectorySkipsHiddenAndSymlinkTargets()
+        try testDirectoryIncludesHiddenAndSkipsSymlinkTargets()
+        try testDirectoryTraversesNestedPackageContents()
         try testImageSafetyBounds()
         try testBuiltInDetectionSkipsGenericCodeFallback()
         try testDetectionDisplayFacts()
@@ -191,7 +195,7 @@ enum ClipboardPipelineTests {
         )
     }
 
-    private static func testDirectoryOverflowAndPartialBudget() throws {
+    private static func testDirectoryOverflowAndTimeBudget() throws {
         try expect(
             ClipboardDirectorySizeCalculator.adding(1, to: .max) == .atLeast(.max),
             "directory size overflow must be partial"
@@ -209,13 +213,16 @@ enum ClipboardPipelineTests {
                 contents: Data([1])
             )
         }
-        let limited = ClipboardDirectorySizeCalculator.calculate(
+        var nowCallCount = 0
+        let timeLimited = ClipboardDirectorySizeCalculator.calculate(
             at: root,
-            maximumEntryCount: 1
+            now: {
+                nowCallCount += 1
+                return nowCallCount < 4 ? 0 : 31
+            }
         )
-        guard case .atLeast = limited else {
-            throw TestFailure.failed("entry budget must return partial")
-        }
+        try expect(timeLimited == .atLeast(1),
+                   "time budget must retain the leaf size accumulated before expiry")
 
         var cancellationChecks = 0
         let cancelled = ClipboardDirectorySizeCalculator.calculate(
@@ -227,6 +234,316 @@ enum ClipboardPipelineTests {
         )
         try expect(cancelled == .cancelled,
                    "directory traversal ignored cooperative cancellation")
+    }
+
+    private static func testDirectorySizeCache() throws {
+        var currentTime: TimeInterval = 100
+        ClipboardDirectorySizeCache.reset(now: { currentTime })
+        defer { ClipboardDirectorySizeCache.reset() }
+
+        let root = URL(fileURLWithPath: "/tmp/Copied-directory-cache-root")
+        let modificationDate = Date(timeIntervalSinceReferenceDate: 10)
+        ClipboardDirectorySizeCache.store(
+            .exact(7),
+            for: root,
+            contentModificationDate: modificationDate,
+            readContentModificationDate: { _ in modificationDate }
+        )
+        currentTime = 699
+        try expect(
+            ClipboardDirectorySizeCache.cachedResult(
+                for: root,
+                contentModificationDate: modificationDate
+            ) == .exact(7),
+            "directory size cache expired before its 600-second TTL"
+        )
+        currentTime = 700
+        try expect(
+            ClipboardDirectorySizeCache.cachedResult(
+                for: root,
+                contentModificationDate: modificationDate
+            ) == nil,
+            "directory size cache survived its 600-second TTL"
+        )
+
+        currentTime = 200
+        ClipboardDirectorySizeCache.reset(now: { currentTime })
+        ClipboardDirectorySizeCache.store(
+            .atLeast(8),
+            for: root,
+            contentModificationDate: modificationDate,
+            readContentModificationDate: { _ in modificationDate }
+        )
+        try expect(
+            ClipboardDirectorySizeCache.cachedResult(
+                for: root,
+                contentModificationDate: modificationDate
+            ) == .atLeast(8),
+            "partial directory size was not cached"
+        )
+        try expect(
+            ClipboardDirectorySizeCache.cachedResult(
+                for: root,
+                contentModificationDate: modificationDate.addingTimeInterval(1)
+            ) == nil,
+            "root modification-date change did not invalidate the cache"
+        )
+        ClipboardDirectorySizeCache.store(
+            .exact(9),
+            for: root,
+            contentModificationDate: modificationDate,
+            readContentModificationDate: { _ in modificationDate.addingTimeInterval(1) }
+        )
+        try expect(ClipboardDirectorySizeCache.cachedResultCount == 0,
+                   "result was cached after the root changed during calculation")
+
+        currentTime = 300
+        ClipboardDirectorySizeCache.reset(now: { currentTime })
+        ClipboardDirectorySizeCache.store(
+            .unavailable,
+            for: root,
+            contentModificationDate: modificationDate
+        )
+        ClipboardDirectorySizeCache.store(
+            .cancelled,
+            for: root,
+            contentModificationDate: modificationDate
+        )
+        try expect(ClipboardDirectorySizeCache.cachedResultCount == 0,
+                   "unavailable or cancelled directory results were cached")
+        ClipboardDirectorySizeCache.store(
+            .exact(9),
+            for: root,
+            contentModificationDate: modificationDate,
+            readContentModificationDate: { _ in modificationDate }
+        )
+        let partialRoot = URL(fileURLWithPath: "/tmp/Copied-directory-cache-partial")
+        ClipboardDirectorySizeCache.store(
+            .atLeast(10),
+            for: partialRoot,
+            contentModificationDate: modificationDate,
+            readContentModificationDate: { _ in modificationDate }
+        )
+        try expect(ClipboardDirectorySizeCache.cachedResultCount == 2,
+                   "exact and partial directory results were not both cached")
+
+        currentTime = 0
+        ClipboardDirectorySizeCache.reset(now: { currentTime })
+        for index in 0...ClipboardDirectorySizeCache.maximumCachedResultCount {
+            currentTime = TimeInterval(index)
+            ClipboardDirectorySizeCache.store(
+                .exact(Int64(index)),
+                for: URL(fileURLWithPath: "/tmp/Copied-directory-cache-\(index)"),
+                contentModificationDate: modificationDate,
+                readContentModificationDate: { _ in modificationDate }
+            )
+        }
+        try expect(
+            ClipboardDirectorySizeCache.cachedResultCount
+                == ClipboardDirectorySizeCache.maximumCachedResultCount,
+            "directory size cache exceeded its 32-entry capacity"
+        )
+        try expect(
+            ClipboardDirectorySizeCache.cachedResult(
+                for: URL(fileURLWithPath: "/tmp/Copied-directory-cache-0"),
+                contentModificationDate: modificationDate
+            ) == nil,
+            "directory size cache did not evict the earliest write"
+        )
+        try expect(
+            ClipboardDirectorySizeCache.cachedResult(
+                for: URL(fileURLWithPath: "/tmp/Copied-directory-cache-1"),
+                contentModificationDate: modificationDate
+            ) == .exact(1),
+            "directory size cache evicted a newer entry"
+        )
+    }
+
+    private static func testDirectorySizeCoordinator() throws {
+        ClipboardDirectorySizeCache.reset()
+        defer { ClipboardDirectorySizeCache.reset() }
+        let temporary = FileManager.default.temporaryDirectory
+        let roots = try (0..<3).map { index -> URL in
+            let root = temporary.appendingPathComponent(
+                "Copied-directory-coordinator-\(index)-\(UUID().uuidString)",
+                isDirectory: true
+            )
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
+            return root
+        }
+        defer { roots.forEach { try? FileManager.default.removeItem(at: $0) } }
+        let modificationDates = try roots.map {
+            try $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate!
+        }
+        let releases = roots.map { _ in DispatchSemaphore(value: 0) }
+        let starts = roots.map { _ in DispatchSemaphore(value: 0) }
+        let stateLock = NSLock()
+        var calculationCounts: [String: Int] = [:]
+        var durations: [TimeInterval] = []
+        var intervals: [TimeInterval] = []
+        let coordinator = ClipboardDirectorySizeCoordinator(
+            label: "tests.directory-size-coordinator"
+        ) { root, duration, shouldCancel, interval, onProgress in
+            let index = roots.firstIndex { $0.standardizedFileURL == root.standardizedFileURL }!
+            stateLock.lock()
+            calculationCounts[root.path, default: 0] += 1
+            durations.append(duration)
+            intervals.append(interval)
+            stateLock.unlock()
+            onProgress(5)
+            starts[index].signal()
+            while releases[index].wait(timeout: .now() + 0.01) == .timedOut {
+                if shouldCancel() { return .cancelled }
+            }
+            return shouldCancel() ? .cancelled : .exact(Int64(index + 1))
+        }
+
+        let first = coordinator.attach(
+            to: roots[0],
+            contentModificationDate: modificationDates[0],
+            observer: { _ in }
+        )
+        let second = coordinator.attach(
+            to: roots[1],
+            contentModificationDate: modificationDates[1],
+            observer: { _ in }
+        )
+        guard case let .observing(firstObservation, _) = first,
+              case .observing = second else {
+            throw TestFailure.failed("first two directory tasks did not start")
+        }
+        try expect(starts[0].wait(timeout: .now() + 1) == .success
+                   && starts[1].wait(timeout: .now() + 1) == .success,
+                   "background directory tasks did not start")
+
+        var reconnectedEvents: [ClipboardDirectorySizeTaskEvent] = []
+        let reconnectedTerminal = DispatchSemaphore(value: 0)
+        let reconnected = coordinator.attach(
+            to: roots[0],
+            contentModificationDate: modificationDates[0],
+            observer: { event in
+                stateLock.lock()
+                reconnectedEvents.append(event)
+                stateLock.unlock()
+                if case .terminal = event { reconnectedTerminal.signal() }
+            }
+        )
+        guard case let .observing(reconnectedObservation, latestLowerBound) = reconnected else {
+            throw TestFailure.failed("same directory task did not reconnect")
+        }
+        try expect(latestLowerBound == 5, "reconnected observer did not receive latest progress")
+        stateLock.lock()
+        let firstCalculationCount = calculationCounts[roots[0].standardizedFileURL.path]
+        stateLock.unlock()
+        try expect(firstCalculationCount == 1, "reconnection restarted directory calculation")
+
+        let saturated = coordinator.attach(
+            to: roots[2],
+            contentModificationDate: modificationDates[2],
+            observer: { _ in }
+        )
+        guard case .saturated = saturated else {
+            throw TestFailure.failed("third detached directory task was not saturated")
+        }
+
+        firstObservation.cancel()
+        releases[0].signal()
+        try expect(reconnectedTerminal.wait(timeout: .now() + 1) == .success,
+                   "reconnected observer did not receive the running task's terminal result")
+        stateLock.lock()
+        let reconnectedEventsSnapshot = reconnectedEvents
+        stateLock.unlock()
+        try expect(reconnectedEventsSnapshot.contains(.terminal(.exact(1))),
+                   "reconnected observer received the wrong terminal result")
+        reconnectedObservation.cancel()
+        let firstDeadline = Date().addingTimeInterval(1)
+        while coordinator.inFlightTaskCount == 2, Date() < firstDeadline {
+            Thread.sleep(forTimeInterval: 0.005)
+        }
+        try expect(
+            ClipboardDirectorySizeCache.cachedResult(
+                for: roots[0],
+                contentModificationDate: modificationDates[0]
+            ) == .exact(1),
+            "detached task did not finish and cache its result"
+        )
+
+        let third = coordinator.attach(
+            to: roots[2],
+            contentModificationDate: modificationDates[2],
+            observer: { _ in }
+        )
+        guard case .observing = third else {
+            throw TestFailure.failed("completed task did not release a background slot")
+        }
+        try expect(starts[2].wait(timeout: .now() + 1) == .success,
+                   "third directory task did not start after a slot was released")
+        releases[1].signal()
+        releases[2].signal()
+        let completionDeadline = Date().addingTimeInterval(1)
+        while coordinator.inFlightTaskCount != 0, Date() < completionDeadline {
+            Thread.sleep(forTimeInterval: 0.005)
+        }
+        try expect(coordinator.inFlightTaskCount == 0, "directory tasks did not finish")
+        stateLock.lock()
+        let recordedDurations = durations
+        let recordedIntervals = intervals
+        stateLock.unlock()
+        try expect(recordedDurations.allSatisfy { $0 == 30 },
+                   "background directory task did not retain a 30-second total budget")
+        try expect(recordedIntervals.allSatisfy { $0 == 0.25 },
+                   "background directory progress interval exceeded 250ms")
+
+        ClipboardDirectorySizeCache.reset()
+        let cancelled = DispatchSemaphore(value: 0)
+        let cancellationCoordinator = ClipboardDirectorySizeCoordinator(
+            label: "tests.directory-size-cancellation"
+        ) { _, _, shouldCancel, _, _ in
+            while !shouldCancel() { Thread.sleep(forTimeInterval: 0.001) }
+            cancelled.signal()
+            return .cancelled
+        }
+        let cancellable = cancellationCoordinator.attach(
+            to: roots[0],
+            contentModificationDate: modificationDates[0],
+            observer: { _ in }
+        )
+        guard case .observing = cancellable else {
+            throw TestFailure.failed("cancellable directory task did not start")
+        }
+        cancellationCoordinator.cancelAll()
+        try expect(cancelled.wait(timeout: .now() + 1) == .success,
+                   "coordinator cancelAll did not cooperatively cancel its task")
+    }
+
+    private static func testDirectoryObservationCancellation() throws {
+        let revision = ClipboardRevision(generation: 21, changeCount: 21)
+        let firstSession = ClipboardLoadSession(revision: revision, backingScale: 2)
+        var firstDetachCount = 0
+        firstSession.setDirectorySizeObservation(
+            ClipboardDirectorySizeObservation { firstDetachCount += 1 }
+        )
+        firstSession.cancel()
+        try expect(firstDetachCount == 1, "session cancellation did not detach its observer")
+
+        let cancelledSession = ClipboardLoadSession(revision: revision, backingScale: 2)
+        cancelledSession.cancel()
+        var lateDetachCount = 0
+        cancelledSession.setDirectorySizeObservation(
+            ClipboardDirectorySizeObservation { lateDetachCount += 1 }
+        )
+        try expect(lateDetachCount == 1,
+                   "observation registered after cancellation was not detached immediately")
+
+        let completedSession = ClipboardLoadSession(revision: revision, backingScale: 2)
+        var completedDetachCount = 0
+        completedSession.setDirectorySizeObservation(
+            ClipboardDirectorySizeObservation { completedDetachCount += 1 }
+        )
+        completedSession.clearDirectorySizeObservation()
+        completedSession.cancel()
+        try expect(completedDetachCount == 0,
+                   "completed directory observation remained attached to the session")
     }
 
     private static func testDirectoryProgressReporting() throws {
@@ -251,7 +568,7 @@ enum ClipboardPipelineTests {
                    "directory progress was not monotonic or did not report each test update")
     }
 
-    private static func testDirectorySkipsHiddenAndSymlinkTargets() throws {
+    private static func testDirectoryIncludesHiddenAndSkipsSymlinkTargets() throws {
         let temporary = FileManager.default.temporaryDirectory
         let root = temporary.appendingPathComponent(
             "Copied-directory-boundary-test-\(UUID().uuidString)",
@@ -263,6 +580,9 @@ enum ClipboardPipelineTests {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
         try Data(repeating: 1, count: 3).write(to: root.appendingPathComponent("visible"))
         try Data(repeating: 2, count: 50).write(to: root.appendingPathComponent(".hidden"))
+        let hiddenDirectory = root.appendingPathComponent(".hidden-directory", isDirectory: true)
+        try FileManager.default.createDirectory(at: hiddenDirectory, withIntermediateDirectories: false)
+        try Data(repeating: 3, count: 7).write(to: hiddenDirectory.appendingPathComponent("content"))
         try Data(repeating: 3, count: 100).write(to: outside)
         try FileManager.default.createSymbolicLink(
             at: root.appendingPathComponent("linked"),
@@ -273,8 +593,27 @@ enum ClipboardPipelineTests {
             try? FileManager.default.removeItem(at: outside)
         }
         try expect(
-            ClipboardDirectorySizeCalculator.calculate(at: root) == .exact(3),
-            "hidden content or symlink targets were included"
+            ClipboardDirectorySizeCalculator.calculate(at: root) == .exact(60),
+            "hidden content was excluded or a symlink target was included"
+        )
+    }
+
+    private static func testDirectoryTraversesNestedPackageContents() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "Copied-directory-package-test-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let resources = root.appendingPathComponent(
+            "Nested.app/Contents/Resources",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: resources, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try Data(repeating: 1, count: 17).write(to: resources.appendingPathComponent("payload"))
+
+        try expect(
+            ClipboardDirectorySizeCalculator.calculate(at: root) == .exact(17),
+            "nested package descendants were skipped or the package directory was counted"
         )
     }
 

@@ -359,7 +359,9 @@ enum ClipboardFileEnricher {
     static func enrich(
         content: ClipboardContent,
         shouldCancel: @escaping () -> Bool = { false },
-        emit: (ClipboardEnrichmentUpdate) -> Void
+        directorySizeCoordinator: ClipboardDirectorySizeCoordinator = .shared,
+        registerDirectorySizeObservation: (ClipboardDirectorySizeObservation) -> Void = { _ in },
+        emit: @escaping (ClipboardEnrichmentUpdate) -> Void
     ) {
         guard !shouldCancel(), let urls = content.fileURLs, !urls.isEmpty else { return }
 
@@ -369,12 +371,20 @@ enum ClipboardFileEnricher {
             return true
         }
 
+        let fileSizeUpdateLock = NSLock()
         var lastFileSizeProgressDetail: String?
+        var latestFileSizeLowerBound: Int64?
+        var didEmitFileSizeTerminal = false
         func emitFileSizeProgress(
             _ size: Int64,
             typeLabel: String,
             iconSymbolName: String
         ) -> Bool {
+            fileSizeUpdateLock.lock()
+            defer { fileSizeUpdateLock.unlock() }
+            guard !didEmitFileSizeTerminal,
+                  latestFileSizeLowerBound.map({ size >= $0 }) ?? true else { return true }
+            latestFileSizeLowerBound = size
             let detail = String(localized: "至少 \(formattedByteCount(size))")
             guard detail != lastFileSizeProgressDetail else { return true }
             lastFileSizeProgressDetail = detail
@@ -386,6 +396,38 @@ enum ClipboardFileEnricher {
                 allFilesAreImages: false,
                 classificationIsComplete: true,
                 detailIsLoading: true
+            ))
+        }
+
+        func emitFileSizeTerminal(
+            _ result: ClipboardDirectorySizeResult,
+            unavailableDetail: String,
+            typeLabel: String,
+            iconSymbolName: String
+        ) -> Bool {
+            let detail: String
+            switch result {
+            case let .exact(size):
+                detail = formattedByteCount(size)
+            case let .atLeast(size):
+                detail = String(localized: "至少 \(formattedByteCount(size))")
+            case .unavailable:
+                detail = unavailableDetail
+            case .cancelled:
+                return false
+            }
+            fileSizeUpdateLock.lock()
+            defer { fileSizeUpdateLock.unlock() }
+            guard !didEmitFileSizeTerminal else { return false }
+            didEmitFileSizeTerminal = true
+            return emitIfActive(.fileFacts(
+                revision: content.revision,
+                detail: detail,
+                typeLabel: typeLabel,
+                iconSymbolName: iconSymbolName,
+                allFilesAreImages: false,
+                classificationIsComplete: true,
+                detailIsLoading: false
             ))
         }
 
@@ -412,6 +454,7 @@ enum ClipboardFileEnricher {
                 .isDirectoryKey,
                 .isPackageKey,
                 .isSymbolicLinkKey,
+                .contentModificationDateKey,
             ]) else {
                 classificationComplete = false
                 allImages = false
@@ -442,6 +485,51 @@ enum ClipboardFileEnricher {
         if values.isDirectory == true && values.isPackage != true
             && values.isSymbolicLink != true {
             let folderLabel = String(localized: "文件夹")
+            if let contentModificationDate = values.contentModificationDate {
+                let attachment = directorySizeCoordinator.attach(
+                    to: url,
+                    contentModificationDate: contentModificationDate
+                ) { event in
+                    switch event {
+                    case let .progress(size):
+                        _ = emitFileSizeProgress(
+                            size,
+                            typeLabel: folderLabel,
+                            iconSymbolName: "folder"
+                        )
+                    case let .terminal(result):
+                        _ = emitFileSizeTerminal(
+                            result,
+                            unavailableDetail: String(localized: "文件夹大小不可用"),
+                            typeLabel: folderLabel,
+                            iconSymbolName: "folder"
+                        )
+                    }
+                }
+                switch attachment {
+                case let .cached(result):
+                    _ = emitFileSizeTerminal(
+                        result,
+                        unavailableDetail: String(localized: "文件夹大小不可用"),
+                        typeLabel: folderLabel,
+                        iconSymbolName: "folder"
+                    )
+                    return
+                case let .observing(observation, latestLowerBound):
+                    guard emitFileSizeProgress(
+                        latestLowerBound,
+                        typeLabel: folderLabel,
+                        iconSymbolName: "folder"
+                    ) else {
+                        observation.cancel()
+                        return
+                    }
+                    registerDirectorySizeObservation(observation)
+                    return
+                case .saturated:
+                    break
+                }
+            }
             guard emitFileSizeProgress(0, typeLabel: folderLabel, iconSymbolName: "folder")
             else { return }
             let result = ClipboardDirectorySizeCalculator.calculate(
@@ -456,26 +544,19 @@ enum ClipboardFileEnricher {
                     )
                 }
             )
-            let detail: String
-            switch result {
-            case let .exact(size):
-                detail = formattedByteCount(size)
-            case let .atLeast(size):
-                detail = String(localized: "至少 \(formattedByteCount(size))")
-            case .unavailable:
-                detail = String(localized: "文件夹大小不可用")
-            case .cancelled:
-                return
+            if let contentModificationDate = values.contentModificationDate {
+                ClipboardDirectorySizeCache.store(
+                    result,
+                    for: url,
+                    contentModificationDate: contentModificationDate
+                )
             }
-            _ = emitIfActive(.fileFacts(
-                revision: content.revision,
-                detail: detail,
+            _ = emitFileSizeTerminal(
+                result,
+                unavailableDetail: String(localized: "文件夹大小不可用"),
                 typeLabel: folderLabel,
-                iconSymbolName: "folder",
-                allFilesAreImages: false,
-                classificationIsComplete: true,
-                detailIsLoading: false
-            ))
+                iconSymbolName: "folder"
+            )
             return
         }
 
@@ -515,6 +596,51 @@ enum ClipboardFileEnricher {
             return
         }
 
+        if let contentModificationDate = values.contentModificationDate {
+            let attachment = directorySizeCoordinator.attach(
+                to: url,
+                contentModificationDate: contentModificationDate
+            ) { event in
+                switch event {
+                case let .progress(size):
+                    _ = emitFileSizeProgress(
+                        size,
+                        typeLabel: typeLabel,
+                        iconSymbolName: "document"
+                    )
+                case let .terminal(result):
+                    _ = emitFileSizeTerminal(
+                        result,
+                        unavailableDetail: String(localized: "文件信息不可用"),
+                        typeLabel: typeLabel,
+                        iconSymbolName: "document"
+                    )
+                }
+            }
+            switch attachment {
+            case let .cached(result):
+                _ = emitFileSizeTerminal(
+                    result,
+                    unavailableDetail: String(localized: "文件信息不可用"),
+                    typeLabel: typeLabel,
+                    iconSymbolName: "document"
+                )
+                return
+            case let .observing(observation, latestLowerBound):
+                guard emitFileSizeProgress(
+                    latestLowerBound,
+                    typeLabel: typeLabel,
+                    iconSymbolName: "document"
+                ) else {
+                    observation.cancel()
+                    return
+                }
+                registerDirectorySizeObservation(observation)
+                return
+            case .saturated:
+                break
+            }
+        }
         guard emitFileSizeProgress(0, typeLabel: typeLabel, iconSymbolName: "document")
         else { return }
         let packageResult = ClipboardDirectorySizeCalculator.calculate(
@@ -529,26 +655,19 @@ enum ClipboardFileEnricher {
                 )
             }
         )
-        let packageDetail: String
-        switch packageResult {
-        case let .exact(size):
-            packageDetail = formattedByteCount(size)
-        case let .atLeast(size):
-            packageDetail = String(localized: "至少 \(formattedByteCount(size))")
-        case .unavailable:
-            packageDetail = String(localized: "文件信息不可用")
-        case .cancelled:
-            return
+        if let contentModificationDate = values.contentModificationDate {
+            ClipboardDirectorySizeCache.store(
+                packageResult,
+                for: url,
+                contentModificationDate: contentModificationDate
+            )
         }
-        _ = emitIfActive(.fileFacts(
-            revision: content.revision,
-            detail: packageDetail,
+        _ = emitFileSizeTerminal(
+            packageResult,
+            unavailableDetail: String(localized: "文件信息不可用"),
             typeLabel: typeLabel,
-            iconSymbolName: "document",
-            allFilesAreImages: false,
-            classificationIsComplete: true,
-            detailIsLoading: false
-        ))
+            iconSymbolName: "document"
+        )
     }
 
     private static func formattedByteCount(_ count: Int64) -> String {

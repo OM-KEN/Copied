@@ -135,6 +135,7 @@ final class ClipboardMonitor {
         firstResponseBoostDeadline = nil
         activeSession?.cancel()
         activeSession = nil
+        ClipboardDirectorySizeCoordinator.shared.cancelAll()
         toastController?.onRevisionResourcesShouldCancel = nil
     }
 
@@ -442,14 +443,21 @@ final class ClipboardMonitor {
             }
             ClipboardFileEnricher.enrich(
                 content: content,
-                shouldCancel: { !session.accepts(session.revision) }
+                shouldCancel: { !session.accepts(session.revision) },
+                registerDirectorySizeObservation: {
+                    session.setDirectorySizeObservation($0)
+                }
             ) { update in
+                if case let .fileFacts(_, _, _, _, _, _, detailIsLoading) = update,
+                   !detailIsLoading {
+                    session.cancelSoftDeadline(deadlineToken)
+                    session.clearDirectorySizeObservation()
+                }
                 DispatchQueue.main.async { [weak self, weak session] in
                     guard let self, let session else { return }
                     self.reduce(update, session: session)
                 }
             }
-            session.cancelSoftDeadline(deadlineToken)
             finish()
         }
     }

@@ -157,6 +157,7 @@ final class ClipboardLoadSession {
     private var imageData: Data?
     private var quickLookToken: UUID?
     private var cancelQuickLook: ((UUID) -> Void)?
+    private var directorySizeObservation: ClipboardDirectorySizeObservation?
 
     init(revision: ClipboardRevision, backingScale: CGFloat) {
         self.revision = revision
@@ -302,10 +303,32 @@ final class ClipboardLoadSession {
         if let token, let cancel { cancel(token) }
     }
 
+    func setDirectorySizeObservation(_ observation: ClipboardDirectorySizeObservation) {
+        let previous: ClipboardDirectorySizeObservation?
+        let cancelNew: Bool
+        lock.lock()
+        if cancelled {
+            previous = nil
+            cancelNew = true
+        } else {
+            previous = directorySizeObservation
+            directorySizeObservation = observation
+            cancelNew = false
+        }
+        lock.unlock()
+        previous?.cancel()
+        if cancelNew { observation.cancel() }
+    }
+
+    func clearDirectorySizeObservation() {
+        lock.withLock { directorySizeObservation = nil }
+    }
+
     func cancel() {
         let items: [DispatchWorkItem]
         let token: UUID?
         let cancel: ((UUID) -> Void)?
+        let directoryObservation: ClipboardDirectorySizeObservation?
         lock.lock()
         guard !cancelled else {
             lock.unlock()
@@ -322,10 +345,13 @@ final class ClipboardLoadSession {
         cancel = cancelQuickLook
         quickLookToken = nil
         cancelQuickLook = nil
+        directoryObservation = directorySizeObservation
+        directorySizeObservation = nil
         lock.unlock()
 
         (items + deadlineItems).forEach { $0.cancel() }
         if let token, let cancel { cancel(token) }
+        directoryObservation?.cancel()
     }
 }
 
@@ -369,13 +395,313 @@ enum ClipboardDirectorySizeResult: Equatable {
     case cancelled
 }
 
+enum ClipboardDirectorySizeCache {
+    static let timeToLive: TimeInterval = 600
+    static let maximumCachedResultCount = 32
+
+    private struct Entry {
+        let result: ClipboardDirectorySizeResult
+        let contentModificationDate: Date
+        let writtenAt: TimeInterval
+        let writeOrder: UInt64
+    }
+
+    private final class Storage: @unchecked Sendable {
+        let lock = NSLock()
+        var entries: [String: Entry] = [:]
+        var now: () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
+        var nextWriteOrder: UInt64 = 0
+    }
+
+    private static let storage = Storage()
+
+    static func cachedResult(
+        for root: URL,
+        contentModificationDate: Date
+    ) -> ClipboardDirectorySizeResult? {
+        let key = root.standardizedFileURL.path
+        return storage.lock.withLock {
+            removeExpiredEntries(at: storage.now())
+            guard let entry = storage.entries[key] else { return nil }
+            guard entry.contentModificationDate == contentModificationDate else {
+                storage.entries.removeValue(forKey: key)
+                return nil
+            }
+            return entry.result
+        }
+    }
+
+    static func store(
+        _ result: ClipboardDirectorySizeResult,
+        for root: URL,
+        contentModificationDate: Date,
+        readContentModificationDate: (URL) -> Date? = {
+            (try? $0.resourceValues(forKeys: [.contentModificationDateKey]))?
+                .contentModificationDate
+        }
+    ) {
+        switch result {
+        case .exact, .atLeast:
+            break
+        case .unavailable, .cancelled:
+            return
+        }
+        guard readContentModificationDate(root) == contentModificationDate else { return }
+
+        let key = root.standardizedFileURL.path
+        storage.lock.withLock {
+            let currentTime = storage.now()
+            removeExpiredEntries(at: currentTime)
+            let writeOrder = storage.nextWriteOrder
+            storage.nextWriteOrder &+= 1
+            storage.entries[key] = Entry(
+                result: result,
+                contentModificationDate: contentModificationDate,
+                writtenAt: currentTime,
+                writeOrder: writeOrder
+            )
+            while storage.entries.count > maximumCachedResultCount,
+                  let oldestKey = storage.entries.min(
+                    by: { $0.value.writeOrder < $1.value.writeOrder }
+                  )?.key {
+                storage.entries.removeValue(forKey: oldestKey)
+            }
+        }
+    }
+
+    static func reset(
+        now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
+    ) {
+        storage.lock.withLock {
+            storage.entries.removeAll()
+            storage.now = now
+            storage.nextWriteOrder = 0
+        }
+    }
+
+    static var cachedResultCount: Int {
+        storage.lock.withLock {
+            removeExpiredEntries(at: storage.now())
+            return storage.entries.count
+        }
+    }
+
+    private static func removeExpiredEntries(at currentTime: TimeInterval) {
+        storage.entries = storage.entries.filter {
+            currentTime - $0.value.writtenAt < timeToLive
+        }
+    }
+}
+
+enum ClipboardDirectorySizeTaskEvent: Equatable {
+    case progress(Int64)
+    case terminal(ClipboardDirectorySizeResult)
+}
+
+final class ClipboardDirectorySizeObservation: @unchecked Sendable {
+    let id: UUID
+    private let lock = NSLock()
+    private var cancellation: (() -> Void)?
+
+    init(id: UUID = UUID(), cancellation: @escaping () -> Void) {
+        self.id = id
+        self.cancellation = cancellation
+    }
+
+    func cancel() {
+        let action = lock.withLock { () -> (() -> Void)? in
+            defer { cancellation = nil }
+            return cancellation
+        }
+        action?()
+    }
+}
+
+enum ClipboardDirectorySizeAttachment {
+    case cached(ClipboardDirectorySizeResult)
+    case observing(observation: ClipboardDirectorySizeObservation, latestLowerBound: Int64)
+    case saturated
+}
+
+final class ClipboardDirectorySizeCoordinator: @unchecked Sendable {
+    typealias Calculator = (
+        URL,
+        TimeInterval,
+        @escaping () -> Bool,
+        TimeInterval,
+        @escaping (Int64) -> Void
+    ) -> ClipboardDirectorySizeResult
+
+    static let shared = ClipboardDirectorySizeCoordinator()
+    static let maximumDetachedTaskCount = 2
+    static let maximumDuration: TimeInterval = 30
+    static let progressUpdateInterval: TimeInterval = 0.25
+
+    private struct Identity: Hashable {
+        let path: String
+        let contentModificationDate: Date
+    }
+
+    private final class Task {
+        let identity: Identity
+        let root: URL
+        var latestLowerBound: Int64 = 0
+        var observers: [UUID: (ClipboardDirectorySizeTaskEvent) -> Void] = [:]
+        var cancelled = false
+
+        init(identity: Identity, root: URL) {
+            self.identity = identity
+            self.root = root
+        }
+    }
+
+    private let stateQueue: DispatchQueue
+    private let workerQueue: DispatchQueue
+    private let calculator: Calculator
+    private var tasks: [Identity: Task] = [:]
+
+    init(
+        label: String = "com.copied.clipboard.directory-size",
+        calculator: @escaping Calculator = { root, duration, shouldCancel, interval, progress in
+            ClipboardDirectorySizeCalculator.calculate(
+                at: root,
+                maximumDuration: duration,
+                shouldCancel: shouldCancel,
+                progressUpdateInterval: interval,
+                onProgress: progress
+            )
+        }
+    ) {
+        stateQueue = DispatchQueue(label: "\(label).state")
+        workerQueue = DispatchQueue(label: "\(label).worker", qos: .utility, attributes: .concurrent)
+        self.calculator = calculator
+    }
+
+    func attach(
+        to root: URL,
+        contentModificationDate: Date,
+        observer: @escaping (ClipboardDirectorySizeTaskEvent) -> Void
+    ) -> ClipboardDirectorySizeAttachment {
+        if let cached = ClipboardDirectorySizeCache.cachedResult(
+            for: root,
+            contentModificationDate: contentModificationDate
+        ) {
+            return .cached(cached)
+        }
+
+        let identity = Identity(
+            path: root.standardizedFileURL.path,
+            contentModificationDate: contentModificationDate
+        )
+        var taskToStart: Task?
+        let attachment: ClipboardDirectorySizeAttachment = stateQueue.sync {
+            if let task = tasks[identity] {
+                return makeObservation(for: task, observer: observer)
+            }
+            if let cached = ClipboardDirectorySizeCache.cachedResult(
+                for: root,
+                contentModificationDate: contentModificationDate
+            ) {
+                return .cached(cached)
+            }
+            guard tasks.count < Self.maximumDetachedTaskCount else { return .saturated }
+            let task = Task(identity: identity, root: root.standardizedFileURL)
+            tasks[identity] = task
+            taskToStart = task
+            return makeObservation(for: task, observer: observer)
+        }
+        if let taskToStart { start(taskToStart) }
+        return attachment
+    }
+
+    func cancelAll() {
+        stateQueue.sync {
+            for task in tasks.values {
+                task.cancelled = true
+                task.observers.removeAll()
+            }
+        }
+    }
+
+    var inFlightTaskCount: Int {
+        stateQueue.sync { tasks.count }
+    }
+
+    private func makeObservation(
+        for task: Task,
+        observer: @escaping (ClipboardDirectorySizeTaskEvent) -> Void
+    ) -> ClipboardDirectorySizeAttachment {
+        let id = UUID()
+        task.observers[id] = observer
+        let observation = ClipboardDirectorySizeObservation(id: id) { [weak self] in
+            self?.detach(id: id, from: task.identity)
+        }
+        return .observing(observation: observation, latestLowerBound: task.latestLowerBound)
+    }
+
+    private func detach(id: UUID, from identity: Identity) {
+        stateQueue.async { [weak self] in
+            self?.tasks[identity]?.observers.removeValue(forKey: id)
+        }
+    }
+
+    private func start(_ task: Task) {
+        workerQueue.async { [weak self, weak task] in
+            guard let self, let task else { return }
+            let result = calculator(
+                task.root,
+                Self.maximumDuration,
+                { [weak self, weak task] in
+                    guard let self, let task else { return true }
+                    return self.stateQueue.sync {
+                        task.cancelled || self.tasks[task.identity] !== task
+                    }
+                },
+                Self.progressUpdateInterval,
+                { [weak self, weak task] size in
+                    guard let self, let task else { return }
+                    self.publishProgress(size, for: task)
+                }
+            )
+            let shouldStore = self.stateQueue.sync {
+                self.tasks[task.identity] === task && !task.cancelled
+            }
+            if shouldStore {
+                ClipboardDirectorySizeCache.store(
+                    result,
+                    for: task.root,
+                    contentModificationDate: task.identity.contentModificationDate
+                )
+            }
+            self.finish(task, result: result)
+        }
+    }
+
+    private func publishProgress(_ size: Int64, for task: Task) {
+        let observers: [(ClipboardDirectorySizeTaskEvent) -> Void] = stateQueue.sync {
+            guard tasks[task.identity] === task, !task.cancelled,
+                  size > task.latestLowerBound else { return [] }
+            task.latestLowerBound = size
+            return Array(task.observers.values)
+        }
+        observers.forEach { $0(.progress(size)) }
+    }
+
+    private func finish(_ task: Task, result: ClipboardDirectorySizeResult) {
+        let observers: [(ClipboardDirectorySizeTaskEvent) -> Void] = stateQueue.sync {
+            guard tasks[task.identity] === task else { return [] }
+            tasks.removeValue(forKey: task.identity)
+            return Array(task.observers.values)
+        }
+        observers.forEach { $0(.terminal(result)) }
+    }
+}
+
 enum ClipboardDirectorySizeCalculator {
-    static let maximumEntryCount = 100_000
     static let maximumDuration: TimeInterval = 30
 
     static func calculate(
         at root: URL,
-        maximumEntryCount: Int = maximumEntryCount,
         maximumDuration: TimeInterval = maximumDuration,
         now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
         shouldCancel: @escaping () -> Bool = { false },
@@ -391,10 +717,9 @@ enum ClipboardDirectorySizeCalculator {
                 .fileSizeKey,
                 .totalFileSizeKey,
                 .isDirectoryKey,
-                .isPackageKey,
                 .isSymbolicLinkKey,
             ],
-            options: [.skipsHiddenFiles, .skipsPackageDescendants],
+            options: [],
             errorHandler: { _, _ in
                 if shouldCancel() { return false }
                 hadError = true
@@ -405,19 +730,16 @@ enum ClipboardDirectorySizeCalculator {
         }
 
         var total: Int64 = 0
-        var entryCount = 0
         var lastProgressTime = started
         for case let fileURL as URL in enumerator {
             if shouldCancel() { return .cancelled }
-            if entryCount >= maximumEntryCount || now() - started >= maximumDuration {
+            if now() - started >= maximumDuration {
                 return .atLeast(total)
             }
-            entryCount += 1
             guard let values = try? fileURL.resourceValues(forKeys: [
                 .fileSizeKey,
                 .totalFileSizeKey,
                 .isDirectoryKey,
-                .isPackageKey,
                 .isSymbolicLinkKey,
             ]) else {
                 hadError = true
@@ -425,15 +747,8 @@ enum ClipboardDirectorySizeCalculator {
             }
             if shouldCancel() { return .cancelled }
             if values.isSymbolicLink == true { continue }
-            if values.isDirectory == true, values.isPackage != true { continue }
-            let size: Int?
-            if values.isPackage == true {
-                size = values.totalFileSize
-                if size == nil { hadError = true }
-            } else {
-                size = values.fileSize
-            }
-            guard let size, size >= 0 else {
+            if values.isDirectory == true { continue }
+            guard let size = values.totalFileSize ?? values.fileSize, size >= 0 else {
                 hadError = true
                 continue
             }

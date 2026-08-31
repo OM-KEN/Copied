@@ -47,6 +47,7 @@ enum ClipboardBaseReaderTests {
         try pngIsPreferredAndStoredForImageLane()
         try fileSelectionIsCapped()
         try directoryLoadingAndPackageFallback()
+        try saturatedDirectoryUsesSessionCancellation()
         try cancelledFileEnrichmentDoesNotEmit()
         print("ClipboardBaseReaderTests: PASS")
     }
@@ -145,6 +146,8 @@ enum ClipboardBaseReaderTests {
     }
 
     private static func directoryLoadingAndPackageFallback() throws {
+        ClipboardDirectorySizeCache.reset()
+        defer { ClipboardDirectorySizeCache.reset() }
         let temporary = FileManager.default.temporaryDirectory
         let directory = temporary.appendingPathComponent(
             "Copied-folder-enrichment-\(UUID().uuidString)",
@@ -168,16 +171,54 @@ enum ClipboardBaseReaderTests {
             try? FileManager.default.removeItem(at: package)
         }
 
-        var directoryUpdates: [ClipboardEnrichmentUpdate] = []
-        ClipboardFileEnricher.enrich(content: fileContent(url: directory)) {
-            directoryUpdates.append($0)
+        let directoryStarted = DispatchSemaphore(value: 0)
+        let directoryRelease = DispatchSemaphore(value: 0)
+        let packageStarted = DispatchSemaphore(value: 0)
+        let packageRelease = DispatchSemaphore(value: 0)
+        let coordinator = ClipboardDirectorySizeCoordinator(
+            label: "tests.file-enricher-background"
+        ) { root, duration, shouldCancel, interval, onProgress in
+            let isPackage = root.pathExtension.lowercased() == "app"
+            onProgress(isPackage ? 23 : 17)
+            (isPackage ? packageStarted : directoryStarted).signal()
+            _ = (isPackage ? packageRelease : directoryRelease).wait(timeout: .now() + 1)
+            if shouldCancel() { return .cancelled }
+            guard duration == 30 && interval == 0.25 else { return .unavailable }
+            return .exact(isPackage ? 23 : 17)
         }
+
+        let updateLock = NSLock()
+        var directoryUpdates: [ClipboardEnrichmentUpdate] = []
+        let directoryTerminal = DispatchSemaphore(value: 0)
+        var directoryObservation: ClipboardDirectorySizeObservation?
+        ClipboardFileEnricher.enrich(
+            content: fileContent(url: directory),
+            directorySizeCoordinator: coordinator,
+            registerDirectorySizeObservation: { directoryObservation = $0 }
+        ) {
+            updateLock.lock()
+            directoryUpdates.append($0)
+            updateLock.unlock()
+            if case let .fileFacts(_, _, _, _, _, _, loading) = $0, !loading {
+                directoryTerminal.signal()
+            }
+        }
+        try expect(directoryObservation != nil, "directory background observation was not registered")
+        try expect(directoryStarted.wait(timeout: .now() + 1) == .success,
+                   "directory background calculation did not start")
+        try expect(directoryTerminal.wait(timeout: .now() + 0.05) == .timedOut,
+                   "file enrichment blocked until its background calculation completed")
+        directoryRelease.signal()
+        try expect(directoryTerminal.wait(timeout: .now() + 1) == .success,
+                   "directory background calculation emitted no terminal update")
+        updateLock.lock()
         let directoryFacts = directoryUpdates.compactMap { update -> (String, Bool)? in
             guard case let .fileFacts(_, detail, _, _, _, _, detailIsLoading) = update else {
                 return nil
             }
             return (detail, detailIsLoading)
         }
+        updateLock.unlock()
         try expect(directoryFacts.first?.1 == true && directoryFacts.last?.1 == false,
                    "directory detail-loading state did not reach a terminal update")
         try expect(directoryFacts.first?.0.contains(where: \Character.isNumber) == true
@@ -186,11 +227,49 @@ enum ClipboardBaseReaderTests {
         try expect(directoryFacts.count >= 2,
                    "directory size progress did not emit before its terminal value")
 
-        var packageUpdates: [ClipboardEnrichmentUpdate] = []
-        ClipboardFileEnricher.enrich(content: fileContent(url: package)) {
-            packageUpdates.append($0)
+        var cachedDirectoryUpdates: [ClipboardEnrichmentUpdate] = []
+        ClipboardFileEnricher.enrich(
+            content: fileContent(url: directory),
+            directorySizeCoordinator: coordinator
+        ) {
+            cachedDirectoryUpdates.append($0)
         }
-        guard let firstPackage = packageUpdates.first,
+        guard cachedDirectoryUpdates.count == 1,
+              case let .fileFacts(
+                _, cachedDirectoryDetail, _, _, _, _, cachedDirectoryLoading
+              ) = cachedDirectoryUpdates[0] else {
+            throw Failure.failed("cached directory enrichment did not emit exactly one file fact")
+        }
+        try expect(!cachedDirectoryLoading && cachedDirectoryDetail == directoryFacts.last?.0,
+                   "cached directory enrichment emitted loading or changed the terminal detail")
+
+        var packageUpdates: [ClipboardEnrichmentUpdate] = []
+        let packageTerminal = DispatchSemaphore(value: 0)
+        var packageObservation: ClipboardDirectorySizeObservation?
+        ClipboardFileEnricher.enrich(
+            content: fileContent(url: package),
+            directorySizeCoordinator: coordinator,
+            registerDirectorySizeObservation: { packageObservation = $0 }
+        ) {
+            updateLock.lock()
+            packageUpdates.append($0)
+            updateLock.unlock()
+            if case let .fileFacts(_, _, _, _, _, _, loading) = $0, !loading {
+                packageTerminal.signal()
+            }
+        }
+        try expect(packageObservation != nil, "package background observation was not registered")
+        try expect(packageStarted.wait(timeout: .now() + 1) == .success,
+                   "package background calculation did not start")
+        try expect(packageTerminal.wait(timeout: .now() + 0.05) == .timedOut,
+                   "package enrichment blocked until its background calculation completed")
+        packageRelease.signal()
+        try expect(packageTerminal.wait(timeout: .now() + 1) == .success,
+                   "package background calculation emitted no terminal update")
+        updateLock.lock()
+        let packageUpdatesSnapshot = packageUpdates
+        updateLock.unlock()
+        guard let firstPackage = packageUpdatesSnapshot.first,
               case let .fileFacts(_, firstPackageDetail, _, _, _, _, firstPackageLoading)
                 = firstPackage else {
             throw Failure.failed("package enrichment emitted no initial file facts")
@@ -199,7 +278,7 @@ enum ClipboardBaseReaderTests {
                    && firstPackageDetail.contains(where: \Character.isNumber)
                    && !firstPackageDetail.contains("正在"),
                    "package size progress did not start with a numeric value")
-        guard let finalPackage = packageUpdates.last,
+        guard let finalPackage = packageUpdatesSnapshot.last,
               case let .fileFacts(
                 _, detail, typeLabel, icon, allImages, complete, detailIsLoading
               ) = finalPackage else {
@@ -210,6 +289,22 @@ enum ClipboardBaseReaderTests {
                    "package fallback changed the package into a folder presentation")
         try expect(allImages == false && complete && !detailIsLoading,
                    "package fallback terminal classification is incomplete")
+
+        var cachedPackageUpdates: [ClipboardEnrichmentUpdate] = []
+        ClipboardFileEnricher.enrich(
+            content: fileContent(url: package),
+            directorySizeCoordinator: coordinator
+        ) {
+            cachedPackageUpdates.append($0)
+        }
+        guard cachedPackageUpdates.count == 1,
+              case let .fileFacts(
+                _, cachedPackageDetail, _, _, _, _, cachedPackageLoading
+              ) = cachedPackageUpdates[0] else {
+            throw Failure.failed("cached package enrichment did not emit exactly one file fact")
+        }
+        try expect(!cachedPackageLoading && cachedPackageDetail == detail,
+                   "cached package enrichment emitted loading or changed the terminal detail")
     }
 
     private static func cancelledFileEnrichmentDoesNotEmit() throws {
@@ -223,6 +318,74 @@ enum ClipboardBaseReaderTests {
             shouldCancel: { true }
         ) { updates.append($0) }
         try expect(updates.isEmpty, "cancelled file enrichment emitted an update")
+    }
+
+    private static func saturatedDirectoryUsesSessionCancellation() throws {
+        ClipboardDirectorySizeCache.reset()
+        defer { ClipboardDirectorySizeCache.reset() }
+        let temporary = FileManager.default.temporaryDirectory
+        let roots = try (0..<3).map { index -> URL in
+            let root = temporary.appendingPathComponent(
+                "Copied-saturated-enrichment-\(index)-\(UUID().uuidString)",
+                isDirectory: true
+            )
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
+            try Data([1]).write(to: root.appendingPathComponent("payload"))
+            return root
+        }
+        defer { roots.forEach { try? FileManager.default.removeItem(at: $0) } }
+        let modificationDates = try roots.map {
+            try $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate!
+        }
+        let started = [DispatchSemaphore(value: 0), DispatchSemaphore(value: 0)]
+        let release = [DispatchSemaphore(value: 0), DispatchSemaphore(value: 0)]
+        let coordinator = ClipboardDirectorySizeCoordinator(
+            label: "tests.saturated-file-enricher"
+        ) { root, _, _, _, onProgress in
+            let index = roots.firstIndex { $0.standardizedFileURL == root.standardizedFileURL }!
+            onProgress(1)
+            started[index].signal()
+            _ = release[index].wait(timeout: .now() + 1)
+            return .exact(1)
+        }
+        for index in 0..<2 {
+            let attachment = coordinator.attach(
+                to: roots[index],
+                contentModificationDate: modificationDates[index],
+                observer: { _ in }
+            )
+            guard case .observing = attachment else {
+                throw Failure.failed("failed to fill background directory slots")
+            }
+        }
+        try expect(started[0].wait(timeout: .now() + 1) == .success
+                   && started[1].wait(timeout: .now() + 1) == .success,
+                   "background directory slots did not fill")
+
+        var cancelForeground = false
+        var updates: [ClipboardEnrichmentUpdate] = []
+        ClipboardFileEnricher.enrich(
+            content: fileContent(url: roots[2]),
+            shouldCancel: { cancelForeground },
+            directorySizeCoordinator: coordinator
+        ) { update in
+            updates.append(update)
+            if case let .fileFacts(_, _, _, _, _, _, loading) = update, loading {
+                cancelForeground = true
+            }
+        }
+        try expect(cancelForeground, "saturated foreground path did not start numeric progress")
+        try expect(updates.allSatisfy {
+            guard case let .fileFacts(_, _, _, _, _, _, loading) = $0 else { return false }
+            return loading
+        }, "session-cancelled saturated path emitted a terminal result")
+        release.forEach { $0.signal() }
+        let deadline = Date().addingTimeInterval(1)
+        while coordinator.inFlightTaskCount != 0, Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.005)
+        }
+        try expect(coordinator.inFlightTaskCount == 0,
+                   "saturated-path setup tasks did not finish")
     }
 
     private static func fileContent(url: URL) -> ClipboardContent {
