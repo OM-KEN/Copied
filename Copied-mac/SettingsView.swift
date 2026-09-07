@@ -160,7 +160,7 @@ struct SettingsView: View {
                         } else {
                             Button(mouseRecordingState.isRecording ? "取消录制" : "录制侧键…") {
                                 if mouseRecordingState.isRecording {
-                                    stopMouseButtonRecording(reason: "userCancelled")
+                                    stopMouseButtonRecording()
                                 } else {
                                     startMouseButtonRecording()
                                 }
@@ -254,7 +254,7 @@ struct SettingsView: View {
             }
         }
         .onDisappear {
-            stopMouseButtonRecording(reason: "settingsDisappeared")
+            stopMouseButtonRecording()
         }
         .onReceive(NotificationCenter.default.publisher(for: SettingsNavigation.showAboutNotification)) { _ in
             selectedTab = "about"
@@ -600,7 +600,7 @@ struct SettingsView: View {
             copyGestureEnabled = false
             CopyGestureManager.shared.stop()
         case .mouseButtonRecording:
-            stopMouseButtonRecording(reason: "accessibilityDenied")
+            stopMouseButtonRecording()
         case .boundMouseButton, .manualAccessibilitySettings:
             break
         }
@@ -625,7 +625,7 @@ struct SettingsView: View {
 
     private func startMouseButtonRecording() {
         let trusted = AXIsProcessTrusted()
-        stopMouseButtonRecording(reason: "restartRecording")
+        stopMouseButtonRecording()
         guard mouseRecordingState.start(accessibilityTrusted: trusted) else {
             requestAccessibilityAndRetry(for: .mouseButtonRecording)
             return
@@ -643,7 +643,7 @@ struct SettingsView: View {
                 UserDefaults.standard.set(recordedButton, forKey: QuickTriggerSettings.mouseButtonKey)
                 mouseQuickTriggerButton = recordedButton
                 DispatchQueue.main.async {
-                    stopMouseButtonRecording(reason: "bindingCompleted")
+                    stopMouseButtonRecording()
                 }
                 return true
             }
@@ -658,10 +658,10 @@ struct SettingsView: View {
     private func clearMouseQuickTriggerButton() {
         UserDefaults.standard.removeObject(forKey: QuickTriggerSettings.mouseButtonKey)
         mouseQuickTriggerButton = nil
-        stopMouseButtonRecording(reason: "bindingCleared")
+        stopMouseButtonRecording()
     }
 
-    private func stopMouseButtonRecording(reason _: String) {
+    private func stopMouseButtonRecording() {
         GlobalMouseEventCoordinator.shared.removeListener(mouseRecordingListenerToken)
         mouseRecordingListenerToken = nil
         mouseRecordingState.cancel()

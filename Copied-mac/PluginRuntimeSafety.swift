@@ -49,17 +49,22 @@ enum PluginRemovalPolicy {
         from pluginsDirectory: URL,
         fileManager: FileManager = .default
     ) throws -> [URL] {
-        let matchingDirectories = pluginDirectories(
-            in: pluginsDirectory,
-            fileManager: fileManager
-        ).filter {
-            manifestIdentifier(at: $0) == identifier
-        }
+        let matchingDirectories = installedDirectories(identifier: identifier, in: pluginsDirectory, fileManager: fileManager)
 
         for pluginURL in matchingDirectories {
             try fileManager.removeItem(at: pluginURL)
         }
         return matchingDirectories
+    }
+
+    static func installedDirectories(
+        identifier: String,
+        in pluginsDirectory: URL,
+        fileManager: FileManager = .default
+    ) -> [URL] {
+        pluginDirectories(in: pluginsDirectory, fileManager: fileManager)
+            .filter { manifestIdentifier(at: $0) == identifier }
+            .sorted { $0.path < $1.path }
     }
 
     private static func isSafePluginDirectory(

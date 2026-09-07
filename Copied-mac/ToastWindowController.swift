@@ -59,8 +59,7 @@ final class ToastWindowController {
         textExportToken = nil
         presentConfiguredToast(
             autoDismissAfter: startupNoticeDuration,
-            pausesDismissWhileHovered: false,
-            startsQuickTrigger: false
+            pausesDismissWhileHovered: false
         )
     }
 
@@ -77,8 +76,7 @@ final class ToastWindowController {
         quickTriggerContextGeneration &+= 1
         presentConfiguredToast(
             autoDismissAfter: displayDuration,
-            pausesDismissWhileHovered: true,
-            startsQuickTrigger: false
+            pausesDismissWhileHovered: true
         )
     }
 
@@ -94,8 +92,7 @@ final class ToastWindowController {
         quickTriggerContextGeneration &+= 1
         presentConfiguredToast(
             autoDismissAfter: displayDuration,
-            pausesDismissWhileHovered: true,
-            startsQuickTrigger: false
+            pausesDismissWhileHovered: true
         )
         // Pending has no independent lifetime. ClipboardMonitor owns the 3-second
         // load timeout and decides whether it becomes a visible failure or is silent.
@@ -147,7 +144,7 @@ final class ToastWindowController {
               viewModel.revision == revision,
               viewModel.isContentReady else { return }
         viewModel.applyActions(primary: primary, menu: menu)
-        DispatchQueue.main.async { [weak self] in self?.updateWindowSize() }
+        requestWindowLayout()
         quickTriggerContextGeneration &+= 1
         if primary != nil {
             refreshQuickTriggerContextIfEligible()
@@ -177,8 +174,7 @@ final class ToastWindowController {
 
     private func presentConfiguredToast(
         autoDismissAfter duration: TimeInterval,
-        pausesDismissWhileHovered: Bool,
-        startsQuickTrigger: Bool
+        pausesDismissWhileHovered: Bool
     ) {
         let now = Date()
         let replacesVisibleRevision = window?.isVisible == true
@@ -222,7 +218,6 @@ final class ToastWindowController {
         hostingView?.removeFromSuperview()
         hostingView = newHosting
         contentView?.addSubview(newHosting)
-        installExpandedTextSurface()
         newHosting.layoutSubtreeIfNeeded()
 
         guard let screen = NSScreen.main else {
@@ -257,10 +252,6 @@ final class ToastWindowController {
         } else {
             startDismissTimer(after: duration)
         }
-
-        if startsQuickTrigger {
-            quickTriggerCoordinator.start(context: makeQuickTriggerContext())
-        }
     }
 
     private func makeToastView() -> ToastView {
@@ -272,7 +263,7 @@ final class ToastWindowController {
             onExpandedTextFrameChanged: { [weak self] frame in
                 DispatchQueue.main.async { self?.updateExpandedTextFrame(frame) }
             },
-            onNeedsLayout: { [weak self] in DispatchQueue.main.async { self?.updateWindowSize() } },
+            onNeedsLayout: { [weak self] in self?.requestWindowLayout() },
         )
     }
 
@@ -317,15 +308,6 @@ final class ToastWindowController {
     }
 
     // MARK: - Action execution
-
-    /// 替换已有 overlay 的文本，不调整窗口大小。
-    /// 用于异步操作的结果替换。窗口大小由首次 showResultOverlay 确定。
-    func updateResultText(displayText: String, copyText: String?) {
-        cancelDismiss()
-        viewModel.resultOverlay = ResultOverlay(displayText: displayText, copyText: copyText)
-        refreshQuickTriggerContextIfEligible()
-        if !isMouseInsideWindow() { startDismissTimer() }
-    }
 
     func showResultOverlay(displayText: String, copyText: String?, keepAlive: Bool = false) {
         cancelDismiss()
@@ -412,6 +394,7 @@ final class ToastWindowController {
     private func handleExpand() {
         guard viewModel.canExpand, !viewModel.isExpanded,
               !isExpandingOrCollapsing else { return }
+        installExpandedTextSurface()
         let expandedText = viewModel.expandedText
         let alreadyPrepared = preparedExpandedText == expandedText
             && preparedExpandedTextDocumentHeight != nil
@@ -433,7 +416,7 @@ final class ToastWindowController {
             guard let self else { return }
             // Switch content while invisible
             self.viewModel.isExpanded = true
-            self.updateWindowSize(animated: false)
+            self.updateWindowSize()
             self.setExpandedTextSurfaceVisible(true)
 
             // Phase 2: deblur + fade in (reverse of dismissToast)
@@ -483,7 +466,7 @@ final class ToastWindowController {
             self.setExpandedTextSurfaceVisible(false)
             self.viewModel.isExpandedTextLoading = false
             self.viewModel.isExpanded = false
-            self.updateWindowSize(animated: false)
+            self.updateWindowSize()
 
             // Phase 2: deblur + fade in
             self.animateWindowAlpha(to: 1, easeIn: false) { [weak self] in
@@ -633,12 +616,6 @@ final class ToastWindowController {
         if !isMouseInsideWindow() { startDismissTimer() }
     }
 
-    /// 异步操作开始前调用：阻止自动关闭并保持结果展示。
-    func prepareForAsyncInlineAction() {
-        cancelDismiss()
-        pauseDismissTimer()
-    }
-
     func startDismissTimer(after duration: TimeInterval? = nil) {
         dismissTimer?.invalidate()
         guard !viewModel.isExpanded else {
@@ -708,7 +685,7 @@ final class ToastWindowController {
     }
 
     private func installExpandedTextSurface() {
-        guard let contentView else { return }
+        guard expandedTextView == nil, let contentView else { return }
 
         let scrollView = ToastExpandedTextScrollView(frame: .zero)
         scrollView.translatesAutoresizingMaskIntoConstraints = true
@@ -888,7 +865,22 @@ final class ToastWindowController {
         contentView = cv
     }
 
-    func updateWindowSize(animated: Bool = false) {
+    private var pendingLayoutGeneration: Int?
+
+    private func requestWindowLayout() {
+        let generation = dismissGeneration
+        guard pendingLayoutGeneration != generation else { return }
+        pendingLayoutGeneration = generation
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.pendingLayoutGeneration == generation else { return }
+            self.pendingLayoutGeneration = nil
+            guard self.dismissGeneration == generation, !self.isDismissing,
+                  self.window?.isVisible == true else { return }
+            self.updateWindowSize()
+        }
+    }
+
+    func updateWindowSize() {
         guard !isDismissing, let hosting = hostingView, let screen = NSScreen.main else { return }
         hosting.layoutSubtreeIfNeeded()
         let panelSize = hosting.fittingSize
@@ -906,16 +898,7 @@ final class ToastWindowController {
         let x = screen.visibleFrame.midX - windowSize.width / 2
         let y = screen.frame.maxY - windowSize.height + 20
         let rect = NSRect(origin: NSPoint(x: x, y: y), size: windowSize)
-        if animated {
-            NSAnimationContext.runAnimationGroup { ctx in
-                ctx.duration = 0.3
-                ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.16, 0.0, 0.22, 1.0)
-                ctx.allowsImplicitAnimation = true
-                window?.animator().setFrame(rect, display: true)
-            }
-        } else {
-            window?.setFrame(rect, display: true, animate: false)
-        }
+        window?.setFrame(rect, display: true, animate: false)
         hosting.frame = ExpandedWindowLayoutMetrics.hostingFrame(
             for: contentSize,
             isExpanded: viewModel.isExpanded
@@ -927,7 +910,6 @@ final class ToastWindowController {
     }
 
     func dismissToast(animated: Bool) {
-        let releasesPresentationAfterDismiss = viewModel.isStartupNotice
         let shouldHideSurfaceImmediately = ToastDismissSurfacePolicy.shouldHideImmediately(
             animated: animated,
             isExpanded: viewModel.isExpanded
@@ -974,9 +956,7 @@ final class ToastWindowController {
                 self.viewModel.cancelAsyncThumbnail()
                 self.isDismissing = false
                 self.removeAllMonitors()
-                if releasesPresentationAfterDismiss {
-                    self.releaseStartupNoticePresentation()
-                }
+                self.releasePresentation()
             }
         } else {
             dismissGeneration += 1
@@ -984,13 +964,12 @@ final class ToastWindowController {
             window?.orderOut(nil)
             viewModel.cancelAsyncThumbnail()
             isDismissing = false
-            if releasesPresentationAfterDismiss {
-                releaseStartupNoticePresentation()
-            }
+            releasePresentation()
         }
     }
 
-    private func releaseStartupNoticePresentation() {
+    private func releasePresentation() {
+        pendingLayoutGeneration = nil
         releasePresentationSurfaces()
         viewModel = ToastViewModel()
         currentContent = nil

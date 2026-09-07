@@ -221,6 +221,7 @@ final class ClipboardMonitor {
             guard let self, let session, revision == session.revision,
                   self.activeSession === session else { return }
             session.cancel()
+            self.activeContent = nil
         }
 
         if lightReminderEnabled,
@@ -557,7 +558,6 @@ final class ClipboardMonitor {
               revisionGate.accept(update.revision),
               var content = activeContent else { return }
 
-        var shouldApplyEnrichment = true
         switch update {
         case let .analysis(_, detections):
             content.detections = detections
@@ -575,7 +575,6 @@ final class ClipboardMonitor {
             }
             analysisIsReady = true
         case let .actions(_, primary, menu):
-            shouldApplyEnrichment = false
             if isActivePresentationVisible {
                 toastController?.applyActions(
                     primary: primary,
@@ -583,6 +582,7 @@ final class ClipboardMonitor {
                     revision: session.revision
                 )
             }
+            return
         case let .fileFacts(
             _, detail, typeLabel, iconSymbolName, allImages, isComplete, detailIsLoading
         ):
@@ -610,7 +610,7 @@ final class ClipboardMonitor {
 
         activeContent = content
         session.storePayload(content)
-        if isActivePresentationVisible, shouldApplyEnrichment {
+        if isActivePresentationVisible {
             toastController?.applyEnrichment(content, revision: session.revision)
         }
 

@@ -36,6 +36,23 @@ private final class RegistryReentrantDetector: ContentDetectorProtocol {
     }
 }
 
+private final class DirectoryTestClock {
+    private let lock = NSLock()
+    private var time: TimeInterval = 0
+
+    var now: TimeInterval {
+        lock.lock()
+        defer { lock.unlock() }
+        return time
+    }
+
+    func advance(_ interval: TimeInterval) {
+        lock.lock()
+        time += interval
+        lock.unlock()
+    }
+}
+
 @main
 enum ClipboardPipelineTests {
     private static let registryNotificationChildArgument = "--registry-notification-child"
@@ -53,8 +70,9 @@ enum ClipboardPipelineTests {
         try testSoftDeadlineCanBeCancelled()
         try testGraphemeSafeTruncation()
         try testDirectoryOverflowAndTimeBudget()
-        try testDirectorySizeCache()
+        try testDirectorySizeFreshness()
         try testDirectorySizeCoordinator()
+        try testAdaptiveDirectoryCache()
         try testDirectoryObservationCancellation()
         try testDirectoryProgressReporting()
         try testDirectoryIncludesHiddenAndSkipsSymlinkTargets()
@@ -236,284 +254,240 @@ enum ClipboardPipelineTests {
                    "directory traversal ignored cooperative cancellation")
     }
 
-    private static func testDirectorySizeCache() throws {
-        var currentTime: TimeInterval = 100
-        ClipboardDirectorySizeCache.reset(now: { currentTime })
-        defer { ClipboardDirectorySizeCache.reset() }
-
-        let root = URL(fileURLWithPath: "/tmp/Copied-directory-cache-root")
-        let modificationDate = Date(timeIntervalSinceReferenceDate: 10)
-        ClipboardDirectorySizeCache.store(
-            .exact(7),
-            for: root,
-            contentModificationDate: modificationDate,
-            readContentModificationDate: { _ in modificationDate }
-        )
-        currentTime = 699
-        try expect(
-            ClipboardDirectorySizeCache.cachedResult(
-                for: root,
-                contentModificationDate: modificationDate
-            ) == .exact(7),
-            "directory size cache expired before its 600-second TTL"
-        )
-        currentTime = 700
-        try expect(
-            ClipboardDirectorySizeCache.cachedResult(
-                for: root,
-                contentModificationDate: modificationDate
-            ) == nil,
-            "directory size cache survived its 600-second TTL"
-        )
-
-        currentTime = 200
-        ClipboardDirectorySizeCache.reset(now: { currentTime })
-        ClipboardDirectorySizeCache.store(
-            .atLeast(8),
-            for: root,
-            contentModificationDate: modificationDate,
-            readContentModificationDate: { _ in modificationDate }
-        )
-        try expect(
-            ClipboardDirectorySizeCache.cachedResult(
-                for: root,
-                contentModificationDate: modificationDate
-            ) == .atLeast(8),
-            "partial directory size was not cached"
-        )
-        try expect(
-            ClipboardDirectorySizeCache.cachedResult(
-                for: root,
-                contentModificationDate: modificationDate.addingTimeInterval(1)
-            ) == nil,
-            "root modification-date change did not invalidate the cache"
-        )
-        ClipboardDirectorySizeCache.store(
-            .exact(9),
-            for: root,
-            contentModificationDate: modificationDate,
-            readContentModificationDate: { _ in modificationDate.addingTimeInterval(1) }
-        )
-        try expect(ClipboardDirectorySizeCache.cachedResultCount == 0,
-                   "result was cached after the root changed during calculation")
-
-        currentTime = 300
-        ClipboardDirectorySizeCache.reset(now: { currentTime })
-        ClipboardDirectorySizeCache.store(
-            .unavailable,
-            for: root,
-            contentModificationDate: modificationDate
-        )
-        ClipboardDirectorySizeCache.store(
-            .cancelled,
-            for: root,
-            contentModificationDate: modificationDate
-        )
-        try expect(ClipboardDirectorySizeCache.cachedResultCount == 0,
-                   "unavailable or cancelled directory results were cached")
-        ClipboardDirectorySizeCache.store(
-            .exact(9),
-            for: root,
-            contentModificationDate: modificationDate,
-            readContentModificationDate: { _ in modificationDate }
-        )
-        let partialRoot = URL(fileURLWithPath: "/tmp/Copied-directory-cache-partial")
-        ClipboardDirectorySizeCache.store(
-            .atLeast(10),
-            for: partialRoot,
-            contentModificationDate: modificationDate,
-            readContentModificationDate: { _ in modificationDate }
-        )
-        try expect(ClipboardDirectorySizeCache.cachedResultCount == 2,
-                   "exact and partial directory results were not both cached")
-
-        currentTime = 0
-        ClipboardDirectorySizeCache.reset(now: { currentTime })
-        for index in 0...ClipboardDirectorySizeCache.maximumCachedResultCount {
-            currentTime = TimeInterval(index)
-            ClipboardDirectorySizeCache.store(
-                .exact(Int64(index)),
-                for: URL(fileURLWithPath: "/tmp/Copied-directory-cache-\(index)"),
-                contentModificationDate: modificationDate,
-                readContentModificationDate: { _ in modificationDate }
-            )
+    private static func testDirectorySizeFreshness() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let nested = root.appendingPathComponent("nested")
+        try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let payload = nested.appendingPathComponent("payload")
+        let coordinator = ClipboardDirectorySizeCoordinator()
+        for size in [10, 1_000] {
+            try Data(repeating: 1, count: size).write(to: payload)
+            let finished = DispatchSemaphore(value: 0)
+            var result: ClipboardDirectorySizeResult?
+            var owner: NSObject? = NSObject()
+            weak var weakOwner = owner
+            let observation = coordinator.attach(to: root) { [owner = owner!] event in
+                withExtendedLifetime(owner) {
+                    if case let .terminal(value) = event {
+                        result = value
+                        finished.signal()
+                    }
+                }
+            }
+            owner = nil
+            try expect(observation != nil, "fresh directory traversal did not start")
+            try expect(finished.wait(timeout: .now() + 2) == .success, "fresh traversal timed out")
+            try expect(result == .exact(Int64(size)), "deep file edit reused an old directory size")
+            let deadline = Date().addingTimeInterval(1)
+            while weakOwner != nil, Date() < deadline { Thread.sleep(forTimeInterval: 0.001) }
+            withExtendedLifetime(observation) {
+                precondition(weakOwner == nil, "finished traversal retains its observer payload")
+            }
         }
-        try expect(
-            ClipboardDirectorySizeCache.cachedResultCount
-                == ClipboardDirectorySizeCache.maximumCachedResultCount,
-            "directory size cache exceeded its 32-entry capacity"
-        )
-        try expect(
-            ClipboardDirectorySizeCache.cachedResult(
-                for: URL(fileURLWithPath: "/tmp/Copied-directory-cache-0"),
-                contentModificationDate: modificationDate
-            ) == nil,
-            "directory size cache did not evict the earliest write"
-        )
-        try expect(
-            ClipboardDirectorySizeCache.cachedResult(
-                for: URL(fileURLWithPath: "/tmp/Copied-directory-cache-1"),
-                contentModificationDate: modificationDate
-            ) == .exact(1),
-            "directory size cache evicted a newer entry"
-        )
     }
 
     private static func testDirectorySizeCoordinator() throws {
-        ClipboardDirectorySizeCache.reset()
-        defer { ClipboardDirectorySizeCache.reset() }
-        let temporary = FileManager.default.temporaryDirectory
-        let roots = try (0..<3).map { index -> URL in
-            let root = temporary.appendingPathComponent(
-                "Copied-directory-coordinator-\(index)-\(UUID().uuidString)",
-                isDirectory: true
-            )
-            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
-            return root
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let other = root.appendingPathComponent("other")
+        let started = DispatchSemaphore(value: 0)
+        let release = DispatchSemaphore(value: 0)
+        let finished = DispatchSemaphore(value: 0)
+        let coordinator = ClipboardDirectorySizeCoordinator(calculator: { _, duration, shouldCancel, interval, progress in
+            guard duration == 30 && interval == 0.25 else { return .unavailable }
+            progress(5)
+            started.signal()
+            _ = release.wait(timeout: .now() + 2)
+            return shouldCancel() ? .cancelled : .exact(5)
+        })
+        let first = coordinator.attach(to: root) { event in
+            if case .terminal = event { finished.signal() }
         }
-        defer { roots.forEach { try? FileManager.default.removeItem(at: $0) } }
-        let modificationDates = try roots.map {
-            try $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate!
+        try expect(started.wait(timeout: .now() + 1) == .success, "first traversal did not start")
+        var reattachedProgress: Int64?
+        let second = coordinator.attach(to: root.appendingPathComponent(".").standardizedFileURL) { event in
+            if case let .progress(size) = event { reattachedProgress = size }
+            if case .terminal = event { finished.signal() }
         }
-        let releases = roots.map { _ in DispatchSemaphore(value: 0) }
-        let starts = roots.map { _ in DispatchSemaphore(value: 0) }
-        let stateLock = NSLock()
-        var calculationCounts: [String: Int] = [:]
-        var durations: [TimeInterval] = []
-        var intervals: [TimeInterval] = []
-        let coordinator = ClipboardDirectorySizeCoordinator(
-            label: "tests.directory-size-coordinator"
-        ) { root, duration, shouldCancel, interval, onProgress in
-            let index = roots.firstIndex { $0.standardizedFileURL == root.standardizedFileURL }!
-            stateLock.lock()
-            calculationCounts[root.path, default: 0] += 1
-            durations.append(duration)
-            intervals.append(interval)
-            stateLock.unlock()
-            onProgress(5)
-            starts[index].signal()
-            while releases[index].wait(timeout: .now() + 0.01) == .timedOut {
-                if shouldCancel() { return .cancelled }
-            }
-            return shouldCancel() ? .cancelled : .exact(Int64(index + 1))
-        }
+        try expect(first != nil && second != nil && first?.id != second?.id,
+                   "shared traversal did not return independent observations")
+        try expect(coordinator.inFlightTaskCount == 1 && reattachedProgress == 5,
+                   "repeat copy did not reuse its running traversal/progress")
+        _ = coordinator.attach(to: other) { _ in }
+        try expect(started.wait(timeout: .now() + 1) == .success, "second directory did not start")
+        try expect(coordinator.attach(to: root.appendingPathComponent("third"), observer: { _ in }) == nil,
+                   "directory workers exceeded their bound")
+        first?.cancel()
+        try expect(coordinator.inFlightTaskCount == 2, "detach cancelled a shared worker")
+        release.signal()
+        release.signal()
+        try expect(finished.wait(timeout: .now() + 1) == .success, "remaining observer lost its result")
+        try expect(finished.wait(timeout: .now() + 0.05) == .timedOut, "detached observer received a terminal event")
+        try waitForDirectoryTasks(coordinator)
 
-        let first = coordinator.attach(
-            to: roots[0],
-            contentModificationDate: modificationDates[0],
-            observer: { _ in }
-        )
-        let second = coordinator.attach(
-            to: roots[1],
-            contentModificationDate: modificationDates[1],
-            observer: { _ in }
-        )
-        guard case let .observing(firstObservation, _) = first,
-              case .observing = second else {
-            throw TestFailure.failed("first two directory tasks did not start")
+        let backgroundStarted = DispatchSemaphore(value: 0)
+        let backgroundRelease = DispatchSemaphore(value: 0)
+        let clock = DirectoryTestClock()
+        let background = ClipboardDirectorySizeCoordinator(now: { clock.now }) { _, _, shouldCancel, _, _ in
+            backgroundStarted.signal()
+            _ = backgroundRelease.wait(timeout: .now() + 2)
+            clock.advance(2)
+            return shouldCancel() ? .cancelled : .exact(123)
         }
-        try expect(starts[0].wait(timeout: .now() + 1) == .success
-                   && starts[1].wait(timeout: .now() + 1) == .success,
-                   "background directory tasks did not start")
+        let session = ClipboardLoadSession(revision: .init(generation: 1, changeCount: 1), backingScale: 2)
+        var owner: NSObject? = NSObject()
+        weak var weakOwner = owner
+        session.setDirectorySizeObservation(background.attach(to: root) { [owner = owner!] _ in
+            withExtendedLifetime(owner) {}
+        }!)
+        owner = nil
+        try expect(backgroundStarted.wait(timeout: .now() + 1) == .success, "background traversal did not start")
+        session.cancel()
+        try expect(weakOwner == nil && background.inFlightTaskCount == 1,
+                   "dismiss either retained the UI observer or cancelled background work")
+        backgroundRelease.signal()
+        try waitForDirectoryTasks(background)
+        var cached: ClipboardDirectorySizeTaskEvent?
+        _ = background.attach(to: root) { cached = $0 }
+        try expect(cached == .cached(123, isRefreshing: false), "dismissed traversal did not populate cache")
 
-        var reconnectedEvents: [ClipboardDirectorySizeTaskEvent] = []
-        let reconnectedTerminal = DispatchSemaphore(value: 0)
-        let reconnected = coordinator.attach(
-            to: roots[0],
-            contentModificationDate: modificationDates[0],
-            observer: { event in
-                stateLock.lock()
-                reconnectedEvents.append(event)
-                stateLock.unlock()
-                if case .terminal = event { reconnectedTerminal.signal() }
-            }
-        )
-        guard case let .observing(reconnectedObservation, latestLowerBound) = reconnected else {
-            throw TestFailure.failed("same directory task did not reconnect")
-        }
-        try expect(latestLowerBound == 5, "reconnected observer did not receive latest progress")
-        stateLock.lock()
-        let firstCalculationCount = calculationCounts[roots[0].standardizedFileURL.path]
-        stateLock.unlock()
-        try expect(firstCalculationCount == 1, "reconnection restarted directory calculation")
-
-        let saturated = coordinator.attach(
-            to: roots[2],
-            contentModificationDate: modificationDates[2],
-            observer: { _ in }
-        )
-        guard case .saturated = saturated else {
-            throw TestFailure.failed("third detached directory task was not saturated")
-        }
-
-        firstObservation.cancel()
-        releases[0].signal()
-        try expect(reconnectedTerminal.wait(timeout: .now() + 1) == .success,
-                   "reconnected observer did not receive the running task's terminal result")
-        stateLock.lock()
-        let reconnectedEventsSnapshot = reconnectedEvents
-        stateLock.unlock()
-        try expect(reconnectedEventsSnapshot.contains(.terminal(.exact(1))),
-                   "reconnected observer received the wrong terminal result")
-        reconnectedObservation.cancel()
-        let firstDeadline = Date().addingTimeInterval(1)
-        while coordinator.inFlightTaskCount == 2, Date() < firstDeadline {
-            Thread.sleep(forTimeInterval: 0.005)
-        }
-        try expect(
-            ClipboardDirectorySizeCache.cachedResult(
-                for: roots[0],
-                contentModificationDate: modificationDates[0]
-            ) == .exact(1),
-            "detached task did not finish and cache its result"
-        )
-
-        let third = coordinator.attach(
-            to: roots[2],
-            contentModificationDate: modificationDates[2],
-            observer: { _ in }
-        )
-        guard case .observing = third else {
-            throw TestFailure.failed("completed task did not release a background slot")
-        }
-        try expect(starts[2].wait(timeout: .now() + 1) == .success,
-                   "third directory task did not start after a slot was released")
-        releases[1].signal()
-        releases[2].signal()
-        let completionDeadline = Date().addingTimeInterval(1)
-        while coordinator.inFlightTaskCount != 0, Date() < completionDeadline {
-            Thread.sleep(forTimeInterval: 0.005)
-        }
-        try expect(coordinator.inFlightTaskCount == 0, "directory tasks did not finish")
-        stateLock.lock()
-        let recordedDurations = durations
-        let recordedIntervals = intervals
-        stateLock.unlock()
-        try expect(recordedDurations.allSatisfy { $0 == 30 },
-                   "background directory task did not retain a 30-second total budget")
-        try expect(recordedIntervals.allSatisfy { $0 == 0.25 },
-                   "background directory progress interval exceeded 250ms")
-
-        ClipboardDirectorySizeCache.reset()
         let cancelled = DispatchSemaphore(value: 0)
-        let cancellationCoordinator = ClipboardDirectorySizeCoordinator(
-            label: "tests.directory-size-cancellation"
-        ) { _, _, shouldCancel, _, _ in
+        let unblock = DispatchSemaphore(value: 0)
+        let cancellationCoordinator = ClipboardDirectorySizeCoordinator(calculator: { _, _, shouldCancel, _, _ in
             while !shouldCancel() { Thread.sleep(forTimeInterval: 0.001) }
             cancelled.signal()
-            return .cancelled
-        }
-        let cancellable = cancellationCoordinator.attach(
-            to: roots[0],
-            contentModificationDate: modificationDates[0],
-            observer: { _ in }
-        )
-        guard case .observing = cancellable else {
-            throw TestFailure.failed("cancellable directory task did not start")
-        }
+            _ = unblock.wait(timeout: .now() + 1)
+            return .exact(99)
+        })
+        _ = cancellationCoordinator.attach(to: root) { _ in }
         cancellationCoordinator.cancelAll()
-        try expect(cancelled.wait(timeout: .now() + 1) == .success,
-                   "coordinator cancelAll did not cooperatively cancel its task")
+        try expect(cancelled.wait(timeout: .now() + 1) == .success, "cancelAll did not cancel its worker")
+        try expect(cancellationCoordinator.inFlightTaskCount == 1, "cancelAll freed a blocked worker slot")
+        unblock.signal()
+        try waitForDirectoryTasks(cancellationCoordinator)
+        background.cancelAll()
+        var restartedEvent: ClipboardDirectorySizeTaskEvent?
+        let restarted = background.attach(to: root) { if restartedEvent == nil { restartedEvent = $0 } }
+        try expect(restartedEvent == .progress(0), "pause retained a previous cached result")
+        restarted?.cancel()
+        background.cancelAll()
+        backgroundRelease.signal()
+        try waitForDirectoryTasks(background)
+    }
+
+    private static func waitForDirectoryTasks(_ coordinator: ClipboardDirectorySizeCoordinator) throws {
+        let deadline = Date().addingTimeInterval(2)
+        while coordinator.inFlightTaskCount != 0, Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.001)
+        }
+        try expect(coordinator.inFlightTaskCount == 0, "completed workers retained their slots")
+    }
+
+    private static func testAdaptiveDirectoryCache() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        for duration in [0.5, 1.0, 1.001] {
+            let clock = DirectoryTestClock()
+            var count = 0
+            let coordinator = ClipboardDirectorySizeCoordinator(now: { clock.now }) { _, _, _, _, _ in
+                count += 1
+                clock.advance(duration)
+                return .exact(Int64(count))
+            }
+            _ = coordinator.calculate(at: root, shouldCancel: { false }, onProgress: { _ in })
+            let terminal = DispatchSemaphore(value: 0)
+            var events: [ClipboardDirectorySizeTaskEvent] = []
+            _ = coordinator.attach(to: root) { event in
+                events.append(event)
+                if case .terminal = event { terminal.signal() }
+                if case .cached(_, _, false) = event { terminal.signal() }
+            }
+            try expect(terminal.wait(timeout: .now() + 1) == .success, "threshold case did not finish")
+            try expect(duration > 1 ? events == [.cached(1, isRefreshing: false)] : events.last == .terminal(.exact(2)),
+                       "strict one-second cache threshold changed")
+            try expect(count == (duration > 1 ? 1 : 2), "fast directory reused a complete result")
+        }
+
+        let clock = DirectoryTestClock()
+        var duration: TimeInterval = 2
+        var result = ClipboardDirectorySizeResult.exact(100)
+        let coordinator = ClipboardDirectorySizeCoordinator(now: { clock.now }) { _, _, _, _, progress in
+            progress(5)
+            clock.advance(duration)
+            return result
+        }
+        _ = coordinator.calculate(at: root, shouldCancel: { false }, onProgress: { _ in })
+        clock.advance(29.999)
+        var cached: ClipboardDirectorySizeTaskEvent?
+        _ = coordinator.attach(to: root) { cached = $0 }
+        try expect(cached == .cached(100, isRefreshing: false), "cache expired before 30 seconds after completion")
+        clock.advance(0.001)
+        result = .exact(10)
+        let terminal = DispatchSemaphore(value: 0)
+        var events: [ClipboardDirectorySizeTaskEvent] = []
+        _ = coordinator.attach(to: root) { event in
+            events.append(event)
+            if case .terminal = event { terminal.signal() }
+        }
+        try expect(terminal.wait(timeout: .now() + 1) == .success, "expired cache did not refresh")
+        try expect(events.first == .cached(100, isRefreshing: true) && events.last == .terminal(.exact(10)),
+                   "refresh did not distinguish old cached size from a smaller current result")
+        duration = 1
+        _ = coordinator.calculate(at: root, shouldCancel: { false }, onProgress: { _ in })
+        events.removeAll()
+        _ = coordinator.attach(to: root) { event in
+            events.append(event)
+            if case .terminal = event { terminal.signal() }
+        }
+        try expect(terminal.wait(timeout: .now() + 1) == .success, "now-fast directory did not recalculate")
+        try expect(events.first == .progress(0), "fast refresh failed to remove the previous slow cache")
+
+        duration = 2
+        result = .atLeast(7)
+        _ = coordinator.calculate(at: root, shouldCancel: { false }, onProgress: { _ in })
+        events.removeAll()
+        _ = coordinator.attach(to: root) { event in
+            events.append(event)
+            if case .terminal = event { terminal.signal() }
+            if case .cached = event { terminal.signal() }
+        }
+        try expect(terminal.wait(timeout: .now() + 1) == .success, "partial result reuse did not finish")
+        try expect(events == [.cached(7, isPartial: true, isRefreshing: false)],
+                   "slow partial result restarted traversal or lost its lower-bound status")
+
+
+        clock.advance(30)
+        result = .exact(4)
+        events.removeAll()
+        _ = coordinator.attach(to: root) { event in
+            events.append(event)
+            if case .terminal = event { terminal.signal() }
+        }
+        try expect(terminal.wait(timeout: .now() + 1) == .success, "expired partial cache did not refresh")
+        try expect(events.first == .cached(7, isPartial: true, isRefreshing: true)
+                   && events.last == .terminal(.exact(4)), "partial refresh lost its label or smaller final result")
+        for uncacheable in [ClipboardDirectorySizeResult.unavailable, .cancelled] {
+            let empty = ClipboardDirectorySizeCoordinator(now: { clock.now }) { _, _, _, _, _ in
+                clock.advance(2)
+                return uncacheable
+            }
+            _ = empty.calculate(at: root, shouldCancel: { false }, onProgress: { _ in })
+            var initial: ClipboardDirectorySizeTaskEvent?
+            _ = empty.attach(to: root) { if initial == nil { initial = $0 } }
+            try waitForDirectoryTasks(empty)
+            try expect(initial == .progress(0), "unavailable or cancelled result became cached size")
+        }
+
+        result = .exact(10)
+        for index in 0...ClipboardDirectorySizeCoordinator.maximumCachedResultCount {
+            _ = coordinator.calculate(at: root.appendingPathComponent(String(index)), shouldCancel: { false }, onProgress: { _ in })
+        }
+        events.removeAll()
+        _ = coordinator.attach(to: root.appendingPathComponent("0")) { event in
+            events.append(event)
+            if case .terminal = event { terminal.signal() }
+        }
+        try expect(terminal.wait(timeout: .now() + 1) == .success, "evicted directory did not restart")
+        try expect(events.first == .progress(0), "historical cache exceeded its entry bound")
     }
 
     private static func testDirectoryObservationCancellation() throws {

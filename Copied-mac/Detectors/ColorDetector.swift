@@ -7,6 +7,9 @@ struct ColorDetector: ContentDetectorProtocol {
     let kind = ContentKind.colorHex  // 统一使用 colorHex（内部区分格式）
     let priority = 300
 
+    private static let rgbRegex = try! NSRegularExpression(pattern: #"^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*(?:,\s*(0|1|0?\.\d+|[01]\.\d+))?\s*\)$"#)
+    private static let hslRegex = try! NSRegularExpression(pattern: #"^hsl\(\s*(\d{1,3})\s*,\s*(\d{1,3})%\s*,\s*(\d{1,3})%\s*\)$"#)
+
     func detect(in text: String) -> ContentDetection? {
         // Hex with #: #RGB, #RRGGBB, #RRGGBBAA
         let hexPattern = #"^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"#
@@ -30,8 +33,7 @@ struct ColorDetector: ContentDetectorProtocol {
         }
 
         // rgb() / rgba()
-        let rgbPattern = #"^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*(?:,\s*(0|1|0?\.\d+|[01]\.\d+))?\s*\)$"#
-        if let color = parseRGBColor(text, pattern: rgbPattern) {
+        if let color = parseRGBColor(text, regex: Self.rgbRegex) {
             return ContentDetection(
                 kind: .colorRGB, value: text, color: color,
                 metadata: ["format": "rgb"]
@@ -39,8 +41,7 @@ struct ColorDetector: ContentDetectorProtocol {
         }
 
         // hsl()
-        let hslPattern = #"^hsl\(\s*(\d{1,3})\s*,\s*(\d{1,3})%\s*,\s*(\d{1,3})%\s*\)$"#
-        if let color = parseHSLColor(text, pattern: hslPattern) {
+        if let color = parseHSLColor(text, regex: Self.hslRegex) {
             return ContentDetection(
                 kind: .colorHSL, value: text, color: color,
                 metadata: ["format": "hsl"]
@@ -77,9 +78,8 @@ struct ColorDetector: ContentDetectorProtocol {
 
     // MARK: RGB parsing
 
-    private func parseRGBColor(_ text: String, pattern: String) -> NSColor? {
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: []),
-              let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+    private func parseRGBColor(_ text: String, regex: NSRegularExpression) -> NSColor? {
+        guard let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
               match.range.location != NSNotFound else { return nil }
 
         let nsText = text as NSString
@@ -99,9 +99,8 @@ struct ColorDetector: ContentDetectorProtocol {
 
     // MARK: HSL parsing
 
-    private func parseHSLColor(_ text: String, pattern: String) -> NSColor? {
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: []),
-              let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+    private func parseHSLColor(_ text: String, regex: NSRegularExpression) -> NSColor? {
+        guard let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
               match.range.location != NSNotFound else { return nil }
 
         let nsText = text as NSString

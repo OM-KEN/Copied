@@ -94,11 +94,11 @@ struct ToastCommandTests {
 
     private static func clipboardTextPolicySelectsFallbackAction() {
         expect(
-            ClipboardTextPolicy.fallback(for: String(repeating: "字", count: 49)) == .search,
+            ClipboardTextPolicy.fallback(textLength: 49) == .search,
             "49 characters stay searchable"
         )
         expect(
-            ClipboardTextPolicy.fallback(for: String(repeating: "字", count: 50)) == .saveAs,
+            ClipboardTextPolicy.fallback(textLength: 50) == .saveAs,
             "50 characters prefer Save As"
         )
     }
@@ -353,8 +353,10 @@ struct ToastCommandTests {
         expect(!view.contains("onPrimaryActionHoverChanged"), "primary hover is visual only")
         expect(!view.contains("onExpandedActionHoverChanged"), "expanded hover is visual only")
         expect(
-            view.components(separatedBy: "onCommand(.performPrimary)").count == 3,
-            "primary and result buttons both emit the primary command"
+            view.components(separatedBy: "onCommand(.performPrimary)").count == 2
+                && view.contains("private var primaryButton:")
+                && view.contains("resultOverlay.copyText != nil"),
+            "shared primary/result button emits the primary command"
         )
     }
 }

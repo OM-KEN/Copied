@@ -74,7 +74,7 @@ enum InstantClipboardFeedbackTests {
             ".types", ".pasteboardItems", "data(forType:", "resourceValues",
             "DetectionRegistry.shared.detectAll", "ActionResolver.resolve",
             "visualHashValue", "CGImageSource", "generateThumbnail",
-            "SourceAppDetector.detect(for:",
+            "SourceAppDetector.detect(",
         ]
         for token in prohibited {
             try expect(
@@ -185,7 +185,10 @@ enum InstantClipboardFeedbackTests {
             from: "func showPending(revision:",
             to: "func applyBaseContent"
         )
-        try expect(pending.contains("startsQuickTrigger: false"), "Pending starts Quick Trigger")
+        try expect(!pending.contains("quickTriggerCoordinator.start"), "Pending starts Quick Trigger")
+        let presentation = try section(controller, from: "private func presentConfiguredToast(", to: "private func makeToastView()")
+        try expect(!presentation.contains("quickTriggerCoordinator.start"),
+                   "Shared presentation starts Quick Trigger before Action readiness")
         try expect(pending.contains(".now() + 0.05"), "50ms loading transition is absent")
         guard let pendingPresentation = pending.range(of: "presentConfiguredToast(") else {
             throw Failure.failed("Pending presentation call is absent")
@@ -536,31 +539,19 @@ enum InstantClipboardFeedbackTests {
                    && !classification.contains(".totalFileSizeKey"),
                    "multi-file classification requests size keys for every URL")
         try expect(fileEnricher.contains("values.isPackage == true, size == nil")
-                   && fileEnricher.contains("let packageResult = ClipboardDirectorySizeCalculator.calculate"),
-                   "root packages lack bounded size fallback")
-        let folderCachePath = try section(
+                   && fileEnricher.components(separatedBy: "enrichDirectorySize(").count == 4,
+                   "folders and packages do not share bounded size enrichment")
+        let sharedDirectoryPath = try section(
             fileEnricher,
-            from: "if values.isDirectory == true && values.isPackage != true",
-            to: "if shouldCancel() { return }"
+            from: "func enrichDirectorySize(",
+            to: "if values.isDirectory == true && values.isPackage != true"
         )
-        try expect(
-            index(of: "directorySizeCoordinator.attach", in: folderCachePath)
-                < index(of: "emitFileSizeProgress(0", in: folderCachePath),
-            "folder task attach occurs after the initial loading update"
-        )
-        let packageCachePath = try section(
-            fileEnricher,
-            from: "guard values.isPackage == true, size == nil else",
-            to: "let packageResult = ClipboardDirectorySizeCalculator.calculate"
-        )
-        try expect(
-            index(of: "directorySizeCoordinator.attach", in: packageCachePath)
-                < index(of: "emitFileSizeProgress(0", in: packageCachePath),
-            "package task attach occurs after the initial loading update"
-        )
-        try expect(fileEnricher.contains("case .saturated:")
-                   && fileEnricher.contains("shouldCancel: shouldCancel"),
-                   "saturated third directory is not bound to session cancellation")
+        try expect(sharedDirectoryPath.contains("case let .cached(size, isPartial, isRefreshing)")
+                   && sharedDirectoryPath.contains("emitCachedFileSize"),
+                   "directory enrichment does not distinguish historical size")
+        try expect(sharedDirectoryPath.contains("directorySizeCoordinator.calculate")
+                   && sharedDirectoryPath.contains("shouldCancel: shouldCancel"),
+                   "saturated directory fallback is not bounded by session cancellation")
 
         let bitmapTimeout = try section(
             monitor,
@@ -614,10 +605,12 @@ enum InstantClipboardFeedbackTests {
             from: "private func reduce(",
             to: "private func updateIsWithinDeadline"
         )
-        try expect(reducer.contains("var shouldApplyEnrichment = true")
-                   && reducer.contains("shouldApplyEnrichment = false")
-                   && reducer.contains("isActivePresentationVisible, shouldApplyEnrichment"),
-                   "Action updates are immediately replaced by a redundant content enrichment")
+        let actionUpdate = try section(reducer, from: "case let .actions", to: "case let .fileFacts")
+        try expect(actionUpdate.contains("toastController?.applyActions(")
+                   && actionUpdate.contains("return")
+                   && !actionUpdate.contains("session.storePayload")
+                   && !actionUpdate.contains("applyEnrichment"),
+                   "Action updates must return without rewriting content or applying enrichment")
 
         let panel = try source("ToastPanel.swift")
         try expect(panel.contains("maximumDocumentHeight")
@@ -661,7 +654,7 @@ enum InstantClipboardFeedbackTests {
         let dismissToast = try section(
             controller,
             from: "func dismissToast(animated: Bool)",
-            to: "private func releaseStartupNoticePresentation"
+            to: "private func releasePresentation"
         )
         let animatedDismissCompletion = try section(
             dismissToast,
@@ -814,10 +807,10 @@ enum InstantClipboardFeedbackTests {
                    "leaf sizing does not prefer total size with a file-size fallback")
         try expect(!pipeline.contains("maximumEntryCount"), "directory traversal still has an entry budget")
         try expect(pipeline.contains("maximumDuration: TimeInterval = 30"), "directory time budget is absent")
-        try expect(pipeline.contains("timeToLive: TimeInterval = 600")
-                   && pipeline.contains("maximumCachedResultCount = 32")
-                   && pipeline.contains("standardizedFileURL.path"),
-                   "directory size cache bounds or standardized key are absent")
+        try expect(pipeline.contains("slowDirectoryThreshold: TimeInterval = 1")
+                   && pipeline.contains("cacheLifetime: TimeInterval = 30")
+                   && pipeline.contains("maximumCachedResultCount = 32"),
+                   "adaptive directory cache bounds are absent")
         try expect(pipeline.contains("maximumDetachedTaskCount = 2")
                    && pipeline.contains("maximumDuration: TimeInterval = 30")
                    && pipeline.contains("progressUpdateInterval: TimeInterval = 0.25"),

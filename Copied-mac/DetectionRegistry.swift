@@ -130,7 +130,12 @@ final class DetectionRegistry {
     // MARK: - Registration
 
     func register(_ detector: any ContentDetectorProtocol) {
-        stateLock.withLock { detectors.append(detector) }
+        stateLock.withLock {
+            if case let .plugin(identifier) = detector.kind.source {
+                detectors.removeAll { $0.kind.source == .plugin(identifier) }
+            }
+            detectors.append(detector)
+        }
     }
 
     func unregister(kind: ContentKind) {
@@ -265,7 +270,7 @@ final class DetectionRegistry {
         register(PythonDetector())
         register(JavaScriptDetector())
         register(CSSDetector())
-        // 单个通用关键字不足以把普通文本判为代码，因此不注册 CodeDetector。
+        // 单个通用关键字不足以把普通文本判为代码，只注册具体语言检测器。
     }
 
     // MARK: - Helpers

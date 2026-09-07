@@ -8,7 +8,7 @@ enum FirstResponseWarmUp {
     static func perform(using toastController: ToastWindowController) {
         EntityDetectorWarmUp.perform()
         _ = DetectionRegistry.shared.detectAll(in: detectionPipelineCandidate)
-        let source = SourceAppDetector.detect(for: nil)
+        let source = SourceAppDetector.detect()
         toastController.showStartupNotice(using: source)
     }
 }
@@ -114,10 +114,11 @@ private struct MenuBarContent: View {
     }
 }
 
+#if !COPIED_TESTING
 @main
+#endif
 struct CopiedApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
-    @AppStorage("isPaused") private var isPaused = false
 
     private let menuBarIcon: NSImage = {
         let icon = Bundle.main.url(forResource: "Copied-menu", withExtension: "svg")
@@ -262,13 +263,5 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func setPaused(_ paused: Bool) {
         if paused { monitor?.stop() } else { monitor?.start() }
-    }
-
-    func setCopyGestureEnabled(_ enabled: Bool) {
-        if enabled {
-            CopyGestureManager.shared.start()
-        } else {
-            CopyGestureManager.shared.stop()
-        }
     }
 }

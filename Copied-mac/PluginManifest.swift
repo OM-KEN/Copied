@@ -60,7 +60,7 @@ struct CompiledRule {
     let extractGroup: String?
     let actionTemplate: PluginActionTemplate?
 
-    init?(rule: PluginRule) throws {
+    init(rule: PluginRule) throws {
         self.id = rule.id
         let options: NSRegularExpression.Options = (rule.multiline == true) ? [.anchorsMatchLines] : []
         self.regex = try NSRegularExpression(pattern: rule.pattern, options: options)

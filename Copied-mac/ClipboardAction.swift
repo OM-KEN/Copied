@@ -123,12 +123,16 @@ struct SearchTextAction: ClipboardAction {
 
     func perform(content: ClipboardContent, controller: ToastWindowController?) {
         let engine = UserDefaults.standard.string(forKey: "searchEngine") ?? "google"
-        let template = Self.searchEngines[engine] ?? "https://www.google.com/search?q=%@"
-
-        guard let query = text.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-              let url = URL(string: String(format: template, query)) else { return }
-
+        guard let url = Self.url(for: text, engine: engine) else { return }
         NSWorkspace.shared.open(url)
+    }
+
+    static func url(for text: String, engine: String) -> URL? {
+        let template = searchEngines[engine] ?? searchEngines["google"]!
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "&=+#")
+        guard let query = text.addingPercentEncoding(withAllowedCharacters: allowed) else { return nil }
+        return URL(string: String(format: template, query))
     }
 }
 
@@ -334,7 +338,7 @@ enum ActionResolver {
         if primary == nil, content.type == .text, !content.preview.isEmpty {
             let text = content.rawText ?? content.preview
             if !text.isEmpty {
-                switch ClipboardTextPolicy.fallback(for: text) {
+                switch ClipboardTextPolicy.fallback(textLength: content.textLength) {
                 case .saveAs:
                     primary = SaveFileAction(text: text, defaultName: "clipboard.txt")
                 case .search:
@@ -382,8 +386,8 @@ enum ActionResolver {
         case ContentKind.englishPhrase.id:
             guard let text = detection.value else { return nil }
             // 预查词典：有释义才显示"翻译"按钮，无释义则返回 nil 让 SearchTextAction 兜底
-            guard DictionaryLookupService.lookup(text) != nil else { return nil }
-            return LookupAction(text: text)
+            guard let definition = DictionaryLookupService.lookup(text) else { return nil }
+            return LookupAction(definition: definition)
 
         case ContentKind.colorHex.id,
              ContentKind.colorRGB.id,
