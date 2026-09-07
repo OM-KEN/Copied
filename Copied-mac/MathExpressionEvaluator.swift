@@ -733,13 +733,11 @@ private extension MathExpressionEvaluator {
     }
 
     struct DecimalProfile {
-        let significantDigits: Int
         let highestExponent: Int
         let lowestExponent: Int
 
         init(_ decimal: Decimal) {
             if decimal == 0 {
-                significantDigits = 1
                 highestExponent = 0
                 lowestExponent = 0
                 return
@@ -757,7 +755,6 @@ private extension MathExpressionEvaluator {
 
             highestExponent = decimalPosition - first - 1
             lowestExponent = decimalPosition - last - 1
-            significantDigits = last - first + 1
         }
     }
 

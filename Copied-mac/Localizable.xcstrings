@@ -64,6 +64,20 @@
         "zh-Hant": { "stringUnit": { "state": "translated", "value": "檔案資訊無法取得" } }
       }
     },
+    "上次统计 %@": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Last measured %1$@" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "上次统计 %1$@" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "上次統計 %1$@" } }
+      }
+    },
+    "上次至少 %@": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Previously at least %1$@" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "上次至少 %1$@" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "上次至少 %1$@" } }
+      }
+    },
     "至少 %@": {
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "At least %1$@" } },

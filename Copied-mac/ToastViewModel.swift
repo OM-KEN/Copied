@@ -10,7 +10,7 @@ struct ResultOverlay: Equatable {
 
     init(displayText: String, copyText: String?) {
         self.displayText = displayText
-        self.copyText = copyText
+        self.copyText = copyText.flatMap { $0.isEmpty ? nil : $0 }
         let bounded = ClipboardExpandedTextPolicy.displayText(for: displayText)
         boundedDisplayText = bounded.text
         displayWasTruncated = bounded.truncated
@@ -57,22 +57,9 @@ final class ToastViewModel {
     var isExpandedTransitioning = false
     var isTextExportInProgress = false
 
-    var asyncThumbnail: NSImage? {
-        get { thumbnailImage }
-        set { thumbnailImage = newValue }
-    }
-
     var isStartupNotice: Bool { phase == .startup }
     var isContentReady: Bool { phase == .ready }
     var canExpand: Bool { isContentReady && !expandedText.isEmpty }
-
-    var primaryDetection: ContentDetection? {
-        rawContent?.detections.first {
-            $0.kind.id != ContentKind.colorHex.id
-                && $0.kind.id != ContentKind.colorRGB.id
-                && $0.kind.id != ContentKind.colorHSL.id
-        }
-    }
 
     var expandedText: String {
         if let overlay = resultOverlay, !overlay.displayText.isEmpty {

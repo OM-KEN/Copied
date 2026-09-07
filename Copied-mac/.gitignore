@@ -19,6 +19,8 @@ Tests/*
 !Tests/ClipboardBaseReaderTests.swift
 !Tests/InstantClipboardFeedbackTests.swift
 !Tests/TemporaryTextExportTests.swift
+!Tests/AppBehaviorTests.swift
+!Tests/BuildScriptTests.sh
 .DS_Store
 *.dmg
 *.zip

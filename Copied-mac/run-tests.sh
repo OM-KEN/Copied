@@ -4,7 +4,7 @@ set -euo pipefail
 TEST_BUILD_DIR=".build/tests"
 mkdir -p "$TEST_BUILD_DIR"
 
-swiftc -parse-as-library \
+swiftc -O -parse-as-library \
     ClipboardPipeline.swift \
     PluginActionTemplate.swift \
     ContentKind.swift \
@@ -28,7 +28,6 @@ swiftc -parse-as-library \
     Detectors/PythonDetector.swift \
     Detectors/JavaScriptDetector.swift \
     Detectors/CSSDetector.swift \
-    Detectors/CodeDetector.swift \
     FilePreviewGenerator.swift \
     Tests/ClipboardPipelineTests.swift \
     -framework AppKit \
@@ -37,7 +36,7 @@ swiftc -parse-as-library \
     -o "$TEST_BUILD_DIR/ClipboardPipelineTests"
 "$TEST_BUILD_DIR/ClipboardPipelineTests"
 
-swiftc -parse-as-library \
+swiftc -O -parse-as-library \
     ClipboardPipeline.swift \
     ClipboardContentEnrichment.swift \
     Tests/ClipboardBaseReaderTests.swift \
@@ -47,25 +46,25 @@ swiftc -parse-as-library \
     -o "$TEST_BUILD_DIR/ClipboardBaseReaderTests"
 "$TEST_BUILD_DIR/ClipboardBaseReaderTests"
 
-swiftc -parse-as-library \
+swiftc -O -parse-as-library \
     Tests/InstantClipboardFeedbackTests.swift \
     -o "$TEST_BUILD_DIR/InstantClipboardFeedbackTests"
 "$TEST_BUILD_DIR/InstantClipboardFeedbackTests"
 
-swiftc -parse-as-library \
+swiftc -O -parse-as-library \
     TemporaryTextExport.swift \
     Tests/TemporaryTextExportTests.swift \
     -framework AppKit \
     -o "$TEST_BUILD_DIR/TemporaryTextExportTests"
 "$TEST_BUILD_DIR/TemporaryTextExportTests"
 
-swiftc -parse-as-library \
+swiftc -O -parse-as-library \
     PluginRuntimeSafety.swift \
     Tests/PluginSecurityTests.swift \
     -o "$TEST_BUILD_DIR/PluginSecurityTests"
 "$TEST_BUILD_DIR/PluginSecurityTests"
 
-swiftc -parse-as-library \
+swiftc -O -parse-as-library \
     MathExpressionEvaluator.swift \
     PluginActionTemplate.swift \
     ContentKind.swift \
@@ -76,10 +75,40 @@ swiftc -parse-as-library \
     -o "$TEST_BUILD_DIR/MathExpressionTests"
 "$TEST_BUILD_DIR/MathExpressionTests"
 
-swift Tests/AppFilterTests.swift
-swift Tests/DateTimeTests.swift
+swiftc -O -parse-as-library \
+    AppFilterSettings.swift \
+    Tests/AppFilterTests.swift \
+    -framework AppKit \
+    -o "$TEST_BUILD_DIR/AppFilterTests"
+"$TEST_BUILD_DIR/AppFilterTests"
 
-swiftc -parse-as-library \
+swiftc -O -parse-as-library \
+    DetectionRegistry.swift \
+    AppLanguage.swift \
+    MathExpressionEvaluator.swift \
+    Detectors/ColorDetector.swift \
+    Detectors/URLDetector.swift \
+    Detectors/PhoneNumberDetector.swift \
+    Detectors/EmailDetector.swift \
+    Detectors/FilePathDetector.swift \
+    Detectors/MathExpressionDetector.swift \
+    Detectors/ChineseCharDetector.swift \
+    Detectors/EnglishPhraseDetector.swift \
+    Detectors/HTMLDetector.swift \
+    Detectors/SwiftDetector.swift \
+    Detectors/PythonDetector.swift \
+    Detectors/JavaScriptDetector.swift \
+    Detectors/CSSDetector.swift \
+    ContentKind.swift \
+    PluginActionTemplate.swift \
+    ContentDetection.swift \
+    Detectors/DateTimeDetector.swift \
+    Tests/DateTimeTests.swift \
+    -framework AppKit \
+    -o "$TEST_BUILD_DIR/DateTimeTests"
+"$TEST_BUILD_DIR/DateTimeTests"
+
+swiftc -O -parse-as-library \
     ContentKind.swift \
     PluginActionTemplate.swift \
     ContentDetection.swift \
@@ -92,21 +121,21 @@ swiftc -parse-as-library \
     -o "$TEST_BUILD_DIR/EntityDetectorCandidateTests"
 "$TEST_BUILD_DIR/EntityDetectorCandidateTests"
 
-swiftc -parse-as-library \
+swiftc -O -parse-as-library \
     DictionaryLookupService.swift \
     Tests/DictionaryWarmUpTests.swift \
     -framework CoreServices \
     -o "$TEST_BUILD_DIR/DictionaryWarmUpTests"
 "$TEST_BUILD_DIR/DictionaryWarmUpTests"
 
-swiftc -parse-as-library \
+swiftc -O -parse-as-library \
     CopySoundFeedback.swift \
     Tests/CopySoundFeedbackTests.swift \
     -framework AppKit \
     -o "$TEST_BUILD_DIR/CopySoundFeedbackTests"
 "$TEST_BUILD_DIR/CopySoundFeedbackTests"
 
-swiftc -parse-as-library \
+swiftc -O -parse-as-library \
     KeyboardShortcutSettings.swift \
     QuickTriggerModifierKeyPolicy.swift \
     QuickTriggerStateMachine.swift \
@@ -115,7 +144,7 @@ swiftc -parse-as-library \
     -o "$TEST_BUILD_DIR/QuickTriggerStateMachineTests"
 "$TEST_BUILD_DIR/QuickTriggerStateMachineTests"
 
-swiftc -parse-as-library \
+swiftc -O -parse-as-library \
     KeyboardShortcutSettings.swift \
     QuickTriggerModifierKeyPolicy.swift \
     QuickTriggerStateMachine.swift \
@@ -128,39 +157,39 @@ swiftc -parse-as-library \
     -o "$TEST_BUILD_DIR/QuickTriggerCoordinatorTests"
 "$TEST_BUILD_DIR/QuickTriggerCoordinatorTests"
 
-swiftc -parse-as-library \
+swiftc -O -parse-as-library \
     AppUpdateModels.swift \
     Tests/AppUpdateModelsTests.swift \
     -o "$TEST_BUILD_DIR/AppUpdateModelsTests"
 "$TEST_BUILD_DIR/AppUpdateModelsTests"
 
-swiftc -parse-as-library \
+swiftc -O -parse-as-library \
     AppUpdateModels.swift \
     AppUpdateService.swift \
     Tests/AppUpdateServiceTests.swift \
     -o "$TEST_BUILD_DIR/AppUpdateServiceTests"
 "$TEST_BUILD_DIR/AppUpdateServiceTests"
 
-swiftc -parse-as-library \
+swiftc -O -parse-as-library \
     FeedbackSupport.swift \
     Tests/FeedbackSupportTests.swift \
     -o "$TEST_BUILD_DIR/FeedbackSupportTests"
 "$TEST_BUILD_DIR/FeedbackSupportTests"
 
-swiftc -parse-as-library \
+swiftc -O -parse-as-library \
     ApplicationRelauncher.swift \
     Tests/ApplicationRelauncherTests.swift \
     -framework AppKit \
     -o "$TEST_BUILD_DIR/ApplicationRelauncherTests"
 "$TEST_BUILD_DIR/ApplicationRelauncherTests"
 
-swiftc -parse-as-library \
+swiftc -O -parse-as-library \
     MetadataAutoScrollMetrics.swift \
     Tests/MetadataAutoScrollMetricsTests.swift \
     -o "$TEST_BUILD_DIR/MetadataAutoScrollMetricsTests"
 "$TEST_BUILD_DIR/MetadataAutoScrollMetricsTests"
 
-swiftc -parse-as-library \
+swiftc -O -parse-as-library \
     GlobalMouseEventTapRecoveryPolicy.swift \
     CopyGestureEventSequence.swift \
     MouseButtonRecordingStateMachine.swift \
@@ -172,13 +201,13 @@ swiftc -parse-as-library \
     -o "$TEST_BUILD_DIR/InteractionWiringTests"
 "$TEST_BUILD_DIR/InteractionWiringTests"
 
-swiftc -parse-as-library \
+swiftc -O -parse-as-library \
     CopyGesturePermissionPolicy.swift \
     Tests/CopyGesturePermissionPolicyTests.swift \
     -o "$TEST_BUILD_DIR/CopyGesturePermissionPolicyTests"
 "$TEST_BUILD_DIR/CopyGesturePermissionPolicyTests"
 
-swiftc -parse-as-library \
+swiftc -O -parse-as-library \
     ClipboardPipeline.swift \
     ClipboardTextPolicy.swift \
     ToastCommand.swift \
@@ -189,11 +218,19 @@ swiftc -parse-as-library \
     -o "$TEST_BUILD_DIR/ToastCommandTests"
 "$TEST_BUILD_DIR/ToastCommandTests"
 
-swiftc -parse-as-library \
+swiftc -O -parse-as-library \
     ClipboardTextPolicy.swift \
     PopupPresentationSettings.swift \
     Tests/PopupPresentationSettingsTests.swift \
     -o "$TEST_BUILD_DIR/PopupPresentationSettingsTests"
 "$TEST_BUILD_DIR/PopupPresentationSettingsTests"
+
+swiftc -O -D COPIED_TESTING -parse-as-library \
+    *.swift Detectors/*.swift Tests/AppBehaviorTests.swift \
+    -target arm64-apple-macosx14.0 \
+    -o "$TEST_BUILD_DIR/AppBehaviorTests"
+"$TEST_BUILD_DIR/AppBehaviorTests"
+
+bash Tests/BuildScriptTests.sh
 
 echo "All tests passed"

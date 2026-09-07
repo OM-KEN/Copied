@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
 APP_NAME="Copied"
 BUILD_DIR=".build"
@@ -57,7 +57,6 @@ SOURCES=(
     Detectors/PythonDetector.swift
     Detectors/JavaScriptDetector.swift
     Detectors/CSSDetector.swift
-    Detectors/CodeDetector.swift
     TypeSettingsView.swift
     CopiedApp.swift
     AppFilterSettings.swift
@@ -86,7 +85,11 @@ SOURCES=(
     ToastWindowController.swift
     LightReminderController.swift
 )
-ICON_FILES=(Copied.icon/icon.json Copied.icon/Assets/)
+test -d Copied.icon/Assets
+ICON_FILES=(Copied.icon/icon.json)
+while IFS= read -r -d '' asset; do
+    ICON_FILES+=("$asset")
+done < <(find Copied.icon/Assets -type f -print0)
 
 RESOURCES=(Info.plist Localizable.xcstrings "${ICON_FILES[@]}")
 
@@ -97,7 +100,7 @@ echo "🔨 Building Copied..."
 
 # ── Fingerprint check (skip compilation if nothing changed) ──
 NPROC=$(sysctl -n hw.ncpu)
-NEW_FP=$(shasum -a 256 "${SOURCES[@]}" "${RESOURCES[@]}" "${BUILD_FILES[@]}" 2>/dev/null | shasum -a 256)
+NEW_FP=$(shasum -a 256 "${SOURCES[@]}" "${RESOURCES[@]}" "${BUILD_FILES[@]}" | LC_ALL=C sort | shasum -a 256)
 OLD_FP=$(cat "$FINGERPRINT" 2>/dev/null || echo "")
 
 if [[ "$NEW_FP" == "$OLD_FP" ]] && [[ -f "$MACOS_DIR/$APP_NAME" ]]; then
@@ -106,10 +109,11 @@ if [[ "$NEW_FP" == "$OLD_FP" ]] && [[ -f "$MACOS_DIR/$APP_NAME" ]]; then
 fi
 
 # ── Clean & compile ─────────────────────────────────────────
+rm -f "$FINGERPRINT"
 rm -rf "$APP_BUNDLE"
 mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
 
-swiftc \
+swiftc -O \
     -num-threads "$NPROC" \
     -o "$MACOS_DIR/$APP_NAME" \
     -target arm64-apple-macosx14.0 \
@@ -146,7 +150,7 @@ xcrun actool Copied.icon --compile "$RESOURCES_DIR" \
   --output-partial-info-plist /tmp/copied-icon-plist.plist
 
 # Sign with Apple Development certificate (stable TCC identity across rebuilds)
-codesign -s "Apple Development" -f "$APP_BUNDLE" 2>/dev/null || true
+codesign -s "Apple Development" -f "$APP_BUNDLE"
 
 # Store fingerprint for next build
 echo "$NEW_FP" > "$FINGERPRINT"

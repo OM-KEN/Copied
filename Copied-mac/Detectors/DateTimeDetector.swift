@@ -5,6 +5,16 @@ struct DateTimeDetector: ContentDetectorProtocol {
     let kind = ContentKind.dateTime
     let priority = 190
 
+    private static let dotDateRegex = try! NSRegularExpression(pattern: #"^(\d{1,2})\.(\d{1,2})$"#)
+    private static let dotDateTimeRegex = try! NSRegularExpression(pattern: #"^(\d{1,2})\.(\d{1,2})\s+(.*)$"#)
+    private static let chineseHourRegex = try! NSRegularExpression(pattern: #"^(\d{1,2})点$"#)
+    private static let chineseHourInDateRegex = try! NSRegularExpression(pattern: #"(\d{1,2})点\b"#)
+    private static let zeroSecondsRegex = try! NSRegularExpression(pattern: #"^(\d{1,2}:\d{2}):00$"#)
+    private static let chineseMonthDayRegex = try! NSRegularExpression(pattern: #"(\d{1,2})月(\d{1,2})日"#)
+    private static let dotMonthDayRegex = try! NSRegularExpression(pattern: #"^(\d{1,2})\.(\d{1,2})\b"#)
+    private static let isoMonthDayRegex = try! NSRegularExpression(pattern: #"^(\d{4})[/-](\d{1,2})[/-](\d{1,2})"#)
+    private static let chineseYearMonthDayRegex = try! NSRegularExpression(pattern: #"(\d{4})年(\d{1,2})月(\d{1,2})日"#)
+
     /// 数字日期/时间及其时区描述的保守总上限。
     static let maximumCandidateUTF16Length = 256
 
@@ -28,7 +38,7 @@ struct DateTimeDetector: ContentDetectorProtocol {
         // ── 预处理层：将 NSDataDetector 不支持的格式转换为支持的格式 ──
 
         // 规则1: "6.23" → "6月23日"（月.日 格式）
-        if let m = try? NSRegularExpression(pattern: #"^(\d{1,2})\.(\d{1,2})$"#)
+        if let m = Self.dotDateRegex
             .firstMatch(in: trimmed, range: NSRange(trimmed.startIndex..., in: trimmed)),
            m.numberOfRanges == 3,
            let monthRange = Range(m.range(at: 1), in: trimmed),
@@ -41,7 +51,7 @@ struct DateTimeDetector: ContentDetectorProtocol {
 
         // 规则4: "6.23 20:00" / "6.23 20点" → "6月23日 20:00" / "6月23日 20点"
         // （规则2 会在后续处理 "20点"）
-        if let m = try? NSRegularExpression(pattern: #"^(\d{1,2})\.(\d{1,2})\s+(.*)$"#)
+        if let m = Self.dotDateTimeRegex
             .firstMatch(in: trimmed, range: NSRange(trimmed.startIndex..., in: trimmed)),
            m.numberOfRanges == 4,
            let monthRange = Range(m.range(at: 1), in: trimmed),
@@ -55,7 +65,7 @@ struct DateTimeDetector: ContentDetectorProtocol {
         }
 
         // 规则2: "20点" → "20:00"（单独的"点"不带"分"）
-        if let m = try? NSRegularExpression(pattern: #"^(\d{1,2})点$"#)
+        if let m = Self.chineseHourRegex
             .firstMatch(in: trimmed, range: NSRange(trimmed.startIndex..., in: trimmed)),
            m.numberOfRanges == 2 {
             candidates.append(trimmed.replacingOccurrences(
@@ -68,7 +78,7 @@ struct DateTimeDetector: ContentDetectorProtocol {
         // 对候选列表中的每个字符串，也尝试应用规则2
         // 处理 "6月23日 20点" → "6月23日 20:00"
         let extraCandidates = candidates.compactMap { candidate -> String? in
-            if (try? NSRegularExpression(pattern: #"(\d{1,2})点\b"#)
+            if (Self.chineseHourInDateRegex
                 .firstMatch(in: candidate, range: NSRange(candidate.startIndex..., in: candidate))) != nil {
                 return candidate.replacingOccurrences(
                     of: #"(\d{1,2})点\b"#,
@@ -82,7 +92,7 @@ struct DateTimeDetector: ContentDetectorProtocol {
 
         // 规则3: "15:30:00" → "15:30"（秒为 :00 时 NSDataDetector 只部分匹配）
         let stripSecondsCandidates = candidates.compactMap { candidate -> String? in
-            if let m = try? NSRegularExpression(pattern: #"^(\d{1,2}:\d{2}):00$"#)
+            if let m = Self.zeroSecondsRegex
                 .firstMatch(in: candidate, range: NSRange(candidate.startIndex..., in: candidate)),
                m.numberOfRanges == 2 {
                 return candidate.replacingOccurrences(
@@ -127,8 +137,8 @@ struct DateTimeDetector: ContentDetectorProtocol {
             // NSDataDetector silently overflows invalid dates:
             //   "31/11" → Dec 1,  "6月31日" → Jul 1
             // Trust the calendar, not NSDataDetector's normalization.
-            if hasDate, let (origM, origD) = extractMonthDay(from: trimmed) {
-                guard isValidCalendarDate(month: origM, day: origD) else { continue }
+            if hasDate, let fields = extractCalendarDate(from: trimmed) {
+                guard isValidCalendarDate(year: fields.year, month: fields.month, day: fields.day) else { continue }
             }
 
             // value 存 timeIntervalSinceReferenceDate（纯数字，零歧义）
@@ -215,49 +225,36 @@ struct DateTimeDetector: ContentDetectorProtocol {
         return text.range(of: twoSegmentSlash, options: .regularExpression) != nil
     }
 
-    /// Extract (month, day) from the original text for calendar validation.
-    /// Returns nil for time-only formats (no validation needed).
-    private func extractMonthDay(from text: String) -> (month: Int, day: Int)? {
-        // Chinese: "6月23日" or "6月23日 20:00"
-        if let m = try? NSRegularExpression(pattern: #"(\d{1,2})月(\d{1,2})日"#)
-            .firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
-           m.numberOfRanges == 3,
-           let month = Int(text[Range(m.range(at: 1), in: text)!]),
-           let day = Int(text[Range(m.range(at: 2), in: text)!]) {
-            return (month, day)
+    /// Read the explicit year before the shorter month/day patterns.
+    private func extractCalendarDate(from text: String) -> (year: Int?, month: Int, day: Int)? {
+        for (regex, hasYear) in [
+            (Self.chineseYearMonthDayRegex, true),
+            (Self.isoMonthDayRegex, true),
+            (Self.chineseMonthDayRegex, false),
+            (Self.dotMonthDayRegex, false),
+        ] {
+            guard let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) else { continue }
+            let source = text as NSString
+            let monthGroup = hasYear ? 2 : 1
+            guard let month = Int(source.substring(with: match.range(at: monthGroup))),
+                  let day = Int(source.substring(with: match.range(at: monthGroup + 1))) else { continue }
+            let year = hasYear ? Int(source.substring(with: match.range(at: 1))) : nil
+            return (year, month, day)
         }
-        // Dot: "6.23" or "6.23 20:00"
-        if let m = try? NSRegularExpression(pattern: #"^(\d{1,2})\.(\d{1,2})\b"#)
-            .firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
-           m.numberOfRanges == 3,
-           let month = Int(text[Range(m.range(at: 1), in: text)!]),
-           let day = Int(text[Range(m.range(at: 2), in: text)!]) {
-            return (month, day)
-        }
-        // ISO YYYY-MM-DD or YYYY/M/D (3+ segments, year first)
-        if let m = try? NSRegularExpression(pattern: #"^(\d{4})[/-](\d{1,2})[/-](\d{1,2})"#)
-            .firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
-           m.numberOfRanges == 4,
-           let month = Int(text[Range(m.range(at: 2), in: text)!]),
-           let day = Int(text[Range(m.range(at: 3), in: text)!]) {
-            return (month, day)
-        }
-        // Chinese with year: "2024年10月3日"
-        if let m = try? NSRegularExpression(pattern: #"(\d{4})年(\d{1,2})月(\d{1,2})日"#)
-            .firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
-           m.numberOfRanges == 4,
-           let month = Int(text[Range(m.range(at: 2), in: text)!]),
-           let day = Int(text[Range(m.range(at: 3), in: text)!]) {
-            return (month, day)
-        }
-        return nil  // time-only or unrecognized format — skip validation
+        return nil
     }
 
-    /// Verify (month, day) is a valid calendar date.
-    /// Feb 29 is always allowed (NSDataDetector assigns a leap year when needed).
-    private func isValidCalendarDate(month: Int, day: Int) -> Bool {
+    private func isValidCalendarDate(year: Int?, month: Int, day: Int) -> Bool {
         guard (1...12).contains(month) else { return false }
-        let daysInMonth = [0, 31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-        return day >= 1 && day <= daysInMonth[month]
+        let februaryDays: Int
+        if let year {
+            guard year > 0 else { return false }
+            februaryDays = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0) ? 29 : 28
+        } else {
+            // Preserve the existing rule for inputs without a year.
+            februaryDays = 29
+        }
+        let days = [0, 31, februaryDays, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+        return day >= 1 && day <= days[month]
     }
 }

@@ -13,18 +13,27 @@ final class PluginLoader {
         return appSupport.appendingPathComponent("Copied/Plugins", isDirectory: true)
     }()
 
+    private let directory: URL
+    private let registry: DetectionRegistry
+    private let defaults: UserDefaults
+
+    init(directory: URL = pluginsDirectory, registry: DetectionRegistry = .shared, defaults: UserDefaults = .standard) {
+        self.directory = directory
+        self.registry = registry
+        self.defaults = defaults
+    }
+
     // MARK: - Scanning
 
     /// 扫描插件目录，返回所有 `.copiedplugin` 文件夹的 URL。
     func scanPlugins() -> [URL] {
-        PluginRemovalPolicy.pluginDirectories(in: Self.pluginsDirectory)
+        PluginRemovalPolicy.pluginDirectories(in: directory)
     }
 
     // MARK: - Loading
 
-    /// 加载单个插件并注册到 DetectionRegistry。
-    /// 返回加载后的 ContentKind，失败返回 nil。
-    func loadPlugin(at url: URL) -> ContentKind? {
+    /// 读取并验证插件；返回尚未注册的检测器，失败返回 nil。
+    private func readPlugin(at url: URL) -> PluginDetector? {
         let manifestURL = url.appendingPathComponent("manifest.json")
         let rulesURL = url.appendingPathComponent("rules.json")
 
@@ -67,17 +76,22 @@ final class PluginLoader {
             rules: compiledRules
         )
 
-        // 4. Register with DetectionRegistry + persist
-        DetectionRegistry.shared.register(detector)
+        return detector
+    }
 
-        var installed = UserDefaults.standard.stringArray(forKey: "installedPlugins") ?? []
-        if !installed.contains(kind.id) {
-            installed.append(kind.id)
-            UserDefaults.standard.set(installed, forKey: "installedPlugins")
+    func loadPlugin(at url: URL) -> ContentKind? {
+        guard let detector = readPlugin(at: url) else { return nil }
+        register(detector)
+        return detector.kind
+    }
+
+    private func register(_ detector: PluginDetector) {
+        registry.register(detector)
+        var installed = defaults.stringArray(forKey: "installedPlugins") ?? []
+        if !installed.contains(detector.kind.id) {
+            installed.append(detector.kind.id)
+            defaults.set(installed, forKey: "installedPlugins")
         }
-
-        NSLog("Copied: loaded plugin '\(manifest.name)' (\(compiledRules.count) rules)")
-        return kind
     }
 
     /// 加载所有已安装的插件。
@@ -94,37 +108,30 @@ final class PluginLoader {
     /// 安装插件：将 `.copiedplugin` 文件夹复制到插件目录。
     /// 返回成功加载的 ContentKind，失败抛错。
     func installPlugin(from sourceURL: URL) throws -> ContentKind {
-        let dir = Self.pluginsDirectory
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-
-        let destURL = dir.appendingPathComponent(sourceURL.lastPathComponent)
-
-        // Remove existing installation
-        if FileManager.default.fileExists(atPath: destURL.path) {
-            try FileManager.default.removeItem(at: destURL)
+        let manager = FileManager.default
+        guard sourceURL.pathExtension == "copiedplugin",
+              let values = try? sourceURL.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]),
+              values.isDirectory == true, values.isSymbolicLink != true else {
+            throw CocoaError(.fileReadUnsupportedScheme)
         }
-
-        try FileManager.default.copyItem(at: sourceURL, to: destURL)
-
-        guard let kind = loadPlugin(at: destURL) else {
-            // Clean up on failure
-            try? FileManager.default.removeItem(at: destURL)
-            throw PluginError.invalidPlugin(
-                reason: String(localized: "manifest.json 或 rules.json 格式不正确")
-            )
+        try manager.createDirectory(at: directory, withIntermediateDirectories: true)
+        let staged = directory.appendingPathComponent(".install-\(UUID().uuidString)")
+        defer { try? manager.removeItem(at: staged) }
+        try manager.copyItem(at: sourceURL, to: staged)
+        guard let detector = readPlugin(at: staged) else {
+            throw PluginError.invalidPlugin(reason: String(localized: "manifest.json 或 rules.json 格式不正确"))
         }
-
-        // Persist enabled state
-        var installed = UserDefaults.standard.stringArray(forKey: "installedPlugins") ?? []
-        if !installed.contains(kind.id) {
-            installed.append(kind.id)
-            UserDefaults.standard.set(installed, forKey: "installedPlugins")
+        let existing = PluginRemovalPolicy.installedDirectories(identifier: detector.kind.id, in: directory)
+        let destination = existing.first ?? directory.appendingPathComponent(sourceURL.lastPathComponent)
+        if manager.fileExists(atPath: destination.path) {
+            guard existing.contains(destination) else { throw CocoaError(.fileWriteFileExists) }
+            _ = try manager.replaceItemAt(destination, withItemAt: staged)
+        } else {
+            try manager.moveItem(at: staged, to: destination)
         }
-
-        // Mark as enabled
-        DetectionRegistry.shared.setEnabled(true, kindID: kind.id)
-
-        return kind
+        register(detector)
+        registry.setEnabled(true, kindID: detector.kind.id)
+        return detector.kind
     }
 
     /// 卸载插件：从 DetectionRegistry 移除 + 删除文件。
@@ -132,7 +139,7 @@ final class PluginLoader {
         do {
             _ = try PluginRemovalPolicy.removeInstalledPlugins(
                 identifier: identifier,
-                from: Self.pluginsDirectory
+                from: directory
             )
         } catch {
             NSLog("Copied: failed to remove plugin '\(identifier)': \(error.localizedDescription)")
@@ -140,20 +147,20 @@ final class PluginLoader {
         }
 
         // Remove from registry
-        DetectionRegistry.shared.unregisterPlugin(identifier: identifier)
-        DetectionRegistry.shared.setEnabled(true, kindID: identifier) // clear disabled state
+        registry.unregisterPlugin(identifier: identifier)
+        registry.setEnabled(true, kindID: identifier) // clear disabled state
 
         // Remove from installed list
-        var installed = UserDefaults.standard.stringArray(forKey: "installedPlugins") ?? []
+        var installed = defaults.stringArray(forKey: "installedPlugins") ?? []
         installed.removeAll { $0 == identifier }
-        UserDefaults.standard.set(installed, forKey: "installedPlugins")
+        defaults.set(installed, forKey: "installedPlugins")
 
         NSLog("Copied: uninstalled plugin '\(identifier)'")
     }
 
     /// 已安装的插件 identifier 列表。
     var installedPluginIDs: [String] {
-        UserDefaults.standard.stringArray(forKey: "installedPlugins") ?? []
+        defaults.stringArray(forKey: "installedPlugins") ?? []
     }
 
     // MARK: - Private

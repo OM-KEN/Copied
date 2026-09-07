@@ -47,6 +47,7 @@ enum ClipboardBaseReaderTests {
         try pngIsPreferredAndStoredForImageLane()
         try fileSelectionIsCapped()
         try directoryLoadingAndPackageFallback()
+        try cachedDirectoryPresentationRefreshes()
         try saturatedDirectoryUsesSessionCancellation()
         try cancelledFileEnrichmentDoesNotEmit()
         print("ClipboardBaseReaderTests: PASS")
@@ -146,8 +147,6 @@ enum ClipboardBaseReaderTests {
     }
 
     private static func directoryLoadingAndPackageFallback() throws {
-        ClipboardDirectorySizeCache.reset()
-        defer { ClipboardDirectorySizeCache.reset() }
         let temporary = FileManager.default.temporaryDirectory
         let directory = temporary.appendingPathComponent(
             "Copied-folder-enrichment-\(UUID().uuidString)",
@@ -176,16 +175,17 @@ enum ClipboardBaseReaderTests {
         let packageStarted = DispatchSemaphore(value: 0)
         let packageRelease = DispatchSemaphore(value: 0)
         let coordinator = ClipboardDirectorySizeCoordinator(
-            label: "tests.file-enricher-background"
-        ) { root, duration, shouldCancel, interval, onProgress in
-            let isPackage = root.pathExtension.lowercased() == "app"
-            onProgress(isPackage ? 23 : 17)
-            (isPackage ? packageStarted : directoryStarted).signal()
-            _ = (isPackage ? packageRelease : directoryRelease).wait(timeout: .now() + 1)
-            if shouldCancel() { return .cancelled }
-            guard duration == 30 && interval == 0.25 else { return .unavailable }
-            return .exact(isPackage ? 23 : 17)
-        }
+            label: "tests.file-enricher-background",
+            calculator: { root, duration, shouldCancel, interval, onProgress in
+                let isPackage = root.pathExtension.lowercased() == "app"
+                onProgress(isPackage ? 23 : 17)
+                (isPackage ? packageStarted : directoryStarted).signal()
+                _ = (isPackage ? packageRelease : directoryRelease).wait(timeout: .now() + 1)
+                if shouldCancel() { return .cancelled }
+                guard duration == 30 && interval == 0.25 else { return .unavailable }
+                return .exact(isPackage ? 23 : 17)
+            }
+        )
 
         let updateLock = NSLock()
         var directoryUpdates: [ClipboardEnrichmentUpdate] = []
@@ -226,22 +226,6 @@ enum ClipboardBaseReaderTests {
                    "directory size progress did not start with a numeric value")
         try expect(directoryFacts.count >= 2,
                    "directory size progress did not emit before its terminal value")
-
-        var cachedDirectoryUpdates: [ClipboardEnrichmentUpdate] = []
-        ClipboardFileEnricher.enrich(
-            content: fileContent(url: directory),
-            directorySizeCoordinator: coordinator
-        ) {
-            cachedDirectoryUpdates.append($0)
-        }
-        guard cachedDirectoryUpdates.count == 1,
-              case let .fileFacts(
-                _, cachedDirectoryDetail, _, _, _, _, cachedDirectoryLoading
-              ) = cachedDirectoryUpdates[0] else {
-            throw Failure.failed("cached directory enrichment did not emit exactly one file fact")
-        }
-        try expect(!cachedDirectoryLoading && cachedDirectoryDetail == directoryFacts.last?.0,
-                   "cached directory enrichment emitted loading or changed the terminal detail")
 
         var packageUpdates: [ClipboardEnrichmentUpdate] = []
         let packageTerminal = DispatchSemaphore(value: 0)
@@ -290,21 +274,85 @@ enum ClipboardBaseReaderTests {
         try expect(allImages == false && complete && !detailIsLoading,
                    "package fallback terminal classification is incomplete")
 
-        var cachedPackageUpdates: [ClipboardEnrichmentUpdate] = []
-        ClipboardFileEnricher.enrich(
-            content: fileContent(url: package),
-            directorySizeCoordinator: coordinator
-        ) {
-            cachedPackageUpdates.append($0)
+
+    }
+
+    private static func cachedDirectoryPresentationRefreshes() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let lock = NSLock()
+        var time: TimeInterval = 0
+        var blocks = false
+        var result = ClipboardDirectorySizeResult.exact(100)
+        var calculationCount = 0
+        let started = DispatchSemaphore(value: 0)
+        let release = DispatchSemaphore(value: 0)
+        let finished = DispatchSemaphore(value: 0)
+        let coordinator = ClipboardDirectorySizeCoordinator(now: {
+            lock.lock()
+            defer { lock.unlock() }
+            return time
+        }) { _, _, _, _, progress in
+            calculationCount += 1
+            progress(5)
+            if blocks {
+                started.signal()
+                _ = release.wait(timeout: .now() + 1)
+            }
+            lock.lock()
+            time += 2
+            lock.unlock()
+            return result
         }
-        guard cachedPackageUpdates.count == 1,
-              case let .fileFacts(
-                _, cachedPackageDetail, _, _, _, _, cachedPackageLoading
-              ) = cachedPackageUpdates[0] else {
-            throw Failure.failed("cached package enrichment did not emit exactly one file fact")
+        _ = coordinator.calculate(at: root, shouldCancel: { false }, onProgress: { _ in })
+        var facts: [(String, Bool)] = []
+        func enrich() {
+            ClipboardFileEnricher.enrich(content: fileContent(url: root), directorySizeCoordinator: coordinator) { update in
+                guard case let .fileFacts(_, detail, _, _, _, _, loading) = update else { return }
+                lock.lock()
+                facts.append((detail, loading))
+                lock.unlock()
+                if !loading { finished.signal() }
+            }
         }
-        try expect(!cachedPackageLoading && cachedPackageDetail == detail,
-                   "cached package enrichment emitted loading or changed the terminal detail")
+        enrich()
+        try expect(finished.wait(timeout: .now() + 1) == .success, "cached display did not finish")
+        try expect(calculationCount == 1 && facts.count == 1 && facts[0].0.hasPrefix("上次统计") && !facts[0].1,
+                   "fresh cache started another calculation or hid its historical label")
+        for refreshedResult in [ClipboardDirectorySizeResult.exact(10), .atLeast(3)] {
+            lock.lock()
+            time += 30
+            facts.removeAll()
+            lock.unlock()
+            blocks = true
+            result = refreshedResult
+            enrich()
+            try expect(started.wait(timeout: .now() + 1) == .success, "expired cache did not start refreshing")
+            lock.lock()
+            let initial = facts
+            lock.unlock()
+            try expect(initial.count == 1 && initial[0].0.hasPrefix("上次统计") && initial[0].1,
+                       "refresh progress replaced the historical total with a misleading current lower bound")
+            release.signal()
+            try expect(finished.wait(timeout: .now() + 1) == .success, "refresh left the loading state active")
+            lock.lock()
+            let final = facts.last!
+            lock.unlock()
+            try expect(!final.1 && !final.0.hasPrefix("上次统计"), "refresh retained the cached presentation")
+            if case .atLeast = refreshedResult {
+                try expect(final.0.hasPrefix("至少"), "partial refresh was presented as an exact size")
+            }
+        }
+        lock.lock()
+        facts.removeAll()
+        let countBeforeReuse = calculationCount
+        lock.unlock()
+        enrich()
+        try expect(finished.wait(timeout: .now() + 1) == .success, "partial cache did not emit")
+        try expect(calculationCount == countBeforeReuse && facts.count == 1
+                   && facts[0].0.hasPrefix("上次至少") && !facts[0].1,
+                   "partial cache restarted traversal or appeared as an exact/current value")
     }
 
     private static func cancelledFileEnrichmentDoesNotEmit() throws {
@@ -321,8 +369,6 @@ enum ClipboardBaseReaderTests {
     }
 
     private static func saturatedDirectoryUsesSessionCancellation() throws {
-        ClipboardDirectorySizeCache.reset()
-        defer { ClipboardDirectorySizeCache.reset() }
         let temporary = FileManager.default.temporaryDirectory
         let roots = try (0..<3).map { index -> URL in
             let root = temporary.appendingPathComponent(
@@ -334,27 +380,25 @@ enum ClipboardBaseReaderTests {
             return root
         }
         defer { roots.forEach { try? FileManager.default.removeItem(at: $0) } }
-        let modificationDates = try roots.map {
-            try $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate!
-        }
         let started = [DispatchSemaphore(value: 0), DispatchSemaphore(value: 0)]
         let release = [DispatchSemaphore(value: 0), DispatchSemaphore(value: 0)]
         let coordinator = ClipboardDirectorySizeCoordinator(
-            label: "tests.saturated-file-enricher"
-        ) { root, _, _, _, onProgress in
-            let index = roots.firstIndex { $0.standardizedFileURL == root.standardizedFileURL }!
-            onProgress(1)
-            started[index].signal()
-            _ = release[index].wait(timeout: .now() + 1)
-            return .exact(1)
-        }
+            label: "tests.saturated-file-enricher",
+            calculator: { root, _, shouldCancel, _, onProgress in
+                guard !shouldCancel() else { return .cancelled }
+                let index = roots.firstIndex { $0.standardizedFileURL == root.standardizedFileURL }!
+                onProgress(1)
+                started[index].signal()
+                _ = release[index].wait(timeout: .now() + 1)
+                return .exact(1)
+            }
+        )
         for index in 0..<2 {
             let attachment = coordinator.attach(
                 to: roots[index],
-                contentModificationDate: modificationDates[index],
                 observer: { _ in }
             )
-            guard case .observing = attachment else {
+            guard attachment != nil else {
                 throw Failure.failed("failed to fill background directory slots")
             }
         }

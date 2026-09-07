@@ -48,10 +48,6 @@ final class LightReminderController {
 
     // MARK: - Public
 
-    var isEnabled: Bool {
-        UserDefaults.standard.bool(forKey: "lightReminderEnabled")
-    }
-
     func show() {
         dismissTimer?.invalidate()
 

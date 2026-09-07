@@ -300,6 +300,13 @@ struct ToastView: View {
 
     static let cardCornerRadius: CGFloat = 32
 
+    private var primaryButton: (title: String, systemImage: String)? {
+        if let resultOverlay = viewModel.resultOverlay {
+            return resultOverlay.copyText != nil ? ("", "doc.on.doc") : nil
+        }
+        return viewModel.primaryAction.map { ($0.title, $0.systemImage) }
+    }
+
     var body: some View {
         ZStack(alignment: .topTrailing) {
             // 降级材质背景（pre-macOS 26，延迟显示避免首帧灰色闪烁）
@@ -342,13 +349,6 @@ struct ToastView: View {
                             .aspectRatio(contentMode: .fill)
                             .frame(width: 64, height: 64)
                             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                    } else if let asyncThumb = viewModel.asyncThumbnail {
-                        Image(nsImage: asyncThumb)
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                            .frame(width: 64, height: 64)
-                            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                            .transition(.opacity)
                     } else if viewModel.iconSymbolName == "textformat" {
                         Image(systemName: viewModel.iconSymbolName)
                             .font(.system(size: 32, weight: .medium))
@@ -487,67 +487,28 @@ struct ToastView: View {
                 }
 
                 // ── Right: Action Button ──────────────────────────
-                if let resultOverlay = viewModel.resultOverlay {
-                    if resultOverlay.copyText != nil {
-                        // Successful inline result: expose the copy action.
-                        Button {
-                            onCommand(.performPrimary)
-                        } label: {
-                            HStack(spacing: 4) {
-                                ZStack {
-                                    Image(systemName: "doc.on.doc")
-                                        .opacity(isActionButtonHovered ? 0 : 1)
-                                    Image(systemName: viewModel.triggerModifierIcon)
-                                        .opacity(isActionButtonHovered ? 1 : 0)
-                                }
-                                .font(.system(size: 12, weight: .medium))
-                                .frame(height: 14)
-                                Text("复制")
-                                    .font(.system(size: 12, weight: .medium))
-                            }
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .background(actionButtonBackground)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(PressTrackingButtonStyle(isPressed: $isActionButtonPressed))
-                        .overlay(quickTriggerWaitingHighlight)
-                        .scaleEffect((viewModel.quickTriggerVisualState == .pressed || isActionButtonPressed) ? 0.92 : 1.0)
-                        .opacity(viewModel.quickTriggerVisualState == .waitingForSecondTap ? 0.82 : 1.0)
-                        .animation(.spring(response: 0.2, dampingFraction: 0.6), value: viewModel.quickTriggerVisualState)
-                        .animation(.spring(response: 0.2, dampingFraction: 0.6), value: isActionButtonPressed)
-                        .onHover { hovering in
-                            if hovering {
-                                hoverDebounceTask?.cancel()
-                                isActionButtonHovered = true
-                            } else {
-                                hoverDebounceTask?.cancel()
-                                hoverDebounceTask = Task {
-                                    try? await Task.sleep(for: .milliseconds(100))
-                                    if !Task.isCancelled {
-                                        isActionButtonHovered = false
-                                    }
-                                }
-                            }
-                        }
-                    }
-                } else if let action = viewModel.primaryAction {
+                if let primaryButton {
                     Button {
                         onCommand(.performPrimary)
                     } label: {
                         HStack(spacing: 4) {
                             ZStack {
-                                Image(systemName: action.systemImage)
+                                Image(systemName: primaryButton.systemImage)
                                     .opacity(isActionButtonHovered ? 0 : 1)
                                 Image(systemName: viewModel.triggerModifierIcon)
                                     .opacity(isActionButtonHovered ? 1 : 0)
                             }
                             .font(.system(size: 12, weight: .medium))
                             .frame(height: 14)
-                            Text(action.title)
-                                .font(.system(size: 12, weight: .medium))
-                                .lineLimit(1)
-                                .truncationMode(.tail)
+                            if viewModel.resultOverlay != nil {
+                                Text("复制")
+                                    .font(.system(size: 12, weight: .medium))
+                            } else {
+                                Text(primaryButton.title)
+                                    .font(.system(size: 12, weight: .medium))
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                            }
                         }
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)
@@ -622,12 +583,6 @@ struct ToastView: View {
                     searchText: searchContextText
                 )
             }
-        }
-        .onChange(of: viewModel.asyncThumbnail) {
-            onNeedsLayout?()
-        }
-        .onChange(of: viewModel.resultOverlay) {
-            onNeedsLayout?()
         }
         .onChange(of: viewModel.contentTransitionID) {
             onNeedsLayout?()

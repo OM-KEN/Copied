@@ -20,12 +20,6 @@ enum PopupPresentationContentType {
     case file
 }
 
-enum PopupPresentationSourceContentType {
-    case text
-    case image
-    case file
-}
-
 struct PopupPresentationPreferences: Equatable {
     static let modeKey = "popupPresentationMode"
     static let showShortPlainTextKey = "popupShowShortPlainText"
@@ -121,21 +115,6 @@ enum PopupPresentationPolicy {
             return .allDenied
         }
         return .needsClassification
-    }
-
-    static func presentationContentType(
-        sourceContentType: PopupPresentationSourceContentType,
-        fileURLCount: Int,
-        allFilesAreImages: Bool
-    ) -> PopupPresentationContentType {
-        switch sourceContentType {
-        case .text:
-            return .text
-        case .image:
-            return .image
-        case .file:
-            return fileURLCount > 0 && allFilesAreImages ? .image : .file
-        }
     }
 
     static func shouldPresent(

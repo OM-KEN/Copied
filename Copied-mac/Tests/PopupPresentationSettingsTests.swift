@@ -14,7 +14,7 @@ struct PopupPresentationSettingsTests {
         explicitFalseOverridesUnregisteredDefault()
         recognizedKindsIgnorePlainTextLengthPreferences()
         removeEmptyLinesPluginOnlyOverridesPlainTextForActualEmptyLines()
-        contentTypeMappingDistinguishesImageFiles()
+        fileClassificationUsesCurrentPolicy()
         imageAndFileUseTheirOwnPreferences()
         disabledPrimaryKindIsFiltered()
         colorKindsShareOnePreference()
@@ -234,75 +234,27 @@ struct PopupPresentationSettingsTests {
         }
     }
 
-    private static func contentTypeMappingDistinguishesImageFiles() {
-        let bitmap = PopupPresentationPolicy.presentationContentType(
-            sourceContentType: .image,
-            fileURLCount: 0,
-            allFilesAreImages: false
-        )
-        let singleImageFile = PopupPresentationPolicy.presentationContentType(
-            sourceContentType: .file,
-            fileURLCount: 1,
-            allFilesAreImages: true
-        )
-        let multipleImageFiles = PopupPresentationPolicy.presentationContentType(
-            sourceContentType: .file,
-            fileURLCount: 3,
-            allFilesAreImages: true
-        )
-        let ordinaryFile = PopupPresentationPolicy.presentationContentType(
-            sourceContentType: .file,
-            fileURLCount: 1,
-            allFilesAreImages: false
-        )
-        let mixedFiles = PopupPresentationPolicy.presentationContentType(
-            sourceContentType: .file,
-            fileURLCount: 2,
-            allFilesAreImages: false
-        )
-        let emptyFileSelection = PopupPresentationPolicy.presentationContentType(
-            sourceContentType: .file,
-            fileURLCount: 0,
-            allFilesAreImages: true
-        )
-
-        expect(bitmap == .image, "a bitmap maps to image presentation content")
-        expect(singleImageFile == .image, "a single image file maps to image presentation content")
-        expect(multipleImageFiles == .image, "multiple image files map to image presentation content")
-        expect(ordinaryFile == .file, "an ordinary file maps to file presentation content")
-        expect(mixedFiles == .file, "mixed files map to file presentation content")
-        expect(emptyFileSelection == .file, "an empty file selection cannot map to image content")
-
-        let imagesHidden = preferences(showImages: false, showFiles: true)
-        expect(
-            !PopupPresentationPolicy.shouldPresent(
-                contentType: singleImageFile,
-                textLength: 0,
-                primaryKindID: nil,
-                preferences: imagesHidden
-            ),
-            "the image preference hides image files even when files are enabled"
-        )
-
-        let filesHidden = preferences(showImages: true, showFiles: false)
-        expect(
-            PopupPresentationPolicy.shouldPresent(
-                contentType: singleImageFile,
-                textLength: 0,
-                primaryKindID: nil,
-                preferences: filesHidden
-            ),
-            "the image preference shows image files when files are disabled"
-        )
-        expect(
-            !PopupPresentationPolicy.shouldPresent(
-                contentType: ordinaryFile,
-                textLength: 0,
-                primaryKindID: nil,
-                preferences: filesHidden
-            ),
-            "the file preference hides ordinary files"
-        )
+    private static func fileClassificationUsesCurrentPolicy() {
+        for showImages in [false, true] {
+            for showFiles in [false, true] {
+                let settings = preferences(showImages: showImages, showFiles: showFiles)
+                for allImages: Bool? in [nil, false, true] {
+                    for complete in [false, true] {
+                        let expected = complete && allImages != nil
+                            ? (allImages == true ? showImages : showFiles)
+                            : showImages && showFiles
+                        expect(
+                            PopupPresentationPolicy.shouldPresentFiles(
+                                allFilesAreImages: allImages,
+                                classificationIsComplete: complete,
+                                preferences: settings
+                            ) == expected,
+                            "file presentation respects classification completeness and both preferences"
+                        )
+                    }
+                }
+            }
+        }
     }
 
     private static func imageAndFileUseTheirOwnPreferences() {

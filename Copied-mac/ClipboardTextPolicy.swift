@@ -6,11 +6,7 @@ enum ClipboardTextFallback {
 enum ClipboardTextPolicy {
     static let longTextThreshold = 50
 
-    static func isLong(_ text: String) -> Bool {
-        text.count >= longTextThreshold
-    }
-
-    static func fallback(for text: String) -> ClipboardTextFallback {
-        isLong(text) ? .saveAs : .search
+    static func fallback(textLength: Int) -> ClipboardTextFallback {
+        textLength >= longTextThreshold ? .saveAs : .search
     }
 }

@@ -141,29 +141,3 @@ extension ContentKind {
         label: String(localized: "英文"), icon: "textformat"
     )
 }
-
-// MARK: - 所有内置类型注册表
-
-extension ContentKind {
-
-    /// 所有内置 ContentKind 实例，按默认优先级排列。
-    /// 用于启动时批量注册到 DetectionRegistry。
-    static let allBuiltIn: [ContentKind] = [
-        .colorHex, .colorRGB, .colorHSL,   // 颜色类（无标签，色块展示）
-        .url,
-        .phoneNumber,
-        .email,
-        .filePath,
-        .mathExpr,
-        .dateTime,
-        .chineseChar,
-        .englishPhrase,
-        .html,
-        .swift,
-        .python,
-        .javascript,
-        .css,
-        .code,
-        .plain,
-    ]
-}

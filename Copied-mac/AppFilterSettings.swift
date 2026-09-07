@@ -15,10 +15,12 @@ final class AppFilterSettings {
     static let shared = AppFilterSettings()
 
     private static let blockedKey = "popupFilterBlockedApps"
+    private let defaults: UserDefaults
     private var cachedBlockedApps: [AppFilterEntry]
 
-    private init() {
-        cachedBlockedApps = Self.loadEntries(forKey: Self.blockedKey)
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        cachedBlockedApps = Self.loadEntries(forKey: Self.blockedKey, defaults: defaults)
     }
 
     // ── Blocked Apps ────────────────────────────────────────
@@ -75,13 +77,13 @@ final class AppFilterSettings {
 
     // ── Persistence Helpers ──────────────────────────────────
 
-    private static func loadEntries(forKey key: String) -> [AppFilterEntry] {
-        guard let data = UserDefaults.standard.data(forKey: key) else { return [] }
+    private static func loadEntries(forKey key: String, defaults: UserDefaults) -> [AppFilterEntry] {
+        guard let data = defaults.data(forKey: key) else { return [] }
         return (try? JSONDecoder().decode([AppFilterEntry].self, from: data)) ?? []
     }
 
     private func saveEntries(_ entries: [AppFilterEntry], forKey key: String) {
         guard let data = try? JSONEncoder().encode(entries) else { return }
-        UserDefaults.standard.set(data, forKey: key)
+        defaults.set(data, forKey: key)
     }
 }

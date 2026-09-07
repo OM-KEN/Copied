@@ -150,7 +150,7 @@ struct InteractionWiringTests {
         )
         expect(
             appSource.contains("EntityDetectorWarmUp.perform()")
-                && appSource.contains("let source = SourceAppDetector.detect(for: nil)")
+                && appSource.contains("let source = SourceAppDetector.detect()")
                 && appSource.contains("toastController.showStartupNotice(using: source)"),
             "first-response warm-up primes production detectors and source icon before the startup notice"
         )
@@ -186,7 +186,7 @@ struct InteractionWiringTests {
                 && startupNoticeSource?.contains("currentContent = nil") == true
                 && startupNoticeSource?.contains("autoDismissAfter: startupNoticeDuration") == true
                 && startupNoticeSource?.contains("pausesDismissWhileHovered: false") == true
-                && startupNoticeSource?.contains("startsQuickTrigger: false") == true,
+                && startupNoticeSource?.contains("quickTriggerCoordinator.start") == false,
             "startup notice is one-shot, actionless, and uses its fixed one-second presentation policy"
         )
         expect(
@@ -205,7 +205,7 @@ struct InteractionWiringTests {
             productionShowSource?.contains("pauseDismissTimer()") == true
                 && productionShowSource?.contains("viewModel.configure(with: content, source: source)") == true
                 && productionShowSource?.contains("currentContent = content") == true
-                && productionShowSource?.contains("startsQuickTrigger: false") == true,
+                && productionShowSource?.contains("quickTriggerCoordinator.start") == false,
             "classified low-interruption content installs without enabling Quick Trigger before Action readiness"
         )
         let pendingSource = section(
@@ -216,7 +216,7 @@ struct InteractionWiringTests {
         expect(
             pendingSource?.contains("viewModel.configurePending") == true
                 && pendingSource?.contains(".now() + 0.05") == true
-                && pendingSource?.contains("startsQuickTrigger: false") == true,
+                && pendingSource?.contains("quickTriggerCoordinator.start") == false,
             "new revisions synchronously show non-interactive Pending then transition to loading"
         )
         let actionReadySource = section(
@@ -240,7 +240,8 @@ struct InteractionWiringTests {
                 && sharedPresentationSource?.contains("createWindow()") == true
                 && sharedPresentationSource?.contains("makeToastView()") == true
                 && sharedPresentationSource?.contains("ToastHostingView(") == true
-                && sharedPresentationSource?.contains("installExpandedTextSurface()") == true
+                && sharedPresentationSource?.contains("installExpandedTextSurface()") == false
+                && toastControllerSource.contains("        installExpandedTextSurface()\n        let expandedText = viewModel.expandedText")
                 && sharedPresentationSource?.contains("layoutSubtreeIfNeeded()") == true
                 && sharedPresentationSource?.contains("fittingSize") == true
                 && sharedPresentationSource?.contains("window?.orderFront(nil)") == true,
@@ -257,10 +258,8 @@ struct InteractionWiringTests {
             toastControllerSource.contains("private let startupNoticeDuration: TimeInterval = 1.0")
                 && toastControllerSource.contains("guard !isDismissing, pausesDismissWhileHovered else { return }")
                 && toastControllerSource.contains("self.dismissTimerGeneration == generation")
-                && toastControllerSource.contains(
-                    "let releasesPresentationAfterDismiss = viewModel.isStartupNotice"
-                )
-                && toastControllerSource.contains("self.releaseStartupNoticePresentation()")
+                && toastControllerSource.contains("self.dismissGeneration == gen")
+                && toastControllerSource.contains("self.releasePresentation()")
                 && toastControllerSource.contains("viewModel = ToastViewModel()"),
             "startup notice releases its window/model state after one second and cannot close a replacement"
         )
