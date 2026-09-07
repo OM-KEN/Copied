@@ -46,6 +46,11 @@ enum ClipboardBaseReaderTests {
         try staleChangeCountIsRejected()
         try pngIsPreferredAndStoredForImageLane()
         try fileSelectionIsCapped()
+        try multipleFileSizes()
+        try multipleDirectorySizes()
+        try multipleDirectoryCacheRefresh()
+        try saturatedMultipleDirectorySizes()
+        try multipleDirectoryObservationCancellation()
         try directoryLoadingAndPackageFallback()
         try cachedDirectoryPresentationRefreshes()
         try saturatedDirectoryUsesSessionCancellation()
@@ -432,7 +437,253 @@ enum ClipboardBaseReaderTests {
                    "saturated-path setup tasks did not finish")
     }
 
-    private static func fileContent(url: URL) -> ClipboardContent {
+    private static func multipleFileSizes() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let first = root.appendingPathComponent("first.png")
+        let second = root.appendingPathComponent("second.jpg")
+        let empty = root.appendingPathComponent("empty.txt")
+        let missing = root.appendingPathComponent("missing")
+        try Data(repeating: 1, count: 17).write(to: first)
+        try Data(repeating: 1, count: 23).write(to: second)
+        try Data().write(to: empty)
+        let cases: [(URL, [URL], Int64, Bool?, Bool, Bool)] = [
+            (first, [second], 40, true, true, false),
+            (first, [second, empty], 40, false, true, false),
+            (first, [missing], 17, nil, false, true),
+            (empty, [missing], 0, nil, false, true),
+        ]
+        for (url, others, total, images, complete, partial) in cases {
+            var updates: [ClipboardEnrichmentUpdate] = []
+            ClipboardFileEnricher.enrich(content: fileContent(url: url, additionalURLs: others)) {
+                updates.append($0)
+            }
+            guard case let .fileFacts(_, detail, label, icon, allImages, classified, loading) = updates.last else {
+                throw Failure.failed("multi-file selection emitted no size")
+            }
+            let count = String(localized: "\(others.count + 1)个文件")
+            let size = fileSizeText(total)
+            let expected = partial ? String(localized: "至少 \(size)") : size
+            try expect(detail == "\(count) · \(expected)", "multi-file total or count is incorrect: \(detail)")
+            try expect(allImages == images && classified == complete && !loading,
+                       "multi-file size changed classification or left loading active")
+            try expect(label.isEmpty && icon == "doc.on.doc", "multi-file presentation changed")
+        }
+        var truncatedUpdates: [ClipboardEnrichmentUpdate] = []
+        ClipboardFileEnricher.enrich(content: fileContent(url: first, additionalURLs: [second], truncated: true)) {
+            truncatedUpdates.append($0)
+        }
+        guard case let .fileFacts(_, detail, _, _, _, complete, loading) = truncatedUpdates.last else {
+            throw Failure.failed("truncated selection emitted no facts")
+        }
+        try expect(detail == String(localized: "超过4096个文件") && !complete && !loading,
+                   "truncated selection advertised a misleading total")
+    }
+
+    private static func multipleDirectorySizes() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let folder = root.appendingPathComponent("folder", isDirectory: true)
+        let package = root.appendingPathComponent("sample.app", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: package, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = root.appendingPathComponent("file.txt")
+        try Data(repeating: 1, count: 11).write(to: file)
+        try Data(repeating: 1, count: 17).write(to: folder.appendingPathComponent("payload"))
+        try Data(repeating: 1, count: 23).write(to: package.appendingPathComponent("payload"))
+        // Exercise the real directory walker, including package contents.
+        let terminal = DispatchSemaphore(value: 0)
+        var finalDetail = ""
+        ClipboardFileEnricher.enrich(
+            content: fileContent(url: file, additionalURLs: [folder, package]),
+            directorySizeCoordinator: ClipboardDirectorySizeCoordinator()
+        ) { update in
+            if case let .fileFacts(_, detail, _, _, _, _, loading) = update, !loading {
+                finalDetail = detail
+                terminal.signal()
+            }
+        }
+        try expect(terminal.wait(timeout: .now() + 3) == .success, "mixed selection did not finish")
+        try expect(finalDetail == "\(String(localized: "\(3)个文件")) · \(fileSizeText(51))",
+                   "mixed selection omitted a file, folder, or package")
+
+        // Slow cached values must remain explicitly historical in an aggregate.
+        let clockLock = NSLock()
+        var time: TimeInterval = 0
+        let cachedCoordinator = ClipboardDirectorySizeCoordinator(now: {
+            clockLock.lock()
+            defer { clockLock.unlock() }
+            return time
+        }) { url, _, _, _, _ in
+            clockLock.lock()
+            time += 2
+            clockLock.unlock()
+            return url == folder ? .exact(17) : .atLeast(23)
+        }
+        for url in [folder, package] {
+            _ = cachedCoordinator.calculate(at: url, shouldCancel: { false }, onProgress: { _ in })
+        }
+        var cachedDetail = ""
+        ClipboardFileEnricher.enrich(
+            content: fileContent(url: file, additionalURLs: [folder, package]),
+            directorySizeCoordinator: cachedCoordinator
+        ) { update in
+            if case let .fileFacts(_, detail, _, _, _, _, loading) = update, !loading { cachedDetail = detail }
+        }
+        let historical = String(localized: "上次至少 \(fileSizeText(51))")
+        try expect(cachedDetail == "\(String(localized: "\(3)个文件")) · \(historical)",
+                   "aggregate lost the cached partial-size label")
+    }
+
+    private static func multipleDirectoryObservationCancellation() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let second = root.appendingPathComponent("second", isDirectory: true)
+        try FileManager.default.createDirectory(at: second, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let started = DispatchSemaphore(value: 0)
+        let release = DispatchSemaphore(value: 0)
+        let completed = DispatchSemaphore(value: 0)
+        let coordinator = ClipboardDirectorySizeCoordinator(calculator: { _, _, _, _, progress in
+            started.signal()
+            _ = release.wait(timeout: .now() + 3)
+            progress(30)
+            completed.signal()
+            return .exact(30)
+        })
+        let lock = NSLock()
+        var updateCount = 0
+        var observation: ClipboardDirectorySizeObservation?
+        ClipboardFileEnricher.enrich(
+            content: fileContent(url: root, additionalURLs: [second]),
+            directorySizeCoordinator: coordinator,
+            registerDirectorySizeObservation: { observation = $0 }
+        ) { _ in
+            lock.lock()
+            updateCount += 1
+            lock.unlock()
+        }
+        for _ in 0..<2 {
+            try expect(started.wait(timeout: .now() + 1) == .success, "directory task did not start")
+        }
+        try expect(coordinator.inFlightTaskCount == 2, "directory work exceeded the shared bound")
+        observation?.cancel()
+        lock.lock()
+        let before = updateCount
+        lock.unlock()
+        for _ in 0..<2 { release.signal() }
+        for _ in 0..<2 {
+            try expect(completed.wait(timeout: .now() + 1) == .success, "detached work failed to finish")
+        }
+        lock.lock()
+        let after = updateCount
+        lock.unlock()
+        try expect(before == after, "cancelled aggregate kept emitting directory progress")
+    }
+
+    private static func multipleDirectoryCacheRefresh() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = root.appendingPathComponent("file.txt")
+        try Data(repeating: 1, count: 11).write(to: file)
+        for refreshedResult in [ClipboardDirectorySizeResult.exact(5), .atLeast(3), .unavailable] {
+            let lock = NSLock()
+            var time: TimeInterval = 0
+            let release = DispatchSemaphore(value: 0)
+            let coordinator = ClipboardDirectorySizeCoordinator(now: {
+                lock.lock()
+                defer { lock.unlock() }
+                return time
+            }) { _, _, _, _, progress in
+                lock.lock()
+                let initial = time == 0
+                time += 2
+                lock.unlock()
+                progress(1)
+                if !initial { _ = release.wait(timeout: .now() + 3) }
+                return initial ? .exact(100) : refreshedResult
+            }
+            _ = coordinator.calculate(at: root, shouldCancel: { false }, onProgress: { _ in })
+            lock.lock()
+            time = 33
+            lock.unlock()
+            let terminal = DispatchSemaphore(value: 0)
+            var finalDetail = ""
+            var cachedDetail = ""
+            ClipboardFileEnricher.enrich(
+                content: fileContent(url: file, additionalURLs: [root]),
+                directorySizeCoordinator: coordinator
+            ) { update in
+                if case let .fileFacts(_, detail, _, _, _, _, loading) = update {
+                    if loading {
+                        cachedDetail = detail
+                    } else {
+                        finalDetail = detail
+                        terminal.signal()
+                    }
+                }
+            }
+            let cachedSize = String(localized: "上次统计 \(fileSizeText(111))")
+            try expect(cachedDetail == "\(String(localized: "\(2)个文件")) · \(cachedSize)",
+                       "aggregate hid the cached total while refresh was running")
+            release.signal()
+            try expect(terminal.wait(timeout: .now() + 1) == .success, "aggregate cache refresh did not finish")
+            let expected: String
+            switch refreshedResult {
+            case .exact: expected = fileSizeText(16)
+            case .atLeast: expected = String(localized: "至少 \(fileSizeText(14))")
+            default: expected = String(localized: "上次至少 \(fileSizeText(111))")
+            }
+            try expect(finalDetail == "\(String(localized: "\(2)个文件")) · \(expected)",
+                       "aggregate refresh kept stale size or presented old size as current")
+        }
+    }
+
+    private static func saturatedMultipleDirectorySizes() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let urls = (0..<3).map { root.appendingPathComponent("folder\($0)", isDirectory: true) }
+        for url in urls { try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true) }
+        defer { try? FileManager.default.removeItem(at: root) }
+        let release = DispatchSemaphore(value: 0)
+        let terminal = DispatchSemaphore(value: 0)
+        let coordinator = ClipboardDirectorySizeCoordinator(calculator: { url, _, _, _, progress in
+            if url == urls[2] {
+                progress(7)
+                return .atLeast(7)
+            }
+            _ = release.wait(timeout: .now() + 3)
+            return .exact(10)
+        })
+        var finalDetail = ""
+        ClipboardFileEnricher.enrich(
+            content: fileContent(url: urls[0], additionalURLs: Array(urls.dropFirst())),
+            directorySizeCoordinator: coordinator
+        ) { update in
+            if case let .fileFacts(_, detail, _, _, _, _, loading) = update, !loading {
+                finalDetail = detail
+                terminal.signal()
+            }
+        }
+        try expect(coordinator.inFlightTaskCount == 2, "multi-directory fallback exceeded the background bound")
+        try expect(terminal.wait(timeout: .now() + 0.05) == .timedOut,
+                   "one completed directory prematurely ended the aggregate")
+        release.signal()
+        release.signal()
+        try expect(terminal.wait(timeout: .now() + 1) == .success, "saturated aggregate did not finish")
+        let lowerBound = String(localized: "至少 \(fileSizeText(27))")
+        try expect(finalDetail == "\(String(localized: "\(3)个文件")) · \(lowerBound)",
+                   "saturated aggregate dropped the partial directory")
+    }
+
+    private static func fileSizeText(_ bytes: Int64) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .file
+        formatter.allowsNonnumericFormatting = false
+        return formatter.string(fromByteCount: bytes)
+    }
+
+    private static func fileContent(url: URL, additionalURLs: [URL] = [], truncated: Bool = false) -> ClipboardContent {
         ClipboardContent(
             revision: .init(generation: 99, changeCount: 99),
             type: .file,
@@ -440,15 +691,15 @@ enum ClipboardBaseReaderTests {
             detail: "",
             detailIsLoading: false,
             thumbnail: nil,
-            fileURLs: [url],
+            fileURLs: [url] + additionalURLs,
             rawText: nil,
             contentKind: nil,
             detections: [],
             imageFormat: nil,
             litheMetadata: LitheClipboardMetadata(pasteboard: makePasteboard()),
             textLength: 0,
-            fileURLCount: 1,
-            fileSelectionWasTruncated: false,
+            fileURLCount: additionalURLs.count + 1,
+            fileSelectionWasTruncated: truncated,
             allFilesAreImages: nil,
             displayTypeLabel: "",
             displayIconSymbolName: "document",

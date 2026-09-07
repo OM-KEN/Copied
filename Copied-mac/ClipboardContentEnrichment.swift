@@ -467,6 +467,7 @@ enum ClipboardFileEnricher {
         var allImages = true
         var classificationComplete = true
         var firstValues: URLResourceValues?
+        var directoryIndices: Set<Int> = []
         for (index, url) in urls.enumerated() {
             if shouldCancel() { return }
             guard let values = try? url.resourceValues(forKeys: [
@@ -481,12 +482,26 @@ enum ClipboardFileEnricher {
             }
             if shouldCancel() { return }
             if index == 0 { firstValues = values }
+            if values.isDirectory == true && values.isSymbolicLink != true {
+                directoryIndices.insert(index)
+            }
             let isImage = values.isRegularFile == true
                 && values.isSymbolicLink != true
                 && imageExtensions.contains(url.pathExtension.lowercased())
             if !isImage { allImages = false }
         }
         let imageClassification: Bool? = classificationComplete ? allImages : nil
+
+        if urls.count > 1 {
+            enrichSelectionSize(
+                content: content, urls: urls, directoryIndices: directoryIndices,
+                allFilesAreImages: imageClassification,
+                classificationIsComplete: classificationComplete,
+                shouldCancel: shouldCancel, coordinator: directorySizeCoordinator,
+                registerObservation: registerDirectorySizeObservation, emit: emit
+            )
+            return
+        }
 
         guard urls.count == 1, let url = urls.first, let values = firstValues else {
             _ = emitIfActive(.fileFacts(
@@ -589,6 +604,139 @@ enum ClipboardFileEnricher {
             iconSymbolName: "document",
             unavailableDetail: String(localized: "文件信息不可用")
         )
+    }
+
+    private static func enrichSelectionSize(
+        content: ClipboardContent,
+        urls: [URL],
+        directoryIndices: Set<Int>,
+        allFilesAreImages: Bool?,
+        classificationIsComplete: Bool,
+        shouldCancel: @escaping () -> Bool,
+        coordinator: ClipboardDirectorySizeCoordinator,
+        registerObservation: (ClipboardDirectorySizeObservation) -> Void,
+        emit: @escaping (ClipboardEnrichmentUpdate) -> Void
+    ) {
+        let lock = NSLock()
+        var sizes = Array(repeating: Int64(0), count: urls.count)
+        var partial = Array(repeating: true, count: urls.count)
+        var finished = Array(repeating: false, count: urls.count)
+        var cached = Array(repeating: false, count: urls.count)
+        var observations: [ClipboardDirectorySizeObservation] = []
+        var cancelled = false
+        var lastDetail: String?
+        var lastEmission: TimeInterval = 0
+        let started = ProcessInfo.processInfo.systemUptime
+        let countText = String(localized: "\(content.fileURLCount)个文件")
+
+        // One session observation owns all directory subscriptions. Detaching it
+        // leaves only the coordinator's existing bounded background work running.
+        registerObservation(ClipboardDirectorySizeObservation {
+            lock.lock()
+            cancelled = true
+            let pending = observations
+            observations.removeAll()
+            lock.unlock()
+            pending.forEach { $0.cancel() }
+        })
+
+        func publish(force: Bool = false) {
+            guard !cancelled, !shouldCancel() else { return }
+            let loading = finished.contains(false)
+            let now = ProcessInfo.processInfo.systemUptime
+            guard force || !loading || now - lastEmission >= progressUpdateInterval else { return }
+            var total: Int64 = 0
+            var isPartial = partial.contains(true)
+            for size in sizes {
+                switch ClipboardDirectorySizeCalculator.adding(size, to: total) {
+                case let .exact(value): total = value
+                default: isPartial = true
+                }
+            }
+            let sizeText = formattedByteCount(total)
+            let detail: String
+            if cached.contains(true) {
+                detail = isPartial
+                    ? String(localized: "上次至少 \(sizeText)")
+                    : String(localized: "上次统计 \(sizeText)")
+            } else {
+                detail = isPartial ? String(localized: "至少 \(sizeText)") : sizeText
+            }
+            guard force || !loading || detail != lastDetail else { return }
+            lastDetail = detail
+            lastEmission = now
+            emit(.fileFacts(
+                revision: content.revision, detail: "\(countText) · \(detail)",
+                typeLabel: "", iconSymbolName: "doc.on.doc",
+                allFilesAreImages: allFilesAreImages,
+                classificationIsComplete: classificationIsComplete,
+                detailIsLoading: loading
+            ))
+        }
+
+        func receive(_ event: ClipboardDirectorySizeTaskEvent, at index: Int) {
+            lock.lock()
+            defer { lock.unlock() }
+            guard !cancelled, !finished[index], !shouldCancel() else { return }
+            switch event {
+            case let .cached(size, isPartial, isRefreshing):
+                sizes[index] = size
+                partial[index] = isPartial
+                cached[index] = true
+                finished[index] = !isRefreshing
+                publish(force: true)
+                return
+            case let .progress(size):
+                guard !cached[index] else { return }
+                sizes[index] = max(sizes[index], size)
+            case let .terminal(result):
+                switch result {
+                case let .exact(size):
+                    sizes[index] = size
+                    partial[index] = false
+                    cached[index] = false
+                case let .atLeast(size):
+                    sizes[index] = size
+                    partial[index] = true
+                    cached[index] = false
+                case .unavailable, .cancelled:
+                    partial[index] = true
+                }
+                finished[index] = true
+            }
+            publish()
+        }
+
+        lock.lock()
+        publish(force: true)
+        lock.unlock()
+        for (index, url) in urls.enumerated() {
+            if shouldCancel() { return }
+            let deadlineReached = {
+                ProcessInfo.processInfo.systemUptime - started >= ClipboardDirectorySizeCoordinator.maximumDuration
+            }
+            if deadlineReached() {
+                receive(.terminal(.unavailable), at: index)
+            } else if directoryIndices.contains(index) {
+                if let observation = coordinator.attach(to: url, observer: { receive($0, at: index) }) {
+                    lock.lock()
+                    let detach = cancelled
+                    if !detach { observations.append(observation) }
+                    lock.unlock()
+                    if detach { observation.cancel() }
+                } else {
+                    let result = coordinator.calculate(
+                        at: url, shouldCancel: { shouldCancel() || deadlineReached() },
+                        onProgress: { receive(.progress($0), at: index) }
+                    )
+                    receive(.terminal(result), at: index)
+                }
+            } else {
+                let values = try? url.resourceValues(forKeys: [.fileSizeKey, .totalFileSizeKey])
+                let size = values?.totalFileSize ?? values?.fileSize
+                receive(.terminal(size.flatMap { $0 >= 0 ? .exact(Int64($0)) : nil } ?? .unavailable), at: index)
+            }
+        }
     }
 
     private static func formattedByteCount(_ count: Int64) -> String {
