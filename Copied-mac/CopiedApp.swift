@@ -150,7 +150,7 @@ struct CopiedApp: App {
         }
 
         Settings {
-            SettingsView(onPauseToggle: { appDelegate.setPaused($0) })
+            SettingsView(showMenuBarIcon: $showMenuBarIcon, onPauseToggle: { appDelegate.setPaused($0) })
         }
         .windowResizability(.contentSize)
         .commands { SettingsNavigationCommands() }

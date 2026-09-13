@@ -10,8 +10,8 @@ private enum PendingAccessibilityAction: Equatable {
 }
 
 struct SettingsView: View {
+    @Binding var showMenuBarIcon: Bool
     let onPauseToggle: (Bool) -> Void
-    @AppStorage("showMenuBarIcon") private var showMenuBarIcon = true
     @AppStorage("isPaused") private var isPaused = false
     @AppStorage(LightReminderStyle.defaultsKey)
     private var lightReminderStyle = LightReminderStyle.cursorIcon.rawValue
