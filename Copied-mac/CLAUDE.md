@@ -34,7 +34,7 @@ open .build/Copied.app
 
 主流程：
 
-`changeCount` → 缓存来源与黑名单门 → 快照设置并做候选判断 → 默认/全允许路径同步显示 pending 或仅提醒浮标 → base read → 每个 revision 的声音终态 → enrichment / detection / action → 展示分类 → 轻打扰去重 → 更新完整卡片或显示浮标。
+`changeCount` → 缓存来源与黑名单门 → 快照设置并做候选判断 → 默认/全允许路径同步显示 pending 或仅提醒 → base read → 每个 revision 的声音终态 → enrichment / detection / action → 展示分类 → 轻打扰去重 → 更新完整卡片或按样式显示仅提醒。
 
 - revision 身份只用 `ClipboardRevision(generation, changeCount)`；内容指纹只用于轻打扰视觉去重。
 - `SourceAppDetector` 先提供缓存快照，base content 到达后再补齐来源信息；不要把来源检测排在剪贴板读取之后。
@@ -49,7 +49,7 @@ open .build/Copied.app
 
 - 只用 `pasteboard.types` 判定类别，不用 `readObjects`。启动阶段每 25ms 检查 `changeCount`；首次有效读取、同一不可读 revision 尝试 3 次或启动 60 秒后恢复 75ms。
 - 新 revision 必须在访问 representation 前被确认。base/analysis/file/image 各用一个不可抢占 active + 一个可替换 pending 的有界 lane；阻塞的系统调用不得造成无界排队。
-- 默认模式和轻打扰全允许的完整卡片路径必须在提交 base read 前同步 `showPending`；仅提醒路径同步显示浮标。base、enrichment、Action 到达后按真实内容重新 fitting，不用固定尺寸遮掩异步变化。
+- 默认模式和轻打扰全允许的完整卡片路径必须在提交 base read 前同步 `showPending`；仅提醒路径按当前 revision 的样式快照同步显示。完整卡片在 base、enrichment、Action 到达后按真实内容重新 fitting，不用固定尺寸遮掩异步变化。
 - 三次不可读或 3 秒硬超时的默认模式完整卡片显示普通“已复制”与 `checkmark.circle.fill`，沿用 3 秒时长；轻打扰不显示错误长文案。
 - 文件夹/包体大小按遍历耗时选择缓存：耗时超过 1 秒的完整结果或部分下界缓存 30 秒（从完成计时），快目录每次重算。同路径共享进行中的遍历；弹窗关闭仅解除观察，最多两个可脱离弹窗的后台任务各继续至 30 秒软期限，暂停时全部取消。缓存值分别标明“上次统计”或“上次至少”，过期刷新完成后替换；无缓存时立即发布数值下界，最多每 250ms 且格式化值变化时更新，完成或软截止后移除 loading 并保留最终值/“至少”下界。`ProgressView` 不留完成后的固定空槽，深色外观只对该原生环使用 `colorInvert()`。
 - Action 更新不得紧接一次无内容变化的 `applyEnrichment`，也不得用共享动态 `.id` 重建交互按钮。
@@ -62,7 +62,8 @@ open .build/Copied.app
 - 默认模式无条件通过视觉筛选。轻打扰中，有 `primaryKindID` 的识别文本只受对应类型开关控制；未识别文本按 `ClipboardTextPolicy.longTextThreshold` 的 49/50 边界读取普通短/长文本开关。自定义只写 `popupDisabledKindIDs`，不得改写 `disabledContentKinds`。
 - `colorHex` / `colorRGB` / `colorHSL` 统一按 `colorHex`。纯位图是图片；文件集合只有在非空、分类完成且全部为受支持的本地普通图片文件时才是图片，否则是文件。
 - 轻打扰筛选位于声音之后、0.5 秒视觉去重之前；被筛掉或仍待分类的内容不得更新去重状态。
-- “仅提醒模式”与轻打扰正交：只把已经允许的完整卡片换成鼠标右上方 24pt `checkmark.app.fill` 浮标，1 秒自消。每次重建忽略鼠标的 borderless floating window；macOS 26+ 用 `drawOff(isActive: !show)`，旧系统用 opacity。
+- “仅提醒模式”与轻打扰正交，只替换已经允许的完整卡片。默认样式是鼠标右上方 24pt `checkmark.app.fill` 浮标，1 秒自消；每次重建忽略鼠标的 borderless floating window，macOS 26+ 用 `drawOff(isActive: !show)`，旧系统用 opacity。
+- 仅提醒“顶部卡片”复用 `ToastPanel`，只显示对勾和“已复制”，沿用 3 秒计时、悬停保持和点击关闭；不得显示正文、缩略图、来源、详情、展开、操作、菜单、快速触发或更新入口。异步内容和失败回调不得覆盖 reminder 状态；关闭提醒卡片不得取消仍待完成的读取与声音终态。
 - 复制声音默认 Frog、音量 0.5；试听和实际复制共用异步串行播放器。声音在来源过滤后，每个 revision 的成功读取、三次不可读或硬超时首个终态最多一次；暂停、黑名单来源无声。
 
 ## 窗口与点击契约
@@ -107,7 +108,7 @@ open .build/Copied.app
 
 ## 设置、更新与反馈
 
-- 菜单栏和设置共享同一 UserDefaults；再次打开 App 只通过 `SettingsNavigation` 请求和 SwiftUI `openSettings` 打开 Settings scene。有新版本时菜单项图标必须用 `Text(Image(...))` 内嵌，避免 `NSMenu` 把独立 `Image` 移到左侧。
+- 菜单栏和设置共享同一 UserDefaults；再次打开 App 只通过 `SettingsNavigation` 请求和 SwiftUI `openSettings` 打开 Settings scene，桥接须独立于可隐藏的菜单栏图标。图标默认显示，隐藏和关闭设置窗口不得停止应用；菜单栏与设置的暂停开关共用 monitor 生命周期，启动时尊重已保存的暂停状态。有新版本时菜单项图标必须用 `Text(Image(...))` 内嵌，避免 `NSMenu` 把独立 `Image` 移到左侧。
 - 更新只检查 GitHub 最新稳定 Release：成功每天一次，失败一小时后重试；不做应用内安装。仅完整卡片可显示更新入口。
 - `VERSION` 是构建版本单一来源。Release 资产名固定为 `Copied-<VERSION>.dmg`，tag/标题为 `v<VERSION>`；发布后用 API 核对名字、大小和 SHA-256。
 - 问题反馈只打开默认邮件 App 或 GitHub Issue 模板选择页，让用户检查并手动提交。邮件仅预填 Copied 版本、macOS 版本和芯片；不得附带剪贴板、路径、设置、日志、设备名或其他私人数据。
