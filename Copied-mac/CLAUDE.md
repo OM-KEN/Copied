@@ -108,6 +108,7 @@ open .build/Copied.app
 
 ## 设置、更新与反馈
 
+- 菜单栏图标可见性只由 App 的 `@AppStorage` 持有；`MenuBarExtra` 和设置页共用同一 `Binding`，不得在设置页重新声明独立 `@AppStorage`，避免关闭后被旧值写回。
 - 菜单栏和设置共享同一 UserDefaults；再次打开 App 只通过 `SettingsNavigation` 请求和 SwiftUI `openSettings` 打开 Settings scene，桥接须独立于可隐藏的菜单栏图标。图标默认显示，隐藏和关闭设置窗口不得停止应用；菜单栏与设置的暂停开关共用 monitor 生命周期，启动时尊重已保存的暂停状态。有新版本时菜单项图标必须用 `Text(Image(...))` 内嵌，避免 `NSMenu` 把独立 `Image` 移到左侧。
 - 更新只检查 GitHub 最新稳定 Release：成功每天一次，失败一小时后重试；不做应用内安装。仅完整卡片可显示更新入口。
 - `VERSION` 是构建版本单一来源。Release 资产名固定为 `Copied-<VERSION>.dmg`，tag/标题为 `v<VERSION>`；发布后用 API 核对名字、大小和 SHA-256。
