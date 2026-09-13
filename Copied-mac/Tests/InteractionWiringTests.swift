@@ -111,11 +111,12 @@ struct InteractionWiringTests {
         )
         expect(
             appSource.contains("@Environment(\\.openSettings) private var openSettings"),
-            "the persistent menu bar label owns the native settings action"
+            "the app commands own the native settings action"
         )
         expect(
-            appSource.contains("for: SettingsNavigation.showSettingsNotification"),
-            "the menu bar label receives settings requests while the menu is closed"
+            appSource.contains(".commands { SettingsNavigationCommands() }")
+                && appSource.contains("SettingsNavigation.installSettingsOpener"),
+            "the settings opener is installed independently of the menu bar extra"
         )
         expect(
             !appSource.contains("showSettingsWindow:"),
@@ -140,7 +141,7 @@ struct InteractionWiringTests {
                     [
                         "DetectionRegistry.shared.registerBuiltInDetectors()",
                         "loader.loadAllPlugins()",
-                        "monitor?.start()",
+                        "setPaused(UserDefaults.standard.bool(forKey: \"isPaused\"))",
                         "FirstResponseWarmUp.perform(using: toastController!)",
                     ],
                     in: $0
@@ -285,7 +286,7 @@ struct InteractionWiringTests {
         )
         expect(
             startupToastViewSource.contains("guard viewModel.canExpand else { return }")
-                && startupToastViewSource.contains("if !viewModel.isStartupNotice {")
+                && startupToastViewSource.contains("if !viewModel.isNotice {")
                 && startupToastViewSource.contains(".allowsHitTesting(viewModel.canExpand)")
                 && startupToastViewSource.contains("if viewModel.isContentReady"),
             "startup notice cannot expand and hides source metadata and usable context-menu content"
@@ -343,7 +344,7 @@ struct InteractionWiringTests {
             "settings exposes a persistent quit footer"
         )
         expect(
-            settingsSource.contains("Button(\"退出 Copied\")"),
+            settingsSource.contains("Button(\"退出 Copied\", role: .destructive)"),
             "the settings footer provides an explicit quit action"
         )
         expect(
@@ -368,9 +369,9 @@ struct InteractionWiringTests {
                 && settingsSource.contains("Text(\"高级\")")
                 && settingsSource.contains("Toggle(\"仅提醒模式\"")
                 && settingsSource.contains(
-                    "开启后，只把符合条件的完整弹窗替换为鼠标旁的短暂图标。"
+                    "开启后，只提醒复制成功，不显示复制内容。"
                 ),
-            "icon-only reminder mode lives in the advanced disclosure"
+            "reminder mode lives in the advanced disclosure"
         )
         expect(
             settingsSource.contains("isAdvancedExpanded.toggle()")
@@ -392,7 +393,7 @@ struct InteractionWiringTests {
         )
         let metadataRowsSource = section(
             in: toastViewSource,
-            from: "                    if !viewModel.isStartupNotice {\n                        VStack(alignment: .leading, spacing: 4) {",
+            from: "                    if !viewModel.isNotice {\n                        VStack(alignment: .leading, spacing: 4) {",
             to: "\n                // ── Right: Action Button"
         )
         expect(metadataRowsSource != nil, "metadata rows remain in the collapsed toast")

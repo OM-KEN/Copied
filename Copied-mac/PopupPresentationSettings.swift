@@ -1,5 +1,23 @@
 import Foundation
 
+enum LightReminderStyle: String, CaseIterable {
+    case cursorIcon
+    case topCard
+
+    static let defaultsKey = "lightReminderStyle"
+
+    static func current(defaults: UserDefaults = .standard) -> LightReminderStyle {
+        defaults.string(forKey: defaultsKey).flatMap(Self.init(rawValue:)) ?? .cursorIcon
+    }
+
+    var displayName: String {
+        switch self {
+        case .cursorIcon: String(localized: "鼠标旁图标")
+        case .topCard: String(localized: "顶部卡片")
+        }
+    }
+}
+
 enum PopupPresentationMode: String, CaseIterable {
     case all
     case lowInterruption

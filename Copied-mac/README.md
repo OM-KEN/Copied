@@ -10,7 +10,7 @@
 - **图片压缩** — 安装 Lithe 后，复制 Finder 中的 JPG/JPEG/PNG 文件即可一键压缩
 - **克制** — 可按应用设置黑名单，不想被打扰的 App 里不弹窗
 - **安静** — 折叠卡片 3 秒自动消失且不抢焦点，展开全文后保持显示并自动进入可选文本状态
-- **轻打扰模式** — 菜单栏一键筛选视觉弹窗，可按普通长短文本、图片、文件和识别类型自定义；高级设置还可改为鼠标旁的仅提醒图标
+- **轻打扰模式** — 菜单栏一键筛选视觉弹窗，可按普通长短文本、图片、文件和识别类型自定义；高级设置可选择不显示复制内容的顶部卡片或鼠标旁图标
 - **声音反馈** — 默认用半音量 Frog 确认每次复制，异步播放不阻塞卡片显示，可在通用设置中更换系统声音或关闭
 - **原生多语言** — 完全跟随 macOS，支持简体中文、繁体中文和英文
 - **问题反馈** — 在“设置 → 关于”中选择邮件或 GitHub，邮件只预填版本、macOS 和芯片架构
@@ -37,7 +37,7 @@ python3 -m pip install --upgrade --user --break-system-packages 'dmgbuild==1.6.7
 
 仓库中的 `dmg_background.png`（440×240）是 DMG 的固定背景源图；缺失时 `create-dmg.sh` 会停止打包。
 
-首次启动后，将 App 拖入 `/Applications` 以获得稳定权限。Copied 启动时会短暂显示一次“Copied 已启动”，同时预热首次复制所需的弹窗路径；它不会改写剪贴板或播放复制声音。菜单栏出现剪贴板图标即开始工作；再次打开 Copied 会显示设置窗口，设置页底部可直接退出 App。
+首次启动后，将 App 拖入 `/Applications` 以获得稳定权限。Copied 启动时会短暂显示一次“Copied 已启动”，同时预热首次复制所需的弹窗路径；它不会改写剪贴板或播放复制声音。菜单栏图标默认显示，可在通用设置的“开机自启”下方隐藏，隐藏后仍正常工作。再次打开 Copied 会显示设置窗口，设置页底部的红色“退出 Copied”按钮可退出 App。
 
 ## 使用
 
@@ -47,7 +47,9 @@ python3 -m pip install --upgrade --user --break-system-packages 'dmgbuild==1.6.7
 
 菜单栏可一键切换“轻打扰模式”，也可在“设置 → 通用 → 复制反馈 → 自定义…”中细分普通短文本、普通长文本、图片、文件和各识别类型。未识别文本按 50 字符边界分别服从普通短/长文本开关；URL、代码等已识别内容只服从自己的类型开关，不受普通文本长度开关影响。图片文件全部为有效图片时服从“图片”，普通文件和混合选择服从“文件”。这些选项只筛选视觉提示，不关闭内容识别或声音反馈。
 
-需要更安静的反馈时，可在“设置 → 通用”最底部展开“高级”，开启“仅提醒模式”；所有通过上述筛选的完整卡片都会替换成鼠标旁短暂出现的确认图标。
+不想展示复制内容时，可在“设置 → 通用”最底部展开“高级”，开启“仅提醒模式”，选择“鼠标旁图标”或“顶部卡片”。前者默认显示 1 秒；后者只显示对勾和“已复制”，3 秒后消失，悬停保持、点击关闭，不显示来源或提供内容操作。两种样式仍遵循上述筛选规则；该模式隐藏所有符合条件的复制内容，不会自动判断密码。
+
+菜单栏和“设置 → 通用 → 复制反馈”第一项均可暂停或恢复复制反馈，两处状态同步。暂停状态会在下次启动时保留，隐藏菜单栏图标后仍可从设置恢复。
 
 若系统已安装 [Lithe](https://github.com/OM-KEN/Lithe)，在 Finder 中复制一张或多张本地 JPG/JPEG/PNG 普通文件，卡片右侧会显示“压缩”，右键菜单也保留该操作；多选内容必须全部受支持。纯位图剪贴板、混入不支持文件的选择以及 Lithe 自动复制的压缩结果不会再次提供压缩入口。
 
@@ -75,7 +77,7 @@ ClipboardDetectionDisplayFacts.swift — 将异步检测归并为稳定展示事
 TemporaryTextExport.swift   — TextEdit 私有临时文件导出与过期清理
 LitheIntegration.swift      — Lithe 安装检测、图片资格判断与防回环剪贴板契约
 ClipboardTextPolicy.swift   — 长文本阈值与纯文本主操作策略
-PopupPresentationSettings.swift — 默认/轻打扰模式偏好与视觉呈现策略
+PopupPresentationSettings.swift — 默认/轻打扰模式偏好、仅提醒样式与视觉呈现策略
 PopupFilterSettingsView.swift — 轻打扰模式的普通内容和识别类型自定义窗口
 CopySoundFeedback.swift     — 复制系统声音选择、默认值与异步串行播放
 GlobalMouseEventCoordinator.swift — 共享全局鼠标 Event Tap + 系统设置暂停 + 权限失效保护
@@ -100,13 +102,13 @@ FilePreviewGenerator.swift  — QLThumbnailGenerator 异步文件缩略图
 SourceAppDetector.swift     — NSWorkspace 前台 App 检测（含 bundleIdentifier 与图标缓存）
 ToastPanel.swift            — nonactivating NSPanel + first-mouse hosting / 原生展开文本
 ToastCommand.swift          — 弹窗内部命令与单次分发
-ToastWindowController.swift — ToastPanel、展开文本分层与快速触发命令路由（标准模式）
+ToastWindowController.swift — ToastPanel 完整/仅提醒卡片、展开文本分层与快速触发命令路由
 LightReminderController.swift — 仅提醒模式浮标（NSWindow + drawOff 反向动画）
 ToastView.swift             — SwiftUI 卡片 + 展开查看全文 + 色块 + 右键菜单
 MetadataAutoScrollMetrics.swift — 来源与详情标签的溢出滚动参数
 ToastViewModel.swift        — @Observable 模型（含展开状态管理）
 RelativeDateDescription.swift — 日期/时间详情的日历语义与本地化格式化
-SettingsView.swift          — 设置页（含弹窗模式、仅提醒高级项、快速触发、软件更新、问题反馈与退出入口）
+SettingsView.swift          — 设置页（含暂停、菜单栏图标、弹窗模式、仅提醒样式、快速触发、软件更新、问题反馈与退出入口）
 Copied.icon                 — Liquid Glass 分层图标
 Copied.svg                  — 菜单栏 template 图标
 Localizable.xcstrings       — 简中、繁中、英文 String Catalog

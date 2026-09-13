@@ -8,11 +8,102 @@ private func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
 @main
 struct AppBehaviorTests {
     static func main() throws {
+        settingsRequestsSurviveAbsentMenu()
+        pauseControlsMonitorLifetime()
+        try reminderRejectsCopiedContent()
+        closingReminderPreservesCopySoundWork()
         searchPreservesQuery()
         emptyResultsHaveNoCopyAction()
         try textFallbackPreservesUnicodeBoundary()
         try pluginReplacementIsValidatedBeforeInstallation()
         print("AppBehaviorTests: PASS")
+    }
+
+    private static func settingsRequestsSurviveAbsentMenu() {
+        SettingsNavigation.requestSettings()
+        var opens = 0
+        SettingsNavigation.installSettingsOpener { opens += 1 }
+        RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+        expect(opens == 1, "request before scene registration was lost")
+        SettingsNavigation.requestSettings()
+        expect(opens == 2, "registered settings action cannot reopen without menu")
+        SettingsNavigation.installSettingsOpener { opens += 10 }
+        expect(opens == 2, "installing commands opened Settings on cold launch")
+        SettingsNavigation.requestSettings()
+        expect(opens == 12, "new scene action was not retained")
+        SettingsNavigation.installSettingsOpener {}
+    }
+
+    private static func pauseControlsMonitorLifetime() {
+        let controller = ToastWindowController()
+        let monitor = ClipboardMonitor(toastController: controller)
+        let delegate = AppDelegate(monitor: monitor)
+        delegate.setPaused(false)
+        expect(monitor.isRunning, "resume did not start the production monitor timer")
+        delegate.setPaused(true)
+        expect(!monitor.isRunning, "pause left the production monitor timer running")
+        delegate.setPaused(false)
+        expect(monitor.isRunning, "resume after pause did not restart monitoring")
+        delegate.setPaused(true)
+    }
+
+    private static func reminderRejectsCopiedContent() throws {
+        let pasteboard = NSPasteboard.withUniqueName()
+        defer { pasteboard.releaseGlobally() }
+        pasteboard.setString("Synthetic private copied content", forType: .string)
+        let oldRevision = ClipboardRevision(generation: 10, changeCount: pasteboard.changeCount)
+        guard case let .content(_, content) = ClipboardBaseReader.read(
+            session: ClipboardLoadSession(revision: oldRevision, backingScale: 2),
+            pasteboard: pasteboard
+        ) else { fatalError("synthetic reminder fixture read failed") }
+        let source = SourceAppInfo(name: "Synthetic source", icon: nil, bundleIdentifier: "test.synthetic")
+        let model = ToastViewModel()
+        model.configure(with: content, source: source)
+        model.showsUpdateReminder = true
+        model.thumbnailImage = NSImage(size: NSSize(width: 1, height: 1))
+        model.detectedColor = .red
+        model.resultOverlay = ResultOverlay(displayText: "Synthetic result", copyText: "Synthetic result")
+        let action = SearchTextAction(text: "synthetic")
+        model.applyActions(primary: action, menu: [action])
+        for revision in [oldRevision, ClipboardRevision(generation: 11, changeCount: 999)] {
+            model.configureReminderNotice(revision: revision)
+            expect(!model.acceptsContentUpdate(revision: revision), "base read can overwrite reminder")
+            expect(!model.acceptsContentUpdate(revision: oldRevision), "stale base read can overwrite reminder")
+            model.applyEnrichment(content)
+            model.applyActions(primary: action, menu: [action])
+            model.showLoadingIfPending()
+            model.configureFailure()
+            expect(model.phase == .reminder && model.previewText == String(localized: "已复制"),
+                   "late update changed generic reminder")
+            expect(model.sourceAppName.isEmpty && model.sourceBundleID == nil && model.sourceAppIcon == nil,
+                   "reminder leaked source identity")
+            expect(model.rawContent == nil && model.thumbnailImage == nil && model.detailInfo.isEmpty && model.detectedColor == nil && model.resultOverlay == nil,
+                   "reminder retained content or thumbnail")
+            expect(model.primaryAction == nil && model.menuActions.isEmpty && model.blacklistAction == nil,
+                   "reminder exposes an action")
+            expect(!model.canExpand && !model.showsUpdateReminder && model.expandedText.isEmpty,
+                   "reminder exposes expanded content or update")
+            expect(model.iconSymbolName == "checkmark.circle.fill", "reminder lost generic icon")
+        }
+        model.configurePending(revision: oldRevision, source: source)
+        expect(model.acceptsContentUpdate(revision: oldRevision), "switching back to full card is blocked")
+        model.configure(with: content, source: source)
+        expect(model.isContentReady && model.rawContent != nil, "full card no longer accepts real content")
+    }
+
+    private static func closingReminderPreservesCopySoundWork() {
+        let controller = ToastWindowController()
+        let revision = ClipboardRevision(generation: 12, changeCount: 1000)
+        var cancelled: [ClipboardRevision] = []
+        controller.onRevisionResourcesShouldCancel = { cancelled.append($0) }
+        controller.showReminder(revision: revision)
+        controller.dismissSilently(revision: revision)
+        expect(cancelled.isEmpty, "closing a reminder cancelled the base read and copy sound timeout")
+
+        let source = SourceAppInfo(name: "Synthetic source", icon: nil, bundleIdentifier: "test.synthetic")
+        controller.showPending(revision: revision, source: source)
+        controller.dismissSilently(revision: revision)
+        expect(cancelled == [revision], "closing a full card no longer cancels its content work")
     }
 
     private static func searchPreservesQuery() {

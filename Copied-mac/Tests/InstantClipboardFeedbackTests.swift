@@ -143,7 +143,7 @@ enum InstantClipboardFeedbackTests {
         try expect(!begin.contains("visualHashValue"),
                    "default first-frame path still deduplicates repeated content")
         try expect(
-            index(of: "LightReminderController.shared.show()", in: begin)
+            index(of: "showLightReminder(revision: revision)", in: begin)
                 < index(of: "submitBaseRead(session: session)", in: begin),
             "safe only-reminder path does not show before background reading starts"
         )

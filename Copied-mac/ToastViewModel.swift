@@ -19,6 +19,7 @@ struct ResultOverlay: Equatable {
 
 enum ToastContentPhase: Equatable {
     case startup
+    case reminder
     case pending
     case loading
     case ready
@@ -58,6 +59,8 @@ final class ToastViewModel {
     var isTextExportInProgress = false
 
     var isStartupNotice: Bool { phase == .startup }
+    var isReminderNotice: Bool { phase == .reminder }
+    var isNotice: Bool { isStartupNotice || isReminderNotice }
     var isContentReady: Bool { phase == .ready }
     var canExpand: Bool { isContentReady && !expandedText.isEmpty }
 
@@ -88,7 +91,7 @@ final class ToastViewModel {
     }
 
     var blacklistAction: BlacklistSourceAppAction? {
-        guard phase != .startup,
+        guard !isNotice,
               let bid = sourceBundleID,
               bid != Bundle.main.bundleIdentifier,
               !AppFilterSettings.shared.isBlocked(bundleID: bid) else { return nil }
@@ -104,11 +107,15 @@ final class ToastViewModel {
     }
 
     var iconSymbolName: String {
-        if phase == .startup || phase == .pending || phase == .loading || phase == .failure {
+        if isNotice || phase == .pending || phase == .loading || phase == .failure {
             return "checkmark.circle.fill"
         }
         if detectedColor != nil { return "" }
         return displayIconSymbolName
+    }
+
+    func acceptsContentUpdate(revision: ClipboardRevision) -> Bool {
+        self.revision == revision && !isNotice
     }
 
     func configurePending(revision: ClipboardRevision, source: SourceAppInfo) {
@@ -129,6 +136,7 @@ final class ToastViewModel {
     }
 
     func configureFailure() {
+        guard !isNotice else { return }
         phase = .failure
         previewText = String(localized: "已复制")
         detailInfo = ""
@@ -191,6 +199,13 @@ final class ToastViewModel {
         guard phase == .ready else { return }
         primaryAction = primary
         menuActions = menu
+    }
+
+    func configureReminderNotice(revision: ClipboardRevision) {
+        resetForNewPresentation()
+        self.revision = revision
+        phase = .reminder
+        previewText = String(localized: "已复制")
     }
 
     func configureStartupNotice(source: SourceAppInfo) {

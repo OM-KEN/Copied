@@ -15,7 +15,8 @@ enum FirstResponseWarmUp {
 
 enum SettingsNavigation {
     static let showAboutNotification = Notification.Name("CopiedShowAboutSettings")
-    static let showSettingsNotification = Notification.Name("CopiedShowSettings")
+    private static var settingsOpener: (() -> Void)?
+    private static var hasPendingSettingsRequest = false
     private(set) static var requestedTab: String?
 
     static func requestAboutTab() {
@@ -28,7 +29,19 @@ enum SettingsNavigation {
     }
 
     static func requestSettings() {
-        NotificationCenter.default.post(name: showSettingsNotification, object: nil)
+        guard let settingsOpener else {
+            hasPendingSettingsRequest = true
+            return
+        }
+        settingsOpener()
+    }
+
+    static func installSettingsOpener(_ opener: @escaping () -> Void) {
+        settingsOpener = opener
+        if hasPendingSettingsRequest {
+            hasPendingSettingsRequest = false
+            DispatchQueue.main.async { requestSettings() }
+        }
     }
 
     static func openAboutFromToast() {
@@ -37,20 +50,20 @@ enum SettingsNavigation {
     }
 }
 
-private struct MenuBarLabel: View {
+private struct SettingsNavigationCommands: Commands {
     @Environment(\.openSettings) private var openSettings
-    let icon: NSImage
 
-    var body: some View {
-        Image(nsImage: icon)
-            .onReceive(
-                NotificationCenter.default.publisher(
-                    for: SettingsNavigation.showSettingsNotification
-                )
-            ) { _ in
-                NSApp.activate(ignoringOtherApps: true)
-                openSettings()
+    var body: some Commands {
+        let _ = SettingsNavigation.installSettingsOpener {
+            NSApp.activate(ignoringOtherApps: true)
+            openSettings()
+        }
+        CommandGroup(replacing: .appSettings) {
+            SettingsLink {
+                Text("设置…")
             }
+            .keyboardShortcut(",")
+        }
     }
 }
 
@@ -66,9 +79,9 @@ private struct MenuBarContent: View {
         Group {
             Toggle("暂停", isOn: Binding(
                 get: { isPaused },
-                set: { newValue in
-                    isPaused = newValue
-                    onPauseToggle(newValue)
+                set: { paused in
+                    isPaused = paused
+                    onPauseToggle(paused)
                 }
             ))
             Toggle("轻打扰模式", isOn: Binding(
@@ -119,6 +132,7 @@ private struct MenuBarContent: View {
 #endif
 struct CopiedApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    @AppStorage("showMenuBarIcon") private var showMenuBarIcon = true
 
     private let menuBarIcon: NSImage = {
         let icon = Bundle.main.url(forResource: "Copied-menu", withExtension: "svg")
@@ -129,16 +143,17 @@ struct CopiedApp: App {
     }()
 
     var body: some Scene {
-        MenuBarExtra {
+        MenuBarExtra(isInserted: $showMenuBarIcon) {
             MenuBarContent(onPauseToggle: { appDelegate.setPaused($0) })
         } label: {
-            MenuBarLabel(icon: menuBarIcon)
+            Image(nsImage: menuBarIcon)
         }
 
         Settings {
-            SettingsView()
+            SettingsView(onPauseToggle: { appDelegate.setPaused($0) })
         }
         .windowResizability(.contentSize)
+        .commands { SettingsNavigationCommands() }
     }
 }
 
@@ -146,11 +161,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private static let systemSettingsBundleIdentifier = "com.apple.systempreferences"
 
     private var monitor: ClipboardMonitor?
+
     private var toastController: ToastWindowController?
     @AppStorage("copyGestureEnabled") private var copyGestureEnabled = false
 
+    override init() {
+        super.init()
+    }
+
+    init(monitor: ClipboardMonitor) {
+        self.monitor = monitor
+        super.init()
+    }
+
     func applicationWillFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+    }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        false
     }
 
     func applicationShouldHandleReopen(
@@ -178,8 +207,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         toastController = ToastWindowController()
         monitor = ClipboardMonitor(toastController: toastController!)
-        monitor?.start()
-        NSLog("Copied: monitor started")
+        setPaused(UserDefaults.standard.bool(forKey: "isPaused"))
+        NSLog("Copied: monitor initialized")
 
         // Capture changeCount first so writes during the synchronous warm-up remain observable.
         FirstResponseWarmUp.perform(using: toastController!)
