@@ -1,6 +1,48 @@
 {
   "sourceLanguage": "zh-Hans",
   "strings": {
+    "再次打开 Copied 即可进入设置。": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Open Copied again to access Settings." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "再次打开 Copied 即可进入设置。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "再次開啟 Copied 即可進入設定。" } }
+      }
+    },
+    "显示菜单栏图标": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Show menu bar icon" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "显示菜单栏图标" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "顯示選單列圖示" } }
+      }
+    },
+    "提醒样式": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Reminder style" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "提醒样式" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "提醒樣式" } }
+      }
+    },
+    "鼠标旁图标": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Icon beside pointer" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "鼠标旁图标" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "滑鼠旁圖示" } }
+      }
+    },
+    "顶部卡片": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Top card" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "顶部卡片" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "頂部卡片" } }
+      }
+    },
+    "开启后，只提醒复制成功，不显示复制内容。": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Only confirms a successful copy without showing the copied content." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "开启后，只提醒复制成功，不显示复制内容。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "開啟後，只提醒複製成功，不顯示複製內容。" } }
+      }
+    },
     "已复制": {
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Copied" } },
@@ -241,16 +283,9 @@
     },
     "仅提醒模式": {
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Icon-Only Reminder" } },
+        "en": { "stringUnit": { "state": "translated", "value": "Reminder Only" } },
         "zh-Hans": { "stringUnit": { "state": "translated", "value": "仅提醒模式" } },
         "zh-Hant": { "stringUnit": { "state": "translated", "value": "僅提醒模式" } }
-      }
-    },
-    "开启后，只把符合条件的完整弹窗替换为鼠标旁的短暂图标。": {
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "When enabled, qualifying full pop-ups are replaced with a brief icon near the pointer." } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "开启后，只把符合条件的完整弹窗替换为鼠标旁的短暂图标。" } },
-        "zh-Hant": { "stringUnit": { "state": "translated", "value": "開啟後，只會將符合條件的完整彈出視窗替換為滑鼠旁的短暫圖示。" } }
       }
     },
     "版本": {

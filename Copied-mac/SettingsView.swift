@@ -10,6 +10,11 @@ private enum PendingAccessibilityAction: Equatable {
 }
 
 struct SettingsView: View {
+    let onPauseToggle: (Bool) -> Void
+    @AppStorage("showMenuBarIcon") private var showMenuBarIcon = true
+    @AppStorage("isPaused") private var isPaused = false
+    @AppStorage(LightReminderStyle.defaultsKey)
+    private var lightReminderStyle = LightReminderStyle.cursorIcon.rawValue
     // ── Launch at Login ────────────────────────────────────
     @AppStorage("launchAtLogin") private var launchAtLogin = false
     @AppStorage("lightReminderEnabled") private var lightReminderEnabled = false
@@ -70,6 +75,13 @@ struct SettingsView: View {
             // ── General + Search ─────────────────────────
             Form {
                 Section {
+                    Toggle("暂停", isOn: Binding(
+                        get: { isPaused },
+                        set: { paused in
+                            isPaused = paused
+                            onPauseToggle(paused)
+                        }
+                    ))
                     Picker("弹窗模式", selection: popupPresentationModeBinding) {
                         ForEach(PopupPresentationMode.allCases, id: \.rawValue) { mode in
                             Text(mode.displayName).tag(mode)
@@ -115,6 +127,12 @@ struct SettingsView: View {
                     ))
                     if let error = loginItemError {
                         Text(error)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Toggle("显示菜单栏图标", isOn: $showMenuBarIcon)
+                    if !showMenuBarIcon {
+                        Text("再次打开 Copied 即可进入设置。")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -184,7 +202,18 @@ struct SettingsView: View {
                     DisclosureGroup(isExpanded: $isAdvancedExpanded) {
                         VStack(alignment: .leading, spacing: 6) {
                             Toggle("仅提醒模式", isOn: $lightReminderEnabled)
-                            Text("开启后，只把符合条件的完整弹窗替换为鼠标旁的短暂图标。")
+                            if lightReminderEnabled {
+                                Picker("提醒样式", selection: Binding(
+                                    get: { LightReminderStyle(rawValue: lightReminderStyle) ?? .cursorIcon },
+                                    set: { lightReminderStyle = $0.rawValue }
+                                )) {
+                                    ForEach(LightReminderStyle.allCases, id: \.rawValue) { style in
+                                        Text(style.displayName).tag(style)
+                                    }
+                                }
+                                .pickerStyle(.menu)
+                            }
+                            Text("开启后，只提醒复制成功，不显示复制内容。")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -318,9 +347,10 @@ struct SettingsView: View {
     private var quitFooter: some View {
         HStack {
             Spacer()
-            Button("退出 Copied") {
+            Button("退出 Copied", role: .destructive) {
                 NSApp.terminate(nil)
             }
+            .foregroundStyle(.red)
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 12)

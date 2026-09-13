@@ -63,6 +63,21 @@ final class ToastWindowController {
         )
     }
 
+    func showReminder(revision: ClipboardRevision) {
+        removeAllMonitors()
+        pauseDismissTimer()
+        viewModel.configureReminderNotice(revision: revision)
+        currentContent = nil
+        currentRevision = revision
+        resourcesCancelledRevision = nil
+        textExportToken = nil
+        quickTriggerContextGeneration &+= 1
+        presentConfiguredToast(
+            autoDismissAfter: displayDuration,
+            pausesDismissWhileHovered: true
+        )
+    }
+
     func show(content: ClipboardContent, source: SourceAppInfo) {
         removeAllMonitors()
         pauseDismissTimer()
@@ -110,7 +125,7 @@ final class ToastWindowController {
         revision: ClipboardRevision
     ) {
         guard currentRevision == revision,
-              viewModel.revision == revision,
+              viewModel.acceptsContentUpdate(revision: revision),
               window?.isVisible == true else { return }
         viewModel.configure(with: content, source: source)
         viewModel.showsUpdateReminder = AppUpdateService.shared
@@ -153,7 +168,8 @@ final class ToastWindowController {
     }
 
     func showFailure(revision: ClipboardRevision) {
-        guard currentRevision == revision, viewModel.revision == revision else { return }
+        guard currentRevision == revision, viewModel.revision == revision,
+              !viewModel.isReminderNotice else { return }
         removeAllMonitors()
         viewModel.configureFailure()
         currentContent = nil
@@ -310,6 +326,7 @@ final class ToastWindowController {
     // MARK: - Action execution
 
     func showResultOverlay(displayText: String, copyText: String?, keepAlive: Bool = false) {
+        guard viewModel.isContentReady else { return }
         cancelDismiss()
         viewModel.resultOverlay = ResultOverlay(displayText: displayText, copyText: copyText)
         refreshQuickTriggerContextIfEligible()
@@ -346,7 +363,7 @@ final class ToastWindowController {
     }
 
     private func executeCommand(_ command: ToastCommand<any ClipboardAction>) {
-        if viewModel.isStartupNotice {
+        if viewModel.isNotice {
             if case .dismiss = command {
                 handleDismiss()
             }
@@ -609,6 +626,7 @@ final class ToastWindowController {
     /// 异步 inline action 的统一入口。处理 dismiss 竞态 + 非动画窗口 resize。
     /// 公式（同步）和翻译（异步）都走这个方法展示结果。
     func showInlineResult(displayText: String, copyText: String?) {
+        guard viewModel.isContentReady else { return }
         cancelDismiss()
         viewModel.resultOverlay = ResultOverlay(displayText: displayText, copyText: copyText)
         refreshQuickTriggerContextIfEligible()
@@ -657,7 +675,9 @@ final class ToastWindowController {
     }
 
     private func cancelResourcesForCurrentRevision() {
-        guard let revision = currentRevision,
+        // A reminder may disappear before the base read reaches its sound terminal.
+        guard !viewModel.isReminderNotice,
+              let revision = currentRevision,
               resourcesCancelledRevision != revision else { return }
         resourcesCancelledRevision = revision
         onRevisionResourcesShouldCancel?(revision)

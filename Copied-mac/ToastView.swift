@@ -429,7 +429,7 @@ struct ToastView: View {
                     .animation(.easeInOut(duration: 0.15), value: isPreviewHovered)
                     .animation(.easeInOut(duration: 0.15), value: isResultHovered)
 
-                    if !viewModel.isStartupNotice {
+                    if !viewModel.isNotice {
                         VStack(alignment: .leading, spacing: 4) {
                             AutoScrollingMetadataRow(
                                 isCardHovered: isCardHovered,
@@ -623,7 +623,7 @@ struct ToastView: View {
 
     private var accessibilityStatus: String {
         switch viewModel.phase {
-        case .startup:
+        case .startup, .reminder:
             return viewModel.previewText
         case .pending:
             return String(localized: "已复制")

@@ -49,6 +49,7 @@ final class ClipboardMonitor {
     }
 
     private var timer: Timer?
+    var isRunning: Bool { timer?.isValid == true }
     private var defaultsObserver: NSObjectProtocol?
     private var lastObservedChangeCount = 0
     private var revisionGeneration: UInt64 = 0
@@ -62,6 +63,7 @@ final class ClipboardMonitor {
 
     private var cachedIsPaused: Bool
     private var cachedPreferences: PopupPresentationPreferences
+    private var cachedLightReminderStyle: LightReminderStyle
     private var cachedLightReminderEnabled: Bool
     private var cachedSoundSelection: String
     private var availableKindIDs = Set<String>()
@@ -76,6 +78,7 @@ final class ClipboardMonitor {
     private var activeSession: ClipboardLoadSession?
     private var activeSource: SourceAppInfo?
     private var activePreferences: PopupPresentationPreferences?
+    private var activeLightReminderStyle: LightReminderStyle = .cursorIcon
     private var activeLightReminderEnabled: Bool?
     private var activeCandidateDecision: PopupPresentationPolicy.CandidateDecision?
     private var activeSoundSelection: String?
@@ -106,6 +109,7 @@ final class ClipboardMonitor {
         cachedIsPaused = defaults.bool(forKey: "isPaused")
         cachedPreferences = PopupPresentationPreferences.current(defaults: defaults)
         cachedLightReminderEnabled = defaults.bool(forKey: "lightReminderEnabled")
+        cachedLightReminderStyle = LightReminderStyle.current(defaults: defaults)
         cachedSoundSelection = CopySoundFeedback.resolvedSelection(
             defaults.string(forKey: CopySoundFeedback.defaultsKey)
         )
@@ -137,6 +141,8 @@ final class ClipboardMonitor {
         activeSession = nil
         ClipboardDirectorySizeCoordinator.shared.cancelAll()
         toastController?.onRevisionResourcesShouldCancel = nil
+        toastController?.dismissToast(animated: false)
+        LightReminderController.shared.dismiss(animated: false)
     }
 
     private func installDefaultsObserverIfNeeded() {
@@ -156,6 +162,7 @@ final class ClipboardMonitor {
         cachedIsPaused = defaults.bool(forKey: "isPaused")
         cachedPreferences = PopupPresentationPreferences.current(defaults: defaults)
         cachedLightReminderEnabled = defaults.bool(forKey: "lightReminderEnabled")
+        cachedLightReminderStyle = LightReminderStyle.current(defaults: defaults)
         cachedSoundSelection = CopySoundFeedback.resolvedSelection(
             defaults.string(forKey: CopySoundFeedback.defaultsKey)
         )
@@ -215,6 +222,7 @@ final class ClipboardMonitor {
         activeSource = source
         activePreferences = preferences
         activeLightReminderEnabled = lightReminderEnabled
+        activeLightReminderStyle = cachedLightReminderStyle
         activeCandidateDecision = candidateDecision
         activeSoundSelection = soundSelection
         toastController?.onRevisionResourcesShouldCancel = { [weak self, weak session] revision in
@@ -226,12 +234,13 @@ final class ClipboardMonitor {
 
         if lightReminderEnabled,
            (preferences.mode == .all || candidateDecision == .allAllowed) {
-            LightReminderController.shared.show()
+            showLightReminder(revision: revision)
             activeLightReminderWasPresented = true
         } else if !lightReminderEnabled,
                   candidateDecision != .allDenied,
                   (preferences.mode == .all || candidateDecision == .allAllowed) {
             // This is deliberately synchronous in the timer callback and precedes base-lane work.
+            LightReminderController.shared.dismiss(animated: false)
             toastController?.showPending(revision: revision, source: source)
             isActivePresentationVisible = true
         }
@@ -241,6 +250,17 @@ final class ClipboardMonitor {
             self.handleLoadTimeout(session: session)
         }
         submitBaseRead(session: session)
+    }
+
+    private func showLightReminder(revision: ClipboardRevision) {
+        switch activeLightReminderStyle {
+        case .cursorIcon:
+            toastController?.dismissToast(animated: false)
+            LightReminderController.shared.show()
+        case .topCard:
+            LightReminderController.shared.dismiss(animated: false)
+            toastController?.showReminder(revision: revision)
+        }
     }
 
     private func resetActiveRevisionState() {
@@ -340,7 +360,7 @@ final class ClipboardMonitor {
         finishFirstResponseBoost()
         if activePreferences?.mode == .all, activeLightReminderEnabled == false {
             toastController?.showFailure(revision: session.revision)
-        } else {
+        } else if !activeLightReminderWasPresented {
             toastController?.dismissSilently(revision: session.revision)
         }
     }
@@ -351,7 +371,7 @@ final class ClipboardMonitor {
         playActiveCopySoundIfNeeded()
         if activePreferences?.mode == .all, activeLightReminderEnabled == false {
             toastController?.showFailure(revision: session.revision)
-        } else {
+        } else if !activeLightReminderWasPresented {
             toastController?.dismissSilently(revision: session.revision)
         }
         finishFirstResponseBoost()
@@ -707,7 +727,7 @@ final class ClipboardMonitor {
             session.cancel()
         case .allow:
             if activeLightReminderEnabled == true {
-                LightReminderController.shared.show()
+                showLightReminder(revision: session.revision)
                 activePresentationWasDropped = true
                 session.cancel()
                 return
@@ -722,6 +742,7 @@ final class ClipboardMonitor {
             lastLowInterruptionHash = content.visualHashValue
             lastLowInterruptionShowTime = now
             guard let source = activeSource else { return }
+            LightReminderController.shared.dismiss(animated: false)
             toastController?.show(content: content, source: source)
             isActivePresentationVisible = true
         }

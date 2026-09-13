@@ -10,6 +10,7 @@ private func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
 @main
 struct PopupPresentationSettingsTests {
     static func main() {
+        reminderStyleDefaultsAndPersistence()
         modeDefaultsToAll()
         explicitFalseOverridesUnregisteredDefault()
         recognizedKindsIgnorePlainTextLengthPreferences()
@@ -24,6 +25,22 @@ struct PopupPresentationSettingsTests {
         partialFileClassificationFailsClosed()
         restoreDefaultsPreservesMode()
         print("PopupPresentationSettingsTests: PASS")
+    }
+
+    private static func reminderStyleDefaultsAndPersistence() {
+        let suite = "com.copied.reminder-style-tests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        expect(LightReminderStyle.current(defaults: defaults) == .cursorIcon, "existing installs changed reminder style")
+        defaults.set("unsupported", forKey: LightReminderStyle.defaultsKey)
+        expect(LightReminderStyle.current(defaults: defaults) == .cursorIcon, "unknown style has no safe default")
+        defaults.set(LightReminderStyle.topCard.rawValue, forKey: LightReminderStyle.defaultsKey)
+        let snapshot = LightReminderStyle.current(defaults: defaults)
+        expect(LightReminderStyle.current(defaults: UserDefaults(suiteName: suite)!) == .topCard,
+               "top card preference did not persist")
+        defaults.set(LightReminderStyle.cursorIcon.rawValue, forKey: LightReminderStyle.defaultsKey)
+        expect(snapshot == .topCard && LightReminderStyle.current(defaults: defaults) == .cursorIcon,
+               "style changes mutated an existing revision snapshot")
     }
 
     private static func makeDefaults() -> UserDefaults {
