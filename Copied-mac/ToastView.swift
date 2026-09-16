@@ -485,6 +485,7 @@ struct ToastView: View {
                         .allowsHitTesting(false)
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
 
                 // ── Right: Action Button ──────────────────────────
                 if let primaryButton {
