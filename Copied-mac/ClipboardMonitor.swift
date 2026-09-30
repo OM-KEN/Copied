@@ -141,6 +141,7 @@ final class ClipboardMonitor {
         activeSession = nil
         ClipboardDirectorySizeCoordinator.shared.cancelAll()
         toastController?.onRevisionResourcesShouldCancel = nil
+        toastController?.clearLastToast()
         toastController?.dismissToast(animated: false)
         LightReminderController.shared.dismiss(animated: false)
     }
@@ -785,4 +786,25 @@ final class ClipboardMonitor {
         firstResponseBoostDeadline = nil
         scheduleTimer(withTimeInterval: steadyStatePollInterval)
     }
+
+#if COPIED_TESTING
+    func testingPresentLowInterruption(
+        content: ClipboardContent,
+        source: SourceAppInfo,
+        preferences: PopupPresentationPreferences,
+        analysisIsReady: Bool
+    ) {
+        activeSession?.cancel()
+        resetActiveRevisionState()
+        let session = ClipboardLoadSession(revision: content.revision, backingScale: 2)
+        activeSession = session
+        activeContent = content
+        activeSource = source
+        activePreferences = preferences
+        activeLightReminderEnabled = false
+        activeCandidateDecision = .needsClassification
+        self.analysisIsReady = analysisIsReady
+        tryPresentLowInterruption(session: session)
+    }
+#endif
 }

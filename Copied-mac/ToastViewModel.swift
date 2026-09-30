@@ -55,7 +55,6 @@ final class ToastViewModel {
     var expandedFullText = ""
     var expandedTextWasTruncated = false
     var isExpandedTextLoading = false
-    var isExpandedTransitioning = false
     var isTextExportInProgress = false
 
     var isStartupNotice: Bool { phase == .startup }
@@ -243,7 +242,6 @@ final class ToastViewModel {
         expandedFullText = ""
         expandedTextWasTruncated = false
         isExpandedTextLoading = false
-        isExpandedTransitioning = false
         isTextExportInProgress = false
         contentTransitionID &+= 1
     }

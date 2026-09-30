@@ -16,6 +16,9 @@ final class ToastWindowController {
     private var dismissTimer: Timer?
     private var viewModel = ToastViewModel()
     private let commandDispatcher = ToastCommandDispatcher<any ClipboardAction>()
+    private let lastToastStore: LastToastStore
+    private var presentationGeneration = 0
+    private var isReplayPresentation = false
 
     private var isDismissing = false
     private var dismissGeneration = 0
@@ -47,6 +50,54 @@ final class ToastWindowController {
     private var hasShownStartupNotice = false
     private var pausesDismissWhileHovered = true
     var onRevisionResourcesShouldCancel: ((ClipboardRevision) -> Void)?
+
+    init(lastToastStore: LastToastStore = .shared) {
+        self.lastToastStore = lastToastStore
+    }
+
+    @discardableResult
+    func replayLastToast() -> Bool {
+        guard let snapshot = lastToastStore.snapshotForReplay() else { return false }
+        if window?.isVisible == true, !isDismissing,
+           currentRevision == snapshot.content.revision, viewModel.isContentReady {
+            if !viewModel.isExpanded, !isExpandingOrCollapsing {
+                if isMouseInsideWindow() { pauseDismissTimer() } else { startDismissTimer() }
+            }
+            return true
+        }
+
+        removeAllMonitors()
+        pauseDismissTimer()
+        var content = snapshot.content
+        content.detailIsLoading = false
+        viewModel.configure(with: content, source: snapshot.source)
+        viewModel.applyActions(primary: snapshot.primaryAction, menu: snapshot.menuActions)
+        viewModel.resultOverlay = snapshot.resultOverlay
+        viewModel.showsUpdateReminder = snapshot.showsUpdateReminder
+        currentContent = content
+        currentRevision = content.revision
+        resourcesCancelledRevision = nil
+        textExportToken = nil
+        quickTriggerContextGeneration &+= 1
+        presentConfiguredToast(
+            autoDismissAfter: displayDuration,
+            pausesDismissWhileHovered: true,
+            isReplay: true
+        )
+        refreshQuickTriggerContextIfEligible()
+        return window?.isVisible == true
+    }
+
+    func clearLastToast() {
+        lastToastStore.clear()
+    }
+
+    private func recordLastToast() {
+        guard window?.isVisible == true, !isDismissing,
+              currentRevision == viewModel.revision,
+              let snapshot = LastToastSnapshot(viewModel: viewModel) else { return }
+        lastToastStore.record(snapshot)
+    }
 
     func showStartupNotice(using source: SourceAppInfo) {
         guard !hasShownStartupNotice else { return }
@@ -125,6 +176,7 @@ final class ToastWindowController {
         revision: ClipboardRevision
     ) {
         guard currentRevision == revision,
+              !isReplayPresentation,
               viewModel.acceptsContentUpdate(revision: revision),
               window?.isVisible == true else { return }
         viewModel.configure(with: content, source: source)
@@ -140,14 +192,17 @@ final class ToastWindowController {
         } else {
             startDismissTimer(after: displayDuration)
         }
+        recordLastToast()
     }
 
     func applyEnrichment(_ content: ClipboardContent, revision: ClipboardRevision) {
         guard currentRevision == revision,
               viewModel.revision == revision,
-              viewModel.isContentReady else { return }
+              viewModel.isContentReady, !isReplayPresentation,
+              window?.isVisible == true else { return }
         currentContent = content
         viewModel.applyEnrichment(content)
+        recordLastToast()
     }
 
     func applyActions(
@@ -157,7 +212,8 @@ final class ToastWindowController {
     ) {
         guard currentRevision == revision,
               viewModel.revision == revision,
-              viewModel.isContentReady else { return }
+              viewModel.isContentReady, !isReplayPresentation,
+              window?.isVisible == true else { return }
         viewModel.applyActions(primary: primary, menu: menu)
         requestWindowLayout()
         quickTriggerContextGeneration &+= 1
@@ -165,14 +221,16 @@ final class ToastWindowController {
             refreshQuickTriggerContextIfEligible()
             ensureMinimumActionableTime()
         }
+        recordLastToast()
     }
 
     func showFailure(revision: ClipboardRevision) {
         guard currentRevision == revision, viewModel.revision == revision,
-              !viewModel.isReminderNotice else { return }
+              !viewModel.isReminderNotice, !isReplayPresentation else { return }
         removeAllMonitors()
         viewModel.configureFailure()
         currentContent = nil
+        lastToastStore.clear()
         if isMouseInsideWindow() {
             pauseDismissTimer()
         } else {
@@ -181,7 +239,8 @@ final class ToastWindowController {
     }
 
     func dismissSilently(revision: ClipboardRevision) {
-        guard currentRevision == revision, viewModel.revision == revision else { return }
+        guard currentRevision == revision, viewModel.revision == revision,
+              !isReplayPresentation else { return }
         removeAllMonitors()
         pauseDismissTimer()
         clearCurrentRevisionForDismissal()
@@ -190,7 +249,8 @@ final class ToastWindowController {
 
     private func presentConfiguredToast(
         autoDismissAfter duration: TimeInterval,
-        pausesDismissWhileHovered: Bool
+        pausesDismissWhileHovered: Bool,
+        isReplay: Bool = false
     ) {
         let now = Date()
         let replacesVisibleRevision = window?.isVisible == true
@@ -198,8 +258,10 @@ final class ToastWindowController {
             && lastPresentedRevision != nil
             && currentRevision != lastPresentedRevision
             && now.timeIntervalSince(lastRevisionPresentationTime) < 0.5
-        entranceStyle = replacesVisibleRevision ? .rapidReplacement : .standard
-        if let currentRevision {
+        entranceStyle = isReplay ? .replay : (replacesVisibleRevision ? .rapidReplacement : .standard)
+        isReplayPresentation = isReplay
+        presentationGeneration &+= 1
+        if let currentRevision, !isReplay {
             lastPresentedRevision = currentRevision
             lastRevisionPresentationTime = now
         }
@@ -211,6 +273,7 @@ final class ToastWindowController {
         dismissTimerGeneration &+= 1
         contentView?.layer?.filters = nil
         contentView?.layer?.removeAnimation(forKey: "dismissBlurAnim")
+        contentView?.layer?.removeAnimation(forKey: "expandBlurAnim")
         // Always recreate window for fresh Space association.
         // Fullscreen Spaces can lose track of reused windows after
         // extended use, causing the toast to silently not appear.
@@ -257,9 +320,18 @@ final class ToastWindowController {
             for: panelSize,
             isExpanded: false
         )
-        window?.alphaValue = 1.0
+        window?.alphaValue = isReplay ? 0 : 1
         window?.orderFront(nil)
-        if viewModel.showsUpdateReminder {
+        if isReplay {
+            applyWindowBlur()
+            animateWindowAlpha(to: 1, easeIn: false) { [weak self] in
+                self?.removeWindowBlur()
+            }
+        } else if let revision = currentRevision, !viewModel.isNotice {
+            lastToastStore.beginPresentation(revision: revision)
+            recordLastToast()
+        }
+        if viewModel.showsUpdateReminder, !isReplay {
             AppUpdateService.shared.recordUpdateReminderDisplayed()
         }
 
@@ -271,15 +343,28 @@ final class ToastWindowController {
     }
 
     private func makeToastView() -> ToastView {
-        ToastView(
+        let generation = presentationGeneration
+        return ToastView(
             viewModel: viewModel,
             entranceStyle: entranceStyle,
-            onHoverChanged: { [weak self] hovering in self?.handleHoverChanged(hovering) },
-            onCommand: { [weak self] command in self?.handleCommand(command) },
-            onExpandedTextFrameChanged: { [weak self] frame in
-                DispatchQueue.main.async { self?.updateExpandedTextFrame(frame) }
+            onHoverChanged: { [weak self] hovering in
+                guard self?.presentationGeneration == generation else { return }
+                self?.handleHoverChanged(hovering)
             },
-            onNeedsLayout: { [weak self] in self?.requestWindowLayout() },
+            onCommand: { [weak self] command in
+                guard self?.presentationGeneration == generation else { return }
+                self?.handleCommand(command)
+            },
+            onExpandedTextFrameChanged: { [weak self] frame in
+                DispatchQueue.main.async {
+                    guard self?.presentationGeneration == generation else { return }
+                    self?.updateExpandedTextFrame(frame)
+                }
+            },
+            onNeedsLayout: { [weak self] in
+                guard self?.presentationGeneration == generation else { return }
+                self?.requestWindowLayout()
+            },
         )
     }
 
@@ -325,33 +410,32 @@ final class ToastWindowController {
 
     // MARK: - Action execution
 
-    func showResultOverlay(displayText: String, copyText: String?, keepAlive: Bool = false) {
-        guard viewModel.isContentReady else { return }
+    func resultPresentation(for revision: ClipboardRevision) -> Int? {
+        guard currentRevision == revision, viewModel.isContentReady,
+              window?.isVisible == true, !isDismissing else { return nil }
+        return presentationGeneration
+    }
+
+    func showResultOverlay(
+        displayText: String,
+        copyText: String?,
+        revision: ClipboardRevision,
+        presentation: Int,
+        keepAlive: Bool = false
+    ) {
+        guard resultPresentation(for: revision) == presentation else { return }
         cancelDismiss()
         viewModel.resultOverlay = ResultOverlay(displayText: displayText, copyText: copyText)
         refreshQuickTriggerContextIfEligible()
 
-        if !isDismissing, let hosting = hostingView, let screen = NSScreen.main {
-            hosting.layoutSubtreeIfNeeded()
-            let panelSize = hosting.fittingSize
-            let x = screen.visibleFrame.midX - panelSize.width / 2
-            let y = screen.frame.maxY - panelSize.height + 20
-
-            NSAnimationContext.runAnimationGroup { ctx in
-                ctx.duration = 0.25
-                ctx.allowsImplicitAnimation = true
-                window?.animator().setFrame(
-                    NSRect(x: x, y: y, width: panelSize.width, height: panelSize.height),
-                    display: true
-                )
-            }
-        }
+        updateWindowSize()
 
         if keepAlive {
             pauseDismissTimer()
         } else if !isMouseInsideWindow() {
             startDismissTimer()
         }
+        recordLastToast()
     }
 
     // MARK: - Interaction handlers
@@ -422,7 +506,6 @@ final class ToastWindowController {
         let deferredGeneration = deferredExpandedTextGeneration
         viewModel.isExpandedTextLoading = requiresDeferredLayout
         isExpandingOrCollapsing = true
-        viewModel.isExpandedTransitioning = true
         quickTriggerCoordinator.suspend()
         cancelDismiss()
         pauseDismissTimer()
@@ -441,7 +524,6 @@ final class ToastWindowController {
                 guard let self else { return }
                 self.removeWindowBlur()
                 self.isExpandingOrCollapsing = false
-                self.viewModel.isExpandedTransitioning = false
                 if requiresDeferredLayout {
                     self.scheduleDeferredExpandedTextLayout(generation: deferredGeneration)
                 } else {
@@ -472,25 +554,25 @@ final class ToastWindowController {
         guard viewModel.isExpanded, !isExpandingOrCollapsing else { return }
         deferredExpandedTextGeneration &+= 1
         isExpandingOrCollapsing = true
-        viewModel.isExpandedTransitioning = true
-        window?.resignKey()
 
         // Phase 1: blur + fade out
         applyWindowBlur()
         animateWindowAlpha(to: 0, easeIn: true) { [weak self] in
             guard let self else { return }
             // Switch content while invisible
+            // Ordering out clears AppKit's key ownership; orderFront keeps it non-key.
+            self.window?.orderOut(nil)
             self.setExpandedTextSurfaceVisible(false)
             self.viewModel.isExpandedTextLoading = false
             self.viewModel.isExpanded = false
             self.updateWindowSize()
+            self.window?.orderFront(nil)
 
             // Phase 2: deblur + fade in
             self.animateWindowAlpha(to: 1, easeIn: false) { [weak self] in
                 guard let self else { return }
                 self.removeWindowBlur()
                 self.isExpandingOrCollapsing = false
-                self.viewModel.isExpandedTransitioning = false
                 if self.isMouseInsideWindow() {
                     self.pauseDismissTimer()
                 } else {
@@ -623,15 +705,20 @@ final class ToastWindowController {
         refreshQuickTriggerContextIfEligible()
     }
 
-    /// 异步 inline action 的统一入口。处理 dismiss 竞态 + 非动画窗口 resize。
-    /// 公式（同步）和翻译（异步）都走这个方法展示结果。
-    func showInlineResult(displayText: String, copyText: String?) {
-        guard viewModel.isContentReady else { return }
+    /// Inline result updates must match the presentation that initiated the action.
+    func showInlineResult(
+        displayText: String,
+        copyText: String?,
+        revision: ClipboardRevision,
+        presentation: Int
+    ) {
+        guard resultPresentation(for: revision) == presentation else { return }
         cancelDismiss()
         viewModel.resultOverlay = ResultOverlay(displayText: displayText, copyText: copyText)
         refreshQuickTriggerContextIfEligible()
         updateWindowSize()
         if !isMouseInsideWindow() { startDismissTimer() }
+        recordLastToast()
     }
 
     func startDismissTimer(after duration: TimeInterval? = nil) {
@@ -676,7 +763,7 @@ final class ToastWindowController {
 
     private func cancelResourcesForCurrentRevision() {
         // A reminder may disappear before the base read reaches its sound terminal.
-        guard !viewModel.isReminderNotice,
+        guard !viewModel.isReminderNotice, !isReplayPresentation,
               let revision = currentRevision,
               resourcesCancelledRevision != revision else { return }
         resourcesCancelledRevision = revision
@@ -701,11 +788,11 @@ final class ToastWindowController {
         preparedExpandedText = nil
         preparedExpandedTextDocumentHeight = nil
         viewModel.isExpandedTextLoading = false
-        viewModel.isExpandedTransitioning = false
     }
 
     private func installExpandedTextSurface() {
         guard expandedTextView == nil, let contentView else { return }
+        let generation = presentationGeneration
 
         let scrollView = ToastExpandedTextScrollView(frame: .zero)
         scrollView.translatesAutoresizingMaskIntoConstraints = true
@@ -720,6 +807,7 @@ final class ToastWindowController {
         scrollView.wantsLayer = true
         scrollView.layer?.masksToBounds = true
         scrollView.onHoverChanged = { [weak self] hovering in
+            guard self?.presentationGeneration == generation else { return }
             self?.handleHoverChanged(hovering)
         }
 
@@ -746,9 +834,11 @@ final class ToastWindowController {
         let bottomBarControls = ExpandedBottomBarControlsView(
             viewModel: viewModel,
             onHoverChanged: { [weak self] hovering in
+                guard self?.presentationGeneration == generation else { return }
                 self?.handleHoverChanged(hovering)
             },
             onCommand: { [weak self] command in
+                guard self?.presentationGeneration == generation else { return }
                 self?.handleCommand(command)
             }
         )
@@ -868,6 +958,7 @@ final class ToastWindowController {
 
     private func createWindow() {
         let w = ToastPanel(contentRect: NSRect(x: 0, y: 0, width: 360, height: 80))
+        w.animationBehavior = .none
         w.level = .floating
         w.isOpaque = false
         w.backgroundColor = .clear
@@ -989,11 +1080,13 @@ final class ToastWindowController {
     }
 
     private func releasePresentation() {
+        presentationGeneration &+= 1
         pendingLayoutGeneration = nil
         releasePresentationSurfaces()
         viewModel = ToastViewModel()
         currentContent = nil
         currentRevision = nil
+        isReplayPresentation = false
         pausesDismissWhileHovered = true
     }
 
@@ -1013,4 +1106,17 @@ final class ToastWindowController {
     private func removeAllMonitors() {
         quickTriggerCoordinator.stop()
     }
+
+#if COPIED_TESTING
+    var testingViewModel: ToastViewModel { viewModel }
+    var testingWindow: ToastPanel? { window }
+    var testingExpandedBottomBarControlsHostingView: ToastHostingView? {
+        expandedBottomBarControlsHostingView
+    }
+    var testingEntranceStyle: ToastEntranceStyle { entranceStyle }
+    var testingDismissDeadline: Date? { dismissDeadline }
+    func testingPerformCommand(_ command: ToastCommand<any ClipboardAction>) {
+        handleCommand(command)
+    }
+#endif
 }

@@ -230,6 +230,7 @@ swiftc -O -D COPIED_TESTING -parse-as-library \
     -target arm64-apple-macosx14.0 \
     -o "$TEST_BUILD_DIR/AppBehaviorTests"
 "$TEST_BUILD_DIR/AppBehaviorTests"
+"$TEST_BUILD_DIR/AppBehaviorTests" --toast-transitions
 
 bash Tests/BuildScriptTests.sh
 

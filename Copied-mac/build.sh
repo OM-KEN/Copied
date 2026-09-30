@@ -82,6 +82,7 @@ SOURCES=(
     MetadataAutoScrollMetrics.swift
     ToastView.swift
     ToastViewModel.swift
+    LastToastStore.swift
     ToastWindowController.swift
     LightReminderController.swift
 )

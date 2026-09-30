@@ -73,7 +73,9 @@ private struct MenuBarContent: View {
     @AppStorage(PopupPresentationPreferences.modeKey)
     private var popupPresentationMode = PopupPresentationMode.all.rawValue
     @ObservedObject private var updateService = AppUpdateService.shared
+    @ObservedObject private var lastToastStore = LastToastStore.shared
     let onPauseToggle: (Bool) -> Void
+    let onReplay: () -> Void
 
     var body: some View {
         Group {
@@ -95,6 +97,9 @@ private struct MenuBarContent: View {
                         : PopupPresentationMode.all.rawValue
                 }
             ))
+            Divider()
+            Button(String(localized: "重现上一个弹窗"), action: onReplay)
+                .disabled(!lastToastStore.canReplay)
             Divider()
             SettingsLink {
                 Text("设置…")
@@ -144,7 +149,10 @@ struct CopiedApp: App {
 
     var body: some Scene {
         MenuBarExtra(isInserted: $showMenuBarIcon) {
-            MenuBarContent(onPauseToggle: { appDelegate.setPaused($0) })
+            MenuBarContent(
+                onPauseToggle: { appDelegate.setPaused($0) },
+                onReplay: { appDelegate.replayLastToast() }
+            )
         } label: {
             Image(nsImage: menuBarIcon)
         }
@@ -292,5 +300,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func setPaused(_ paused: Bool) {
         if paused { monitor?.stop() } else { monitor?.start() }
+    }
+
+    func replayLastToast() {
+        toastController?.replayLastToast()
     }
 }

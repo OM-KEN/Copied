@@ -744,9 +744,7 @@ enum InstantClipboardFeedbackTests {
             !view.contains("预览已截断")
                 && view.contains("在文本编辑中查看全部")
                 && view.contains(".buttonStyle(.borderedProminent)")
-                && view.contains(
-                    ".disabled(viewModel.isExpandedTextLoading || viewModel.isExpandedTransitioning)"
-                ),
+                && view.contains(".disabled(viewModel.isExpandedTextLoading)"),
             "expanded TextEdit affordance does not replace the truncation hint"
         )
         let truncatedTextEditButton = try section(
@@ -759,12 +757,11 @@ enum InstantClipboardFeedbackTests {
                 && !truncatedTextEditButton.contains("systemImage:"),
             "emphasized TextEdit button content differs from the ordinary text-only button"
         )
-        let viewModel = try source("ToastViewModel.swift")
         try expect(
-            viewModel.contains("var isExpandedTransitioning = false")
-                && controller.contains("viewModel.isExpandedTransitioning = true")
-                && controller.contains("viewModel.isExpandedTransitioning = false"),
-            "expanded controls do not mirror the controller transition guard"
+            expand.contains("guard viewModel.canExpand, !viewModel.isExpanded,")
+                && controller.contains("guard viewModel.isExpanded, !isExpandingOrCollapsing")
+                && controller.contains("guard !isDismissing, !isExpandingOrCollapsing"),
+            "expanded commands lack transition guards"
         )
 
         let catalog = try source("Localizable.xcstrings")

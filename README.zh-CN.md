@@ -41,6 +41,8 @@ Copied 不是一款传统意义上的剪贴板历史管理工具。它只给你�
 
 弹窗显示期间，**点击右侧按钮或双击 ⌃ 键**可触发右侧操作按钮（如计算、打开链接、搜索）。
 
+菜单栏中的“重现上一个弹窗”可以恢复最后一次显示的卡片，保留原来的操作和结果；不重新复制，也不播放复制音效。只在内存保存一张快照，从首次显示起保留最多 10 分钟，重现不续期；缓存内容预算为 8 MiB。到期、暂停或超出预算会清空记录；仅提醒模式和被屏蔽来源禁用重现。
+
 ## 支持的类型
 
 普通文本、文件、URL、文件路径、邮箱、电话、算式、日期、汉字、英文、代码
@@ -79,6 +81,7 @@ AppUpdateService.swift      GitHub Releases 检查、缓存、节流与提醒状
 ToastPanel.swift            nonactivating NSPanel + first-mouse hosting + 原生展开文本
 ToastWindowController.swift ToastPanel + Action + 展开文本分层 + 快速触发命令路由
 ToastViewModel.swift        @Observable 模型（含 sourceBundleID）
+LastToastStore.swift        上一张完整卡片的内存快照、10 分钟期限与 8 MiB 内容预算
 RelativeDateDescription.swift 日期/时间详情格式化（日历日语义 + 本地化时间）
 ToastView.swift             SwiftUI 卡片 + glassEffect（macOS 26+）/ ultraThinMaterial（降级）+ 展开查看全文（if/else 双态）+ contextMenu
 LightReminderController.swift 仅提醒模式浮标（NSWindow + NSHostingView + macOS 26+ drawOff / opacity 降级）

@@ -3,6 +3,7 @@ import SwiftUI
 enum ToastEntranceStyle: Equatable {
     case standard
     case rapidReplacement
+    case replay
 }
 
 private struct MetadataWidthReader: View {
@@ -279,6 +280,73 @@ private struct AutoScrollingMetadataRow<Content: View>: View {
     }
 }
 
+#if COPIED_TESTING
+enum ToastActionGeometryProbe {
+    static var onMeasure: ((String, CGSize) -> Void)?
+}
+#endif
+
+private extension View {
+    @ViewBuilder
+    func reportActionGeometry(_ metric: String) -> some View {
+#if COPIED_TESTING
+        background {
+            GeometryReader { proxy in
+                Color.clear
+                    .onAppear { ToastActionGeometryProbe.onMeasure?(metric, proxy.size) }
+                    .onChange(of: proxy.size) { _, size in
+                        ToastActionGeometryProbe.onMeasure?(metric, size)
+                    }
+            }
+        }
+#else
+        self
+#endif
+    }
+}
+
+private struct ToastContentRowLayout: Layout {
+    let spacing: CGFloat = 12
+
+    private func widths(for proposal: CGFloat?, subviews: Subviews) -> ([CGFloat], CGFloat) {
+        let natural = subviews.map { $0.sizeThatFits(.unspecified).width }
+        let naturalTotal = natural.reduce(0, +) + CGFloat(max(0, subviews.count - 1)) * spacing
+        let rowWidth = min(naturalTotal, proposal ?? naturalTotal)
+        guard subviews.count >= 2 else { return (natural, rowWidth) }
+        let iconWidth = min(natural[0], rowWidth)
+        let available = max(0, rowWidth - iconWidth - CGFloat(subviews.count - 1) * spacing)
+        guard subviews.count == 3 else { return ([iconWidth, available], rowWidth) }
+        if natural[1] + natural[2] <= available {
+            return ([iconWidth, natural[1], natural[2]], rowWidth)
+        }
+        if natural[1] <= natural[2] {
+            let left = min(natural[1], available / 2)
+            return ([iconWidth, left, available - left], rowWidth)
+        }
+        let button = min(natural[2], available / 2)
+        return ([iconWidth, available - button, button], rowWidth)
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let (assigned, width) = widths(for: proposal.width, subviews: subviews)
+        let height = zip(subviews, assigned).map { subview, width in
+            subview.sizeThatFits(ProposedViewSize(width: width, height: nil)).height
+        }.max() ?? 0
+        return CGSize(width: width, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let (assigned, _) = widths(for: bounds.width, subviews: subviews)
+        var x = bounds.minX
+        for (subview, width) in zip(subviews, assigned) {
+            let size = subview.sizeThatFits(ProposedViewSize(width: width, height: nil))
+            subview.place(at: CGPoint(x: x, y: bounds.midY - size.height / 2),
+                          anchor: .topLeading, proposal: ProposedViewSize(width: width, height: size.height))
+            x += width + spacing
+        }
+    }
+}
+
 struct ToastView: View {
     let viewModel: ToastViewModel
     let entranceStyle: ToastEntranceStyle
@@ -331,7 +399,7 @@ struct ToastView: View {
                     onTextFrameChanged: onExpandedTextFrameChanged
                 )
             } else {
-                HStack(spacing: 12) {
+                ToastContentRowLayout() {
                 // ── Left: Icon or Color Swatch ──────────────────
                 Group {
                     if let color = viewModel.detectedColor {
@@ -362,6 +430,7 @@ struct ToastView: View {
                             .contentTransition(.opacity)
                     }
                 }
+                .reportActionGeometry("icon")
                 .transition(.opacity)
                 .allowsHitTesting(false)
                 .animation(
@@ -380,6 +449,7 @@ struct ToastView: View {
                                 .font(.system(size: 14, weight: .medium))
                                 .foregroundStyle(.primary)
                                 .lineLimit(1)
+                                .reportActionGeometry("preview")
                                 .id("preview-\(viewModel.previewText)")
                                 .transition(.opacity)
                                 .opacity(viewModel.resultOverlay == nil ? 1.0 : 0)
@@ -450,6 +520,7 @@ struct ToastView: View {
                                         .foregroundStyle(.secondary)
                                 }
                             }
+                            .reportActionGeometry("sourceViewport")
 
                             if !viewModel.metadataDetailText.isEmpty {
                                 AutoScrollingMetadataRow(
@@ -486,6 +557,7 @@ struct ToastView: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .reportActionGeometry("leftColumn")
 
                 // ── Right: Action Button ──────────────────────────
                 if let primaryButton {
@@ -504,11 +576,14 @@ struct ToastView: View {
                             if viewModel.resultOverlay != nil {
                                 Text("复制")
                                     .font(.system(size: 12, weight: .medium))
+                                    .lineLimit(1)
+                                    .reportActionGeometry("copyText")
                             } else {
                                 Text(primaryButton.title)
                                     .font(.system(size: 12, weight: .medium))
                                     .lineLimit(1)
                                     .truncationMode(.tail)
+                                    .reportActionGeometry("actionTitle")
                             }
                         }
                         .padding(.horizontal, 10)
@@ -517,6 +592,7 @@ struct ToastView: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(PressTrackingButtonStyle(isPressed: $isActionButtonPressed))
+                    .reportActionGeometry("button")
                     .overlay(quickTriggerWaitingHighlight)
                     .scaleEffect((viewModel.quickTriggerVisualState == .pressed || isActionButtonPressed) ? 0.92 : 1.0)
                     .opacity(viewModel.quickTriggerVisualState == .waitingForSecondTap ? 0.82 : 1.0)
@@ -800,13 +876,14 @@ struct ExpandedBottomBarControlsView: View {
                 .buttonBorderShape(.roundedRectangle(radius: 8))
             Button("关闭") { onCommand(.dismiss) }
                 .buttonBorderShape(.roundedRectangle(radius: 8))
+                .foregroundStyle(Color(nsColor: .systemRed))
         }
         .padding(.horizontal, 16)
         .frame(
             width: ExpandedTextLayoutMetrics.cardWidth,
             height: ExpandedTextLayoutMetrics.bottomBarVisualHeight
         )
-        .disabled(viewModel.isExpandedTextLoading || viewModel.isExpandedTransitioning)
+        .disabled(viewModel.isExpandedTextLoading)
         .onHover(perform: onHoverChanged)
     }
 }
@@ -841,7 +918,7 @@ extension View {
             .scaleEffect(animateIn.wrappedValue || !usesStandardMotion ? 1 : 0.2)
             .offset(y: animateIn.wrappedValue || !usesStandardMotion ? 0 : -56)
             .blur(radius: animateIn.wrappedValue || !usesStandardMotion ? 0 : 12)
-            .opacity(animateIn.wrappedValue ? 1 : 0)
+            .opacity(animateIn.wrappedValue || style == .replay ? 1 : 0)
             .padding(.top, 20)
             .padding(.bottom, 12)
             .padding(.horizontal, 18)
@@ -853,7 +930,7 @@ extension View {
                 .buttonStyle(.plain)
             }
             .onAppear {
-                let animation: Animation? = if reduceMotion {
+                let animation: Animation? = if reduceMotion || style == .replay {
                     nil
                 } else if usesStandardMotion {
                     .interpolatingSpring(

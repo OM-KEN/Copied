@@ -12,6 +12,11 @@ struct LookupAction: ClipboardAction {
     var performsInlineUpdate: Bool { true }
 
     func perform(content: ClipboardContent, controller: ToastWindowController?) {
-        controller?.showInlineResult(displayText: definition, copyText: definition)
+        guard let controller,
+              let presentation = controller.resultPresentation(for: content.revision) else { return }
+        controller.showInlineResult(
+            displayText: definition, copyText: definition,
+            revision: content.revision, presentation: presentation
+        )
     }
 }

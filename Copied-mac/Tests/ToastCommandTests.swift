@@ -343,7 +343,31 @@ struct ToastCommandTests {
         expect(controller.contains("private func focusExpandedText()"), "expanded text has one focus entry point")
         expect(controller.contains("window.makeFirstResponder(textView)"), "expanded text becomes first responder")
         expect(controller.contains("window.makeKey()"), "expanded panel becomes key")
-        expect(controller.contains("window?.resignKey()"), "collapse releases expanded focus")
+        expect(
+            !controller.contains("window?.resignKey()"),
+            "collapse does not invoke the key-status notification hook directly"
+        )
+        guard let collapseStart = controller.range(of: "private func handleCollapse()"),
+              let collapseEnd = controller.range(of: "private func focusExpandedText()") else {
+            expect(false, "collapse transition is present")
+            return
+        }
+        var remainingCollapse = controller[collapseStart.lowerBound..<collapseEnd.lowerBound]
+        for step in [
+            "animateWindowAlpha(to: 0, easeIn: true)",
+            "self.window?.orderOut(nil)",
+            "self.setExpandedTextSurfaceVisible(false)",
+            "self.viewModel.isExpanded = false",
+            "self.updateWindowSize()",
+            "self.window?.orderFront(nil)",
+            "self.animateWindowAlpha(to: 1, easeIn: false)",
+        ] {
+            guard let range = remainingCollapse.range(of: step) else {
+                expect(false, "collapse clears native key ownership before returning non-key: \(step)")
+                return
+            }
+            remainingCollapse = remainingCollapse[range.upperBound...]
+        }
         expect(view.contains("Button(\"关闭\")"), "expanded controls expose an explicit close button")
         expect(view.contains(".buttonStyle(.bordered)"), "expanded controls use the native macOS bordered style")
         expect(!view.contains(".buttonStyle(.glass"), "expanded controls do not force Liquid Glass")

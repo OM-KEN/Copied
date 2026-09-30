@@ -86,6 +86,8 @@ While the toast is visible, you can:
 * Expand longer content for a full preview.
 * Use a configured mouse side button as a quick trigger.
 
+Use **Show Last Popup Again** in the menu bar to reopen the last displayed card with its original actions and results. Replaying does not copy again or play a copy sound. One snapshot stays in memory for up to 10 minutes from its first appearance; replaying does not extend that time. Its retained clipboard content has an 8 MiB budget. Expiration, pause, or exceeding the budget clears it; reminder mode and blocked sources disable replay.
+
 Examples:
 
 * Copy a URL to open it. Try → `www.google.com`
@@ -181,6 +183,7 @@ MouseButtonRecordingStateMachine.swift
 AppUpdateService.swift
 ToastWindowController.swift
 ToastViewModel.swift
+LastToastStore.swift
 RelativeDateDescription.swift
 ToastView.swift
 LightReminderController.swift

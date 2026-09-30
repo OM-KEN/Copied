@@ -72,20 +72,26 @@ struct CalculateAction: ClipboardAction {
     var performsInlineUpdate: Bool { true }
 
     func perform(content: ClipboardContent, controller: ToastWindowController?) {
+        guard let controller,
+              let presentation = controller.resultPresentation(for: content.revision) else { return }
         switch MathExpressionEvaluator.evaluate(expression) {
         case let .success(value):
             guard let formatted = MathExpressionEvaluator.format(value) else {
-                controller?.showResultOverlay(
+                controller.showResultOverlay(
                     displayText: "\(expression)\n\(String(localized: "无法计算"))",
-                    copyText: nil
+                    copyText: nil,
+                    revision: content.revision,
+                    presentation: presentation
                 )
                 return
             }
             let relation = formatted.isApproximate ? "≈" : "="
             let displayText = "\(expression)\n\(relation)\(formatted.displayText)"
-            controller?.showResultOverlay(
+            controller.showResultOverlay(
                 displayText: displayText,
-                copyText: formatted.copyText
+                copyText: formatted.copyText,
+                revision: content.revision,
+                presentation: presentation
             )
 
         case let .failure(error):
@@ -97,9 +103,11 @@ struct CalculateAction: ClipboardAction {
                  .unsupportedOperation, .unstableApproximation:
                 message = String(localized: "无法计算")
             }
-            controller?.showResultOverlay(
+            controller.showResultOverlay(
                 displayText: "\(expression)\n\(message)",
-                copyText: nil
+                copyText: nil,
+                revision: content.revision,
+                presentation: presentation
             )
         }
     }
@@ -147,6 +155,8 @@ struct ShowPinyinAction: ClipboardAction {
     var performsInlineUpdate: Bool { true }
 
     func perform(content: ClipboardContent, controller: ToastWindowController?) {
+        guard let controller,
+              let presentation = controller.resultPresentation(for: content.revision) else { return }
         let mutable = NSMutableString(string: String(character))
         CFStringTransform(mutable, nil, kCFStringTransformToLatin, false)
         // Keep tone marks — do NOT strip diacritics
@@ -154,7 +164,10 @@ struct ShowPinyinAction: ClipboardAction {
 
         // Show result inline: first line = character, second line = pinyin
         let displayText = "\(character)  \(pinyin)"
-        controller?.showResultOverlay(displayText: displayText, copyText: pinyin)
+        controller.showResultOverlay(
+            displayText: displayText, copyText: pinyin,
+            revision: content.revision, presentation: presentation
+        )
     }
 }
 

@@ -31,8 +31,13 @@ struct PluginAction: ClipboardAction {
             SearchTextAction(text: text).perform(content: content, controller: controller)
 
         case .transform:
+            guard let controller,
+                  let presentation = controller.resultPresentation(for: content.revision) else { return }
             guard let result = applyTransform(template, on: text) else { return }
-            controller?.showResultOverlay(displayText: result, copyText: result)
+            controller.showResultOverlay(
+                displayText: result, copyText: result,
+                revision: content.revision, presentation: presentation
+            )
 
         case .none:
             break

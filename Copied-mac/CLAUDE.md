@@ -56,6 +56,7 @@ open .build/Copied.app
 - 图片解码和缩略图必须遵守 `ClipboardImageSafety`；Quick Look 异步生成，失败回退 SF Symbol。
 - 生产日志不得写 `preview`、`rawText`、路径或其他剪贴板正文。内容级复现只用明确的合成数据。
 - “在文本编辑中打开”使用 UUID 临时文件，权限固定为仅当前用户读写（0600）。成功交给 TextEdit 后保留；Copied 下次启动只清理自己创建且超过 7 天的文件。
+- 重现仅保留最后一张实际显示的完整卡片内存快照，首次出现起最多 10 分钟、内容预算 8 MiB；超限或暂停清空，更新与重现不续期。重现不读写剪贴板、不播复制声音；重现窗口拒绝原读取与 Action 的迟到更新；操作结果按 revision 与 presentation generation 匹配，交互回调按 presentation generation 隔离。具体恢复行为见 `DESIGN.md`。
 
 ## 视觉筛选、声音与仅提醒
 
@@ -69,6 +70,8 @@ open .build/Copied.app
 ## 窗口与点击契约
 
 - 完整卡片只能使用 `ToastPanel`：borderless nonactivating `NSPanel`，`canBecomeKey=true`、`canBecomeMain=false`、`becomesKeyOnlyIfNeeded=true`、floating 且不随失焦隐藏。折叠控件使用 first-mouse hosting 并保持 Panel non-key；每次 `show()` 重建窗口。
+- `ToastPanel.animationBehavior` 固定为 `.none`，禁用 `orderFront` / `orderOut` 的系统自动动画；入场与展开/收起使用既有自定义动画，避免窗口排序吞掉实际淡入帧。
+- 内联结果统一调用 `updateWindowSize()`，同步 hosting 与外窗 fitting，并保留展开态阴影边界；禁止只动画外窗尺寸。WindowServer 仍会将窗口限制在屏幕边界内。
 - macOS 26+ 用 `.glassEffect(in: .rect(cornerRadius: 32))`，旧系统用 `.ultraThinMaterial` 和 0.08 秒延迟淡入；卡片始终绘制 `.primary.opacity(0.15)` 的细描边。
 - 折叠态所有鼠标命令只来自 SwiftUI `Button` → `ToastCommand`：预览展开、主操作、背景关闭。透明防裁切 padding 也属于背景按钮；图标和来源标签必须穿透。禁止窗口级左右键 monitor、手写坐标/矩形命中或 hover 业务分流。
 - 本地 NSEvent monitor 只保留快速触发的 `.keyDown` / `.flagsChanged`；订阅 `.leftMouseDown` 会破坏 nonactivating Panel 的原生点击链。
@@ -80,8 +83,9 @@ open .build/Copied.app
 - `ExpandedTextView` 固定宽 360、内容区总高最多 300pt；原生 `NSTextView/NSScrollView` 与底栏由 controller 分层安装。展开窗口左右和底部各留 16pt 阴影边界，顶部不留；窗口总高上限 340pt。
 - 超过 2,048 UTF-16 单元时，点击路径不得同步全文测量：先预留最大高度并显示原生 loading，再在下一次主队列调度安装正文。正文高度按文本缓存；generation 使过期任务失效。
 - 展开完成后 Panel 可成为 key，正文成为 first responder，支持拖选、⌘C 和右键菜单；底栏按钮保持 non-key。Escape 无操作，右下角有明确关闭按钮。
+- 展开底栏整体只在正文仍在加载时禁用；展开/收起过渡期间保留按钮正常外观，由 controller 的 `isExpandingOrCollapsing` 拦截命令，避免可见动画中按钮先灰后恢复。
 - 展开期间停止自动关闭并 suspend 快速触发；鼠标移出不关闭。收起完成后按实际指针几何决定是否恢复 3 秒计时并 resume。
-- 展开/收起用全窗口模糊 + alpha 两段切换，resize 不动画；直接关闭时原生正文和底栏保持到退场完成。
+- 展开/收起用全窗口模糊 + alpha 两段切换，resize 不动画；直接关闭时原生正文和底栏保持到退场完成。收起在淡出后 `orderOut` 释放原生 key 状态，切换布局后 `orderFront` 返回 non-key；不得直接调用 `resignKey()` 通知钩子。
 
 ## 检测、Action 与插件
 
@@ -119,5 +123,4 @@ open .build/Copied.app
 
 - 修 Bug 禁止猜测：先在临时目录加最小文件日志（事件、状态、关键非敏感变量），复现并对比正常/异常路径，确认根因后修复并删除日志。不得记录真实剪贴板正文。
 - 任何会修改 Git 状态或创建 Release 的操作前读取 `git-push` skill。默认只改/暂存 `Copied-mac/`；根目录双 README 仅限用户对当前任务明确授权。未经同意不得 push，提交与发布也分别需要明确授权。
-- WindowServer 会把窗口限制在屏幕边界内；结果覆盖层展开时可能短暂裁切，现有缓解为 0.25 秒动画、两行结果和 ZStack 交叉淡入。
 - Mac Mouse Fix 等重映射工具可能在 CGEvent/AppKit/HID 前吞掉原生侧键或“修饰键 + 滚轮”；让用户关闭对应映射，不增加 raw IOHID 绕过路径。

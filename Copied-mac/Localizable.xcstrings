@@ -1,6 +1,13 @@
 {
   "sourceLanguage": "zh-Hans",
   "strings": {
+    "重现上一个弹窗": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Show Last Popup Again" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "重现上一个弹窗" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "重現上一個彈窗" } }
+      }
+    },
     "再次打开 Copied 即可进入设置。": {
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Open Copied again to access Settings." } },
