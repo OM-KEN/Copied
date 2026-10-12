@@ -637,8 +637,10 @@ struct ToastView: View {
         .glassEffectIfAvailable(cornerRadius: Self.cardCornerRadius)
         .frame(maxWidth: 360)
         .overlay {
-            RoundedRectangle(cornerRadius: Self.cardCornerRadius, style: .continuous)
-                .stroke(.primary.opacity(0.15), lineWidth: 0.8)
+            if #unavailable(macOS 27) {
+                RoundedRectangle(cornerRadius: Self.cardCornerRadius, style: .continuous)
+                    .stroke(.primary.opacity(0.15), lineWidth: 0.8)
+            }
         }
         .entranceAnimation(
             animateIn: $animateIn,
@@ -670,11 +672,13 @@ struct ToastView: View {
 
     // ── Helpers ────────────────────────────────────────────
 
-    /// 按钮背景：macOS 26+ 液态玻璃，旧系统 .quaternary fill。
+    /// 按钮背景：macOS 27+ 普通填充，macOS 26 液态玻璃，旧系统普通填充。
     @ViewBuilder
     private var actionButtonBackground: some View {
         let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
-        if #available(macOS 26, *) {
+        if #available(macOS 27, *) {
+            shape.fill(.quaternary)
+        } else if #available(macOS 26, *) {
             shape.fill(.clear)
                 .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 8))
         } else {

@@ -72,7 +72,7 @@ open .build/Copied.app
 - 完整卡片只能使用 `ToastPanel`：borderless nonactivating `NSPanel`，`canBecomeKey=true`、`canBecomeMain=false`、`becomesKeyOnlyIfNeeded=true`、floating 且不随失焦隐藏。折叠控件使用 first-mouse hosting 并保持 Panel non-key；每次 `show()` 重建窗口。
 - `ToastPanel.animationBehavior` 固定为 `.none`，禁用 `orderFront` / `orderOut` 的系统自动动画；入场与展开/收起使用既有自定义动画，避免窗口排序吞掉实际淡入帧。
 - 内联结果统一调用 `updateWindowSize()`，同步 hosting 与外窗 fitting，并保留展开态阴影边界；禁止只动画外窗尺寸。WindowServer 仍会将窗口限制在屏幕边界内。
-- macOS 26+ 用 `.glassEffect(in: .rect(cornerRadius: 32))`，旧系统用 `.ultraThinMaterial` 和 0.08 秒延迟淡入；卡片始终绘制 `.primary.opacity(0.15)` 的细描边。
+- macOS 26+ 用 `.glassEffect(in: .rect(cornerRadius: 32))`，旧系统用 `.ultraThinMaterial` 和 0.08 秒延迟淡入；macOS 27+ 不额外绘制卡片描边，折叠态操作按钮用 `.quaternary` 填充。macOS 26 及以下保持原外观：卡片保留 `.primary.opacity(0.15)` 的细描边，macOS 26 的操作按钮沿用交互玻璃，旧系统按钮沿用普通填充。
 - 折叠态所有鼠标命令只来自 SwiftUI `Button` → `ToastCommand`：预览展开、主操作、背景关闭。透明防裁切 padding 也属于背景按钮；图标和来源标签必须穿透。禁止窗口级左右键 monitor、手写坐标/矩形命中或 hover 业务分流。
 - 本地 NSEvent monitor 只保留快速触发的 `.keyDown` / `.flagsChanged`；订阅 `.leftMouseDown` 会破坏 nonactivating Panel 的原生点击链。
 - 退场使用全窗口 Core Image 过滤器；动画回调、取消关闭和非动画关闭都必须清理 filter。缩略图保留到 `orderOut` 后，旧回调由 `dismissGeneration` 拦截。
