@@ -40,8 +40,7 @@ final class DictionaryWarmUpCoordinator: @unchecked Sendable {
     }
 }
 
-/// 系统词典查询服务 — 调用 macOS 内置词典（牛津英汉汉英），查询英文单词的中文释义。
-/// 无需下载、无需网络，零配置即可使用。
+/// 使用系统已安装并启用的词典查询英文词条；没有有效中文时由现有搜索兜底。
 enum DictionaryLookupService {
     static let syntheticWarmUpWord = "example"
 
@@ -81,81 +80,189 @@ enum DictionaryLookupService {
 
     /// 仅可在 lookupQueue 上调用；预热直接走这里，避免对同一串行队列 sync。
     private static func lookupOnDictionaryQueue(_ word: String) -> String? {
-        let cfStr = word as CFString
-        let range = CFRange(location: 0, length: word.utf16.count)
+        lookup(word, rawLookup: { target in
+            let cfStr = target as CFString
+            let range = CFRange(location: 0, length: target.utf16.count)
 
-        guard let raw = DCSCopyTextDefinition(nil, cfStr, range) else { return nil }
-        let textOnly = raw.takeRetainedValue() as String
-        return parseDefinition(word, textOnly)
+            guard let raw = DCSCopyTextDefinition(nil, cfStr, range) else { return nil }
+            return raw.takeRetainedValue() as String
+        })
+    }
+
+    /// 明确引用最多查询三次；生产调用仍完整运行于 lookupQueue。
+    static func lookup(_ word: String, rawLookup: (String) -> String?) -> String? {
+        var target = word
+        var visited: Set<String> = []
+        var originalPronunciation: String?
+        for _ in 0..<3 {
+            guard visited.insert(target.lowercased()).inserted,
+                  let raw = rawLookup(target),
+                  let entry = parseEntry(target, raw) else { return nil }
+            if originalPronunciation == nil {
+                originalPronunciation = entry.pronunciation
+            }
+
+            if !entry.meanings.isEmpty {
+                return formatDefinition(word, originalPronunciation ?? "", entry.meanings.joined(separator: "，"))
+            }
+            guard let reference = entry.reference else { return nil }
+            target = reference
+        }
+        return nil
     }
 
     // MARK: - Parsing
 
-    /// 从词典原始文本中提取音标和中文释义。
-    /// 原始格式: "word | BrE ..., AmE ... | A. pos zhōngwén pīnyīn B. pos zhōngwén pīnyīn …"
-    private static func parseDefinition(_ word: String, _ raw: String) -> String? {
-        let parts = raw.components(separatedBy: " | ")
-        guard parts.count >= 2 else { return nil }
-
-        // ── 1. 提取音标 ──────────────────────────────────
-        let pronPart = parts.count >= 3 ? parts[1] : ""
-        let bre = extractPronunciation(pronPart, tag: "BrE ")
-        let ame = extractPronunciation(pronPart, tag: "AmE ")
-
-        // ── 2. 提取中文释义 ──────────────────────────────
-        let defPart = parts.count >= 3
-            ? parts[2...].joined(separator: " ")
-            : parts[1...].joined(separator: " ")
-
-        // 去掉搭配标记 ‹…›
-        let cleaned = defPart
-            .replacingOccurrences(of: "‹[^›]+›", with: "", options: .regularExpression)
-
-        // 提取 CJK 词组，只保留短词（≤5 字）— 长词通常是例句翻译
-        let allWords = extractCJKGroups(cleaned)
-        let coreWords = allWords.filter { $0.count <= 5 }
-
-        // 去重
-        var seen: Set<String> = []
-        let unique = coreWords.filter { seen.insert($0).inserted }.prefix(8)
-        let chinese = unique.joined(separator: "，")
-
-        // ── 3. 组装（对齐拼音格式：第一行原词+音标，第二行中文） ──
-        // 每行由 ToastView 独立渲染（lineLimit(1)），不会互相挤压。
-        var line1 = word
-        if !bre.isEmpty { line1 += "  \(bre)" }
-
-        if chinese.isEmpty {
-            return bre.isEmpty && ame.isEmpty ? nil : line1
-        }
-        return "\(line1)\n\(chinese)"
+    private struct ParsedEntry {
+        let pronunciation: String
+        let meanings: [String]
+        let reference: String?
     }
 
-    /// 从发音部分提取指定标记后的音标（如 "BrE " → "həˈləʊ"）。
-    private static func extractPronunciation(_ part: String, tag: String) -> String {
-        guard let tagStart = part.range(of: tag) else { return "" }
-        let after = String(part[tagStart.upperBound...])
-        if let comma = after.firstIndex(of: ",") {
-            return String(after[..<comma]).trimmingCharacters(in: .whitespaces)
-        }
-        return after.trimmingCharacters(in: .whitespaces)
-    }
+    private static func parseEntry(_ word: String, _ raw: String) -> ParsedEntry? {
+        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        // 默认系统词典也可能按拼音选中汉语词条，不能将其当作英文翻译。
+        guard let initial = text.first, initial.isASCII && initial.isLetter else { return nil }
+        let fields = text.components(separatedBy: "|")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        var pronunciation = ""
+        var body: [String] = []
 
-    /// 提取文本中的连续 CJK 字符组（中文词）。
-    private static func extractCJKGroups(_ text: String) -> [String] {
-        var words: [String] = []
-        var current = ""
-        for char in text {
-            if let scalar = char.unicodeScalars.first, isCJK(scalar.value) {
-                current.append(char)
-            } else {
-                if !current.isEmpty {
-                    words.append(current)
-                    current = ""
+        if fields.count == 1 {
+            // plain 格式必须以本次查询的完整英文 headword 开头，不能仅因正文含中文而接收。
+            let headword = #"^"# + NSRegularExpression.escapedPattern(for: word) + #"\s+"#
+            guard let head = text.range(of: headword, options: [.regularExpression, .caseInsensitive]) else { return nil }
+            body.append(String(text[head.upperBound...]))
+        } else {
+            for field in fields.dropFirst() {
+                if field.range(of: #"^(?:BrE|AmE)\s+"#, options: .regularExpression) != nil {
+                    // 一些词条将 /; 后的词性与中文放在发音字段内，只移除前面的发音。
+                    let separator = field.range(of: #"/?;\s*"#, options: .regularExpression)
+                    let phonetics = String(field[..<(separator?.lowerBound ?? field.endIndex)])
+                    if pronunciation.isEmpty {
+                        let bre = extractPronunciation(phonetics, tag: "BrE")
+                        pronunciation = bre.isEmpty ? extractPronunciation(phonetics, tag: "AmE") : bre
+                    }
+                    if let separator {
+                        body.append(String(field[separator.upperBound...]))
+                    }
+                } else {
+                    body.append(field)
                 }
             }
         }
-        if !current.isEmpty { words.append(current) }
+
+        var mainBody = body.joined(separator: "\u{1F}")
+        if let phrasal = mainBody.range(of: #"\bPHRASAL VERBS?\b"#, options: .regularExpression) {
+            mainBody = String(mainBody[..<phrasal.lowerBound])
+        }
+        let meanings = chineseMeanings(mainBody)
+        return ParsedEntry(
+            pronunciation: pronunciation,
+            meanings: meanings,
+            reference: meanings.isEmpty ? referenceTarget(mainBody) : nil
+        )
+    }
+
+    private static func chineseMeanings(_ body: String) -> [String] {
+        // ▸ 后是例句；圈号或带已知词性标签的 A./B. 段重新开始主释义，排除 U.S. 等缩写。
+        let boundary = #"([①-⑳]|(?<!\.)[A-Z]\.\s+(?=(?:[A-Za-z'-]+\s+){0,4}(?:noun|verb|adjective|adverb|conjunction|determiner|pronoun|preposition|exclamation)\b)|(?:before|after) noun\s+(?=[\p{Han}（(\[]))"#
+        let sections = body
+            .replacingOccurrences(of: boundary, with: "\u{1F}$1", options: .regularExpression)
+            .components(separatedBy: "\u{1F}")
+        let words = sections.flatMap { section in
+            extractChinesePhrases(String(section.prefix { $0 != "▸" }))
+        }
+
+        var seen: Set<String> = []
+        return Array(words.filter { seen.insert($0).inserted }.prefix(8))
+    }
+
+    private static func formatDefinition(_ word: String, _ pronunciation: String, _ chinese: String) -> String {
+        var line1 = word
+        if !pronunciation.isEmpty { line1 += "  \(pronunciation)" }
+        return "\(line1)\n\(chinese)"
+    }
+
+    private static func referenceTarget(_ body: String) -> String? {
+        // 只接受整段语法标签后的一个引用符号；自由正文、例句、连续引用均不跟随。
+        let parts = body.components(separatedBy: CharacterSet(charactersIn: "=→"))
+        guard parts.count == 2 else { return nil }
+        let labels = parts[0].split { $0.isWhitespace || $0 == "," || $0 == ";" || $0 == "\u{1F}" }
+            .map { $0.lowercased() }
+        let allowedLabels: Set<String> = [
+            "noun", "verb", "adjective", "adverb", "exclamation", "conjunction", "determiner",
+            "pronoun", "preposition", "transitive", "intransitive", "reflexive", "singular", "plural",
+            "countable", "uncountable", "past", "present", "tense", "participle", "abbreviation",
+            "us", "british", "informal", "and", "or"
+        ]
+        guard labels.allSatisfy({ allowedLabels.contains($0) }),
+              !labels.isEmpty || body.contains("→") else { return nil }
+
+        let target = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+        let englishTarget = #"^[A-Za-z]+(?:[-'][A-Za-z]+)*(?:\s+[A-Za-z]+(?:[-'][A-Za-z]+)*)*(?:[1-9][0-9]*)?$"#
+        guard target.range(of: englishTarget, options: .regularExpression) != nil else { return nil }
+        let normalized = target
+            .replacingOccurrences(of: #"[1-9][0-9]*$"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+        // 不能把否定短语的引用降为后面肯定动词的泛义；negative 标签也不在允许列表中。
+        guard !normalized.lowercased().split(separator: " ").contains("not") else { return nil }
+        return normalized
+    }
+
+    /// 从发音部分提取指定地区的首个音标。
+    private static func extractPronunciation(_ part: String, tag: String) -> String {
+        guard let tagStart = part.range(of: #"\b"# + tag + #"\s+"#, options: .regularExpression) else { return "" }
+        return String(part[tagStart.upperBound...].prefix { $0 != "," && $0 != "/" && $0 != ";" })
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// 中文短语保留标点及紧邻汉字的字母数字；独立英文标签和拼音不参与展示。
+    private static func extractChinesePhrases(_ text: String) -> [String] {
+        let cleaned = text
+            .replacingOccurrences(of: #"[‹«][^›»]*[›»]"#, with: " ", options: .regularExpression)
+            .replacingOccurrences(of: #"[(（]\s*英\s+[A-Za-z][^()（）]*的缩写\s*[)）][。.]?"#, with: " ", options: .regularExpression)
+            .replacingOccurrences(of: #"[(（][^()（）\p{Han}]*[)）]"#, with: " ", options: .regularExpression)
+            .replacingOccurrences(of: #"\[[^\[\]\p{Han}]*\]"#, with: " ", options: .regularExpression)
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+        let punctuation = CharacterSet(charactersIn: "，、；：。！？（）()[]【】《》〈〉「」『』“”‘’…·—／/")
+        let characters = Array(cleaned)
+        var words: [String] = []
+        var current = ""
+        func appendCurrent() {
+            let value = current.trimmingCharacters(in: .whitespacesAndNewlines)
+            if value.unicodeScalars.contains(where: { isCJK($0.value) }) {
+                words.append(value)
+            }
+            current = ""
+        }
+        var index = 0
+        while index < characters.count {
+            let char = characters[index]
+            if let scalar = char.unicodeScalars.first,
+               isCJK(scalar.value) || punctuation.contains(scalar) || char.isWhitespace {
+                current.append(char)
+            } else if char.isASCII && (char.isLetter || char.isNumber) {
+                var end = index + 1
+                while end < characters.count, characters[end].isASCII,
+                      characters[end].isLetter || characters[end].isNumber {
+                    end += 1
+                }
+                let touchesChinese = (index > 0 && characters[index - 1].unicodeScalars.contains { isCJK($0.value) })
+                    || (end < characters.count && characters[end].unicodeScalars.contains { isCJK($0.value) })
+                if touchesChinese {
+                    current.append(contentsOf: characters[index..<end])
+                } else {
+                    appendCurrent()
+                }
+                index = end
+                continue
+            } else {
+                appendCurrent()
+            }
+            index += 1
+        }
+        appendCurrent()
         return words
     }
 

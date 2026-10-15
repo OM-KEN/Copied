@@ -129,6 +129,13 @@ swiftc -O -parse-as-library \
 "$TEST_BUILD_DIR/DictionaryWarmUpTests"
 
 swiftc -O -parse-as-library \
+    DictionaryLookupService.swift \
+    Tests/DictionaryLookupTests.swift \
+    -framework CoreServices \
+    -o "$TEST_BUILD_DIR/DictionaryLookupTests"
+"$TEST_BUILD_DIR/DictionaryLookupTests"
+
+swiftc -O -parse-as-library \
     CopySoundFeedback.swift \
     Tests/CopySoundFeedbackTests.swift \
     -framework AppKit \
