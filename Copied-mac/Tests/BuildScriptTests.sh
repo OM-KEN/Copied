@@ -1,7 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 
-fixture=$(mktemp -d "${TMPDIR:-/tmp}/Copied-build-test.XXXXXX")
+# Dotted fixture names can invalidate inherited log output when executing stubs on macOS.
+fixture=$(mktemp -d "${TMPDIR:-/tmp}/Copied-build-test-XXXXXX")
 trap 'rm -rf "$fixture"' EXIT
 cp build.sh Info.plist "$fixture/"
 while IFS= read -r source; do
