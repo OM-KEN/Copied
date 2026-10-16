@@ -108,7 +108,7 @@ open .build/Copied.app
 - 修饰键按左右真实 keyCode 跟踪。第一次按下至最终松开间出现普通键、其他修饰键、鼠标或滚轮即取消；键盘路径不要求辅助功能权限。
 - 鼠标输入统一走 `GlobalMouseEventCoordinator` 与 HID 计数；不得新增 Event Tap 或左键 NSEvent monitor。System Settings 前台时销毁活动 Tap；只有 timeout 且权限仍有效才重启，用户输入禁用或权限失效保持关闭。
 - 侧键和左右键复制需要辅助功能权限。授权成功后提示退出重开；`ApplicationRelauncher` 必须先确认非激活新实例启动成功，再退出旧实例。
-- 左+右复制只监听四类鼠标事件；rightDown 命中时吞掉并在 15ms 后发送完整 ⌘C，rightUp 仅作 WindowServer 吞掉 down 的兜底。先松左键导致源 App 菜单无法拦截是已知限制。
+- 左+右复制只处理四类鼠标事件；rightDown 命中时立即吞掉，rightUp 仅作 WindowServer 吞掉 down 的兜底。仅 macOS 27+ 且识别时前台 App 的 bundle ID 以 `com.apple.` 开头时，在放行真实 leftUp 后 15ms 发送完整 ⌘C；第三方、未知 bundle ID 和旧系统仍在命中后 15ms 发送，每次手势最多一次。时序按每次识别绑定，不能全局固定或在 leftUp 重算。请求绑定识别时的前台 PID 与 generation；停止、重置、再次 leftDown 或前台激活均使旧请求失效。激活通知只取消请求，保留尚未触发的左键按住状态。先松左键导致源 App 菜单无法拦截是已知限制。
 
 ## 设置、更新与反馈
 
@@ -116,6 +116,7 @@ open .build/Copied.app
 - 菜单栏和设置共享同一 UserDefaults；再次打开 App 只通过 `SettingsNavigation` 请求和 SwiftUI `openSettings` 打开 Settings scene，桥接须独立于可隐藏的菜单栏图标。图标默认显示，隐藏和关闭设置窗口不得停止应用；菜单栏与设置的暂停开关共用 monitor 生命周期，启动时尊重已保存的暂停状态。有新版本时菜单项图标必须用 `Text(Image(...))` 内嵌，避免 `NSMenu` 把独立 `Image` 移到左侧。
 - 更新只检查 GitHub 最新稳定 Release：成功每天一次，失败一小时后重试；不做应用内安装。仅完整卡片可显示更新入口。
 - `VERSION` 是构建版本单一来源。Release 资产名固定为 `Copied-<VERSION>.dmg`，tag 为 `v<VERSION>`，标题为 `Copied v<VERSION> (macOS)`；正文格式遵循 `git-push` skill，发布后用 API 核对名字、大小和 SHA-256。
+- Release note 默认先由 Agent 提供初稿，用户修改并回传最终稿后再发布；只有用户明确要求跳过审稿时才可直接拟稿发布。发布时使用用户确认的最终稿，不擅自改写。
 - 问题反馈只打开默认邮件 App 或 GitHub Issue 模板选择页，让用户检查并手动提交。邮件仅预填 Copied 版本、macOS 版本和芯片；不得附带剪贴板、路径、设置、日志、设备名或其他私人数据。
 - 菜单栏图标使用 `Copied.svg` 模板；App 图标同时依赖 `CFBundleIconName=Copied` 和 `CFBundleIconFile=Copied`。
 
