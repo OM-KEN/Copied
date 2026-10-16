@@ -30,7 +30,7 @@ open .build/Copied.app
 - `ToastPanel.swift` / `ToastWindowController.swift` / `ToastView.swift`：完整卡片窗口、命令路由和视图。
 - `QuickTriggerCoordinator.swift` / `GlobalMouseEventCoordinator.swift` / `CopyGestureManager.swift`：快速触发与全局鼠标输入。
 - `PluginLoader.swift` / `PluginRuntimeSafety.swift`：声明式插件加载与运行时约束。
-- `AppUpdateService.swift` / `FeedbackSupport.swift`：更新检查与用户主动反馈。
+- `AppUpdateService.swift` / `ImportantUpdateWindowController.swift` / `FeedbackSupport.swift`：更新检查、重要更新提示与用户主动反馈。
 
 主流程：
 
@@ -114,7 +114,8 @@ open .build/Copied.app
 
 - 菜单栏图标可见性只由 App 的 `@AppStorage` 持有；`MenuBarExtra` 和设置页共用同一 `Binding`，不得在设置页重新声明独立 `@AppStorage`，避免关闭后被旧值写回。
 - 菜单栏和设置共享同一 UserDefaults；再次打开 App 只通过 `SettingsNavigation` 请求和 SwiftUI `openSettings` 打开 Settings scene，桥接须独立于可隐藏的菜单栏图标。图标默认显示，隐藏和关闭设置窗口不得停止应用；菜单栏与设置的暂停开关共用 monitor 生命周期，启动时尊重已保存的暂停状态。有新版本时菜单项图标必须用 `Text(Image(...))` 内嵌，避免 `NSMenu` 把独立 `Image` 移到左侧。
-- 更新只检查 GitHub 最新稳定 Release：成功每天一次，失败一小时后重试；不做应用内安装。仅完整卡片可显示更新入口。
+- 更新只检查 GitHub 最新稳定 Release：成功每天一次，失败一小时后重试；不做应用内安装。普通复制提示中的更新入口仅用于完整卡片。
+- 重要更新只由 Release 正文独立一行 `<!-- copied:important-update -->` 标记，不按版本号推断；自动提示服从现有更新提醒开关，实际展示成功后才持久记录最高已提示版本。标记与正文随版本缓存；独立提示窗不阻塞复制监听，正文语言与回退规则见 `DESIGN.md`。
 - `VERSION` 是构建版本单一来源。Release 资产名固定为 `Copied-<VERSION>.dmg`，tag 为 `v<VERSION>`，标题为 `Copied v<VERSION> (macOS)`；正文格式遵循 `git-push` skill，发布后用 API 核对名字、大小和 SHA-256。
 - Release note 默认先由 Agent 提供中文初稿，用户修改并回传后，由 Agent 补充英文再发布；只有用户明确要求跳过审稿时才可直接拟稿发布。用户回传的中文保持原文，不擅自改写；英文只描述英文界面实际可用的功能。
 - 问题反馈只打开默认邮件 App 或 GitHub Issue 模板选择页，让用户检查并手动提交。邮件仅预填 Copied 版本、macOS 版本和芯片；不得附带剪贴板、路径、设置、日志、设备名或其他私人数据。
