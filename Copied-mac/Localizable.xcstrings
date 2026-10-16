@@ -960,6 +960,28 @@
         }
       }
     },
+    "按住左键时点击右键 → 自动 ⌘C 复制（系统 App 需松开左键）": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hold the left mouse button, then right-click to copy with ⌘C (release the left button in system apps)."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按住左键时点击右键 → 自动 ⌘C 复制（系统 App 需松开左键）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按住左鍵時點擊右鍵 → 自動 ⌘C 複製（系統 App 需鬆開左鍵）"
+          }
+        }
+      }
+    },
     "按住左键时点击右键 → 自动 ⌘C 复制": {
       "localizations": {
         "en": {
