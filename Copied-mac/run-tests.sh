@@ -209,6 +209,13 @@ swiftc -O -parse-as-library \
 "$TEST_BUILD_DIR/InteractionWiringTests"
 
 swiftc -O -parse-as-library \
+    CopyGestureStateMachine.swift \
+    Tests/CopyGestureStateMachineTests.swift \
+    -framework CoreGraphics \
+    -o "$TEST_BUILD_DIR/CopyGestureStateMachineTests"
+"$TEST_BUILD_DIR/CopyGestureStateMachineTests"
+
+swiftc -O -parse-as-library \
     CopyGesturePermissionPolicy.swift \
     Tests/CopyGesturePermissionPolicyTests.swift \
     -o "$TEST_BUILD_DIR/CopyGesturePermissionPolicyTests"

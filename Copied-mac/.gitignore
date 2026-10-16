@@ -11,6 +11,7 @@ Tests/*
 !Tests/MetadataAutoScrollMetricsTests.swift
 !Tests/InteractionWiringTests.swift
 !Tests/CopyGesturePermissionPolicyTests.swift
+!Tests/CopyGestureStateMachineTests.swift
 !Tests/ToastCommandTests.swift
 !Tests/CopySoundFeedbackTests.swift
 !Tests/PluginSecurityTests.swift

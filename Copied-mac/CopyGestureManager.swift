@@ -7,13 +7,18 @@ final class CopyGestureManager {
     static let shared = CopyGestureManager()
 
     private var listenerToken: UUID?
-    private var isLeftPressed = false
-    private var gestureFired = false
+    private var state: CopyGestureStateMachine
 
     var isRunning: Bool { listenerToken != nil }
     private(set) var lastDiagnostic = ""
 
-    private init() {}
+    private init() {
+        if #available(macOS 27.0, *) {
+            state = CopyGestureStateMachine(isMacOS27OrLater: true)
+        } else {
+            state = CopyGestureStateMachine(isMacOS27OrLater: false)
+        }
+    }
 
     func start() {
         guard listenerToken == nil else {
@@ -26,8 +31,8 @@ final class CopyGestureManager {
     private func tryStart(promptForAccessibility: Bool) {
         listenerToken = GlobalMouseEventCoordinator.shared.addListener(
             promptForAccessibility: promptForAccessibility
-        ) { [weak self] type, event in
-            self?.handleEvent(type: type, event: event) ?? false
+        ) { [weak self] type, _ in
+            self?.handleEvent(type: type) ?? false
         }
         lastDiagnostic = GlobalMouseEventCoordinator.shared.lastDiagnostic
 
@@ -50,34 +55,30 @@ final class CopyGestureManager {
         NSLog("Copied: gesture — stopped")
     }
 
-    private func handleEvent(type: CGEventType, event: CGEvent) -> Bool {
+    private func handleEvent(type: CGEventType) -> Bool {
         switch type {
-        case .leftMouseDown:
-            isLeftPressed = true
-            gestureFired = false
-            return false
-        case .leftMouseUp:
-            isLeftPressed = false
-            gestureFired = false
-            return false
-        case .rightMouseDown:
-            guard isLeftPressed, !gestureFired else { return false }
-            gestureFired = true
-            DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(15)) { [weak self] in
-                self?.simulateCommandC()
-            }
-            return true
-        case .rightMouseUp:
-            if isLeftPressed, !gestureFired {
-                gestureFired = true
-                DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(15)) { [weak self] in
-                    self?.simulateCommandC()
-                }
-            }
-            return false
+        case .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp:
+            break
         default:
             return false
         }
+        let sourceApp = NSWorkspace.shared.frontmostApplication
+        let decision = state.handle(
+            type,
+            frontmostPID: sourceApp?.processIdentifier,
+            frontmostBundleIdentifier: sourceApp?.bundleIdentifier
+        )
+        if let request = decision.request {
+            DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(15)) { [weak self] in
+                guard let self, self.isRunning,
+                      self.state.consume(
+                        request,
+                        frontmostPID: NSWorkspace.shared.frontmostApplication?.processIdentifier
+                      ) else { return }
+                self.simulateCommandC()
+            }
+        }
+        return decision.consume
     }
 
     private func simulateCommandC() {
@@ -97,6 +98,10 @@ final class CopyGestureManager {
             self, selector: #selector(resetState),
             name: NSApplication.didResignActiveNotification, object: nil
         )
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self, selector: #selector(cancelPendingCopy),
+            name: NSWorkspace.didActivateApplicationNotification, object: nil
+        )
         DistributedNotificationCenter.default().addObserver(
             self, selector: #selector(resetState),
             name: NSNotification.Name("com.apple.screenIsLocked"), object: nil
@@ -109,11 +114,15 @@ final class CopyGestureManager {
 
     private func unregisterStateResetObservers() {
         NotificationCenter.default.removeObserver(self)
+        NSWorkspace.shared.notificationCenter.removeObserver(self)
         DistributedNotificationCenter.default().removeObserver(self)
     }
 
+    @objc private func cancelPendingCopy() {
+        state.cancelPendingCopy()
+    }
+
     @objc private func resetState() {
-        isLeftPressed = false
-        gestureFired = false
+        state.reset()
     }
 }

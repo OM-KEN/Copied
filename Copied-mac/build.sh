@@ -21,6 +21,7 @@ SOURCES=(
     TemporaryTextExport.swift
     CopyGesturePermissionPolicy.swift
     CopyGestureEventSequence.swift
+    CopyGestureStateMachine.swift
     MouseButtonRecordingStateMachine.swift
     AppLanguage.swift
     ContentKind.swift

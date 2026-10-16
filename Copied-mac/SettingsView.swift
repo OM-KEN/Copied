@@ -502,7 +502,13 @@ struct SettingsView: View {
                     }
                 ))
 
-                Text("按住左键时点击右键 → 自动 ⌘C 复制")
+                Group {
+                    if #available(macOS 27.0, *) {
+                        Text(String(localized: "按住左键时点击右键 → 自动 ⌘C 复制（系统 App 需松开左键）"))
+                    } else {
+                        Text("按住左键时点击右键 → 自动 ⌘C 复制")
+                    }
+                }
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } header: {
