@@ -30,6 +30,9 @@ final class AppUpdateService: ObservableObject {
     private static let lastToastReminderKey = "appUpdateLastToastReminder"
     private static let cachedReleaseVersionKey = "appUpdateCachedReleaseVersion"
     private static let cachedReleaseURLKey = "appUpdateCachedReleaseURL"
+    private static let cachedReleaseImportantKey = "appUpdateCachedReleaseIsImportant"
+    private static let cachedReleaseNotesKey = "appUpdateCachedReleaseNotes"
+    private static let lastImportantPromptVersionKey = "appUpdateLastImportantPromptVersion"
     private static let latestReleaseURL = URL(
         string: "https://api.github.com/repos/OM-KEN/Copied/releases/latest"
     )!
@@ -47,6 +50,7 @@ final class AppUpdateService: ObservableObject {
     private let defaults: UserDefaults
     private let session: URLSession
     private let currentVersionProvider: () -> SemanticVersion?
+    private var importantUpdatePresenter: ((AppRelease) -> Bool)?
 
     var showsMenuUpdateIndicator: Bool {
         automaticRemindersEnabled && availableRelease != nil
@@ -65,9 +69,14 @@ final class AppUpdateService: ObservableObject {
         restoreCachedRelease()
     }
 
+    func installImportantUpdatePresenter(_ presenter: @escaping (AppRelease) -> Bool) {
+        importantUpdatePresenter = presenter
+    }
+
     func startAutomaticChecks() {
         guard automaticRemindersEnabled else { return }
         installAutomaticTriggersIfNeeded()
+        presentImportantUpdateIfNeeded()
         checkAutomaticallyIfDue()
     }
 
@@ -77,6 +86,7 @@ final class AppUpdateService: ObservableObject {
         if enabled {
             installAutomaticTriggersIfNeeded()
             if availableRelease != nil { hasPendingToastReminder = true }
+            presentImportantUpdateIfNeeded()
             checkAutomaticallyIfDue()
         } else {
             automaticTimer?.invalidate()
@@ -234,6 +244,7 @@ final class AppUpdateService: ObservableObject {
                 status = .updateAvailable(release.version)
                 if !manual, automaticRemindersEnabled {
                     hasPendingToastReminder = true
+                    presentImportantUpdateIfNeeded()
                 }
             } else {
                 availableRelease = nil
@@ -267,7 +278,12 @@ final class AppUpdateService: ObservableObject {
             clearCachedRelease()
             return
         }
-        let release = AppRelease(version: version, pageURL: pageURL)
+        let release = AppRelease(
+            version: version,
+            pageURL: pageURL,
+            isImportantUpdate: defaults.bool(forKey: Self.cachedReleaseImportantKey),
+            releaseNotes: defaults.string(forKey: Self.cachedReleaseNotesKey) ?? ""
+        )
         guard release.hasTrustedPageURL else {
             clearCachedRelease()
             return
@@ -287,11 +303,27 @@ final class AppUpdateService: ObservableObject {
         guard release.hasTrustedPageURL else { return }
         defaults.set(release.version.description, forKey: Self.cachedReleaseVersionKey)
         defaults.set(release.pageURL.absoluteString, forKey: Self.cachedReleaseURLKey)
+        defaults.set(release.isImportantUpdate, forKey: Self.cachedReleaseImportantKey)
+        defaults.set(release.releaseNotes, forKey: Self.cachedReleaseNotesKey)
     }
 
     private func clearCachedRelease() {
         defaults.removeObject(forKey: Self.cachedReleaseVersionKey)
         defaults.removeObject(forKey: Self.cachedReleaseURLKey)
+        defaults.removeObject(forKey: Self.cachedReleaseImportantKey)
+        defaults.removeObject(forKey: Self.cachedReleaseNotesKey)
+    }
+
+    private func presentImportantUpdateIfNeeded() {
+        guard automaticRemindersEnabled,
+              let release = availableRelease, release.isImportantUpdate,
+              let currentVersion = currentVersionProvider(), release.version > currentVersion,
+              let presenter = importantUpdatePresenter else { return }
+        if let displayedVersionString = defaults.string(forKey: Self.lastImportantPromptVersionKey),
+           let displayedVersion = SemanticVersion(tag: displayedVersionString),
+           release.version <= displayedVersion { return }
+        guard presenter(release) else { return }
+        defaults.set(release.version.description, forKey: Self.lastImportantPromptVersionKey)
     }
 
     func stopForTesting() {

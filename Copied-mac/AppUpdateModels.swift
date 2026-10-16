@@ -37,10 +37,62 @@ struct SemanticVersion: Comparable, Equatable, CustomStringConvertible {
 struct AppRelease: Equatable {
     let version: SemanticVersion
     let pageURL: URL
+    let isImportantUpdate: Bool
+    let releaseNotes: String
+
+    init(
+        version: SemanticVersion,
+        pageURL: URL,
+        isImportantUpdate: Bool = false,
+        releaseNotes: String = ""
+    ) {
+        self.version = version
+        self.pageURL = pageURL
+        self.isImportantUpdate = isImportantUpdate
+        self.releaseNotes = releaseNotes
+    }
 
     var hasTrustedPageURL: Bool {
         pageURL.scheme?.lowercased() == "https"
             && pageURL.host?.lowercased() == "github.com"
+    }
+
+    func displayNotes(localization: String?) -> String {
+        let text = releaseNotes
+            .replacingOccurrences(of: "<!-- copied:important-update -->", with: "")
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let englishHeadings = ["## What's New", "## Fixes"]
+        let chineseHeadings = ["## 新功能", "## 修复"]
+        let prefersEnglish = localization?.lowercased().hasPrefix("en") == true
+        let preferredHeadings = prefersEnglish ? englishHeadings : chineseHeadings
+        let fallbackHeadings = prefersEnglish ? chineseHeadings : englishHeadings
+        var preamble = ""
+        var sections: [(heading: String, content: String)] = []
+        for line in text.components(separatedBy: "\n") {
+            if line.hasPrefix("## ") {
+                sections.append((line.trimmingCharacters(in: .whitespaces), ""))
+            } else if sections.isEmpty {
+                preamble += line + "\n"
+            } else {
+                sections[sections.count - 1].content += line + "\n"
+            }
+        }
+        let populatedSections = sections.filter {
+            !$0.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        let preferred = populatedSections.filter { preferredHeadings.contains($0.heading) }
+        let selected = preferred.isEmpty
+            ? populatedSections.filter { fallbackHeadings.contains($0.heading) }
+            : preferred
+        if !selected.isEmpty {
+            return selected.map {
+                $0.heading + "\n" + $0.content.trimmingCharacters(in: .whitespacesAndNewlines)
+            }.joined(separator: "\n\n")
+        }
+        return populatedSections.isEmpty && preamble.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? "" : text
     }
 }
 
@@ -54,10 +106,12 @@ enum LatestReleaseParser {
     private struct Response: Decodable {
         let tagName: String
         let htmlURL: URL
+        let body: String?
 
         enum CodingKeys: String, CodingKey {
             case tagName = "tag_name"
             case htmlURL = "html_url"
+            case body
         }
     }
 
@@ -67,7 +121,13 @@ enum LatestReleaseParser {
               let response = try? JSONDecoder().decode(Response.self, from: data),
               let version = SemanticVersion(tag: response.tagName),
               response.htmlURL.scheme == "https" else { return .failure }
-        let release = AppRelease(version: version, pageURL: response.htmlURL)
+        let release = AppRelease(
+            version: version,
+            pageURL: response.htmlURL,
+            isImportantUpdate: response.body?.components(separatedBy: .newlines)
+                .contains("<!-- copied:important-update -->") == true,
+            releaseNotes: response.body ?? ""
+        )
         guard release.hasTrustedPageURL else { return .failure }
         return .release(release)
     }
