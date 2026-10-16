@@ -26,14 +26,14 @@ final class ImportantUpdateWindowController: NSWindowController {
         )
         promptWindow.title = "Copied"
         promptWindow.isReleasedWhenClosed = false
-        let notes = ImportantUpdateNotes.attributedText(
+        let notes = ImportantUpdateNotes.paragraphs(
             release.displayNotes(localization: Bundle.main.preferredLocalizations.first)
         )
         let notesHeight: CGFloat
-        if notes.characters.isEmpty {
+        if notes.isEmpty {
             notesHeight = 0
         } else {
-            let notesView = NSHostingView(rootView: ImportantUpdateNotes(text: notes).frame(width: 392))
+            let notesView = NSHostingView(rootView: ImportantUpdateNotes(paragraphs: notes).frame(width: 392))
             let maximumHeight = max(0, min(320, (NSScreen.main?.visibleFrame.height ?? 720) - 240))
             notesHeight = min(notesView.fittingSize.height, maximumHeight)
         }
@@ -59,7 +59,7 @@ final class ImportantUpdateWindowController: NSWindowController {
 
 private struct ImportantUpdatePrompt: View {
     let release: AppRelease
-    let notes: AttributedString
+    let notes: [ImportantUpdateNotes.Paragraph]
     let notesHeight: CGFloat
     let onViewUpdate: () -> Void
     let onLater: () -> Void
@@ -75,7 +75,7 @@ private struct ImportantUpdatePrompt: View {
                     Text(String(localized: "重要更新"))
                         .font(.title2.weight(.semibold))
                     Text(String(format: String(localized: "发现新版本 %@"), release.version.description))
-                    if notes.characters.isEmpty {
+                    if notes.isEmpty {
                         Text(String(localized: "此版本包含重要改进或修复，建议查看更新。"))
                             .foregroundStyle(.secondary)
                     }
@@ -83,9 +83,9 @@ private struct ImportantUpdatePrompt: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            if !notes.characters.isEmpty {
+            if !notes.isEmpty {
                 ScrollView {
-                    ImportantUpdateNotes(text: notes)
+                    ImportantUpdateNotes(paragraphs: notes)
                 }
                 .frame(height: notesHeight)
             }
@@ -106,37 +106,69 @@ private struct ImportantUpdatePrompt: View {
 }
 
 private struct ImportantUpdateNotes: View {
-    let text: AttributedString
-
-    var body: some View {
-        Text(text)
-            .font(.body)
-            .textSelection(.enabled)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .fixedSize(horizontal: false, vertical: true)
-            .padding(.trailing, 8)
+    struct Paragraph {
+        let text: AttributedString
+        let isBullet: Bool
     }
 
-    static func attributedText(_ markdown: String) -> AttributedString {
-        var result = AttributedString()
-        for (index, line) in markdown.components(separatedBy: "\n").enumerated() {
-            let isHeading = line.hasPrefix("## ")
-            let content: String
-            if isHeading {
-                content = String(line.dropFirst(3))
-            } else if line.hasPrefix("- ") || line.hasPrefix("* ") {
-                content = "• " + line.dropFirst(2)
-            } else {
-                content = line
+    let paragraphs: [Paragraph]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(Array(paragraphs.enumerated()), id: \.offset) { _, paragraph in
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    if paragraph.isBullet {
+                        Text("•")
+                            .accessibilityHidden(true)
+                    }
+                    Text(paragraph.text)
+                        .textSelection(.enabled)
+                        .lineSpacing(4)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
-            var attributedLine = (try? AttributedString(
+        }
+        .font(.body)
+        .padding(.trailing, 8)
+    }
+
+    static func paragraphs(_ markdown: String) -> [Paragraph] {
+        var result: [Paragraph] = []
+        var lines: [String] = []
+        var isBullet = false
+
+        func append(_ content: String, isHeading: Bool = false, isBullet: Bool = false) {
+            var text = (try? AttributedString(
                 markdown: content,
                 options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
             )) ?? AttributedString(content)
-            if isHeading { attributedLine.font = .headline }
-            if index > 0 { result.append(AttributedString("\n")) }
-            result.append(attributedLine)
+            if isHeading { text.font = .headline }
+            result.append(Paragraph(text: text, isBullet: isBullet))
         }
+
+        func flush() {
+            guard !lines.isEmpty else { return }
+            append(lines.joined(separator: "\n"), isBullet: isBullet)
+            lines.removeAll(keepingCapacity: true)
+            isBullet = false
+        }
+
+        for line in markdown.components(separatedBy: "\n") {
+            if line.trimmingCharacters(in: .whitespaces).isEmpty {
+                flush()
+            } else if line.hasPrefix("## ") {
+                flush()
+                append(String(line.dropFirst(3)), isHeading: true)
+            } else if line.hasPrefix("- ") || line.hasPrefix("* ") {
+                flush()
+                isBullet = true
+                lines.append(String(line.dropFirst(2)))
+            } else {
+                lines.append(line)
+            }
+        }
+        flush()
         return result
     }
 }
