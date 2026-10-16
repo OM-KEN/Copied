@@ -34,6 +34,7 @@ SOURCES=(
     QuickTriggerCoordinator.swift
     AppUpdateModels.swift
     AppUpdateService.swift
+    ImportantUpdateWindowController.swift
     FeedbackSupport.swift
     ApplicationRelauncher.swift
     PluginActionTemplate.swift

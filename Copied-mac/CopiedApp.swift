@@ -171,6 +171,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var monitor: ClipboardMonitor?
 
     private var toastController: ToastWindowController?
+    private var importantUpdateController: ImportantUpdateWindowController?
     @AppStorage("copyGestureEnabled") private var copyGestureEnabled = false
 
     override init() {
@@ -254,6 +255,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             for: NSWorkspace.shared.frontmostApplication?.bundleIdentifier
         )
 
+        let importantUpdateController = ImportantUpdateWindowController()
+        self.importantUpdateController = importantUpdateController
+        AppUpdateService.shared.installImportantUpdatePresenter { [weak importantUpdateController] release in
+            importantUpdateController?.show(release) ?? false
+        }
         AppUpdateService.shared.startAutomaticChecks()
     }
 
