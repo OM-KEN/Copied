@@ -113,7 +113,7 @@ open .build/Copied.app
 ## 设置、更新与反馈
 
 - 菜单栏图标可见性只由 App 的 `@AppStorage` 持有；`MenuBarExtra` 和设置页共用同一 `Binding`，不得在设置页重新声明独立 `@AppStorage`，避免关闭后被旧值写回。
-- 菜单栏和设置共享同一 UserDefaults；再次打开 App 只通过 `SettingsNavigation` 请求和 SwiftUI `openSettings` 打开 Settings scene，桥接须独立于可隐藏的菜单栏图标。图标默认显示，隐藏和关闭设置窗口不得停止应用；菜单栏与设置的暂停开关共用 monitor 生命周期，启动时尊重已保存的暂停状态。有新版本时菜单项图标必须用 `Text(Image(...))` 内嵌，避免 `NSMenu` 把独立 `Image` 移到左侧。
+- 菜单栏和设置共享同一 UserDefaults；设置与关于入口（菜单栏、⌘,、弹窗和再次打开 App）统一经 `SettingsNavigation`，每次先激活 App 再调用 SwiftUI `openSettings` 打开或前置 Settings scene，不得只依赖设置页 `onAppear` 激活；桥接须独立于可隐藏的菜单栏图标。图标默认显示，隐藏和关闭设置窗口不得停止应用；菜单栏与设置的暂停开关共用 monitor 生命周期，启动时尊重已保存的暂停状态。有新版本时菜单项图标必须用 `Text(Image(...))` 内嵌，避免 `NSMenu` 把独立 `Image` 移到左侧。
 - 更新只检查 GitHub 最新稳定 Release：成功每天一次，失败一小时后重试；不做应用内安装。普通复制提示中的更新入口仅用于完整卡片。
 - 重要更新只由 Release 正文独立一行 `<!-- copied:important-update -->` 标记，不按版本号推断；自动提示服从现有更新提醒开关，实际展示成功后才持久记录最高已提示版本。标记与正文随版本缓存；独立提示窗不阻塞复制监听，正文语言与回退规则见 `DESIGN.md`。
 - `VERSION` 是构建版本单一来源。Release 资产名固定为 `Copied-<VERSION>.dmg`，tag 为 `v<VERSION>`，标题为 `Copied v<VERSION> (macOS)`；正文格式遵循 `git-push` skill，发布后用 API 核对名字、大小和 SHA-256。
@@ -124,5 +124,6 @@ open .build/Copied.app
 ## 调试、Git 与已知限制
 
 - 修 Bug 禁止猜测：先在临时目录加最小文件日志（事件、状态、关键非敏感变量），复现并对比正常/异常路径，确认根因后修复并删除日志。不得记录真实剪贴板正文。
+- macOS 27.2（26B123）的原生菜单可输出 `_NSGlassEffectWindow` / `canBecomeKeyWindow == NO` 系统警告；先比对原生复现和调用栈，不仅凭该日志修改窗口 key 资格或屏蔽日志，见 `Reports/macos-context-menu-warning-2026-11-11.md`。
 - 任何会修改 Git 状态或创建 Release 的操作前读取 `git-push` skill。默认只改/暂存 `Copied-mac/`；根目录双 README 仅限用户对当前任务明确授权。未经同意不得 push，提交与发布也分别需要明确授权。
 - Mac Mouse Fix 等重映射工具可能在 CGEvent/AppKit/HID 前吞掉原生侧键或“修饰键 + 滚轮”；让用户关闭对应映射，不增加 raw IOHID 绕过路径。
