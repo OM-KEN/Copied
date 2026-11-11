@@ -59,16 +59,15 @@ private struct SettingsNavigationCommands: Commands {
             openSettings()
         }
         CommandGroup(replacing: .appSettings) {
-            SettingsLink {
-                Text("设置…")
+            Button("设置…") {
+                SettingsNavigation.requestSettings()
             }
             .keyboardShortcut(",")
         }
     }
 }
 
-private struct MenuBarContent: View {
-    @Environment(\.openSettings) private var openSettings
+struct MenuBarContent: View {
     @AppStorage("isPaused") private var isPaused = false
     @AppStorage(PopupPresentationPreferences.modeKey)
     private var popupPresentationMode = PopupPresentationMode.all.rawValue
@@ -101,12 +100,12 @@ private struct MenuBarContent: View {
             Button(String(localized: "重现上一个弹窗"), action: onReplay)
                 .disabled(!lastToastStore.canReplay)
             Divider()
-            SettingsLink {
-                Text("设置…")
+            Button("设置…") {
+                SettingsNavigation.requestSettings()
             }
             Button {
                 SettingsNavigation.requestAboutTab()
-                openSettings()
+                SettingsNavigation.requestSettings()
             } label: {
                 if updateService.showsMenuUpdateIndicator {
                     Text(verbatim: MenuVersionTextFormatter.string(
