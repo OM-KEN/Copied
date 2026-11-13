@@ -703,6 +703,9 @@ struct AppBehaviorTests {
             return
         }
         settingsRequestsSurviveAbsentMenu()
+        if #available(macOS 14.4, *) {
+            settingsMenuUsesNativeOpener()
+        }
         pauseControlsMonitorLifetime()
         try reminderRejectsCopiedContent()
         closingReminderPreservesCopySoundWork()
@@ -1605,6 +1608,41 @@ struct AppBehaviorTests {
         SettingsNavigation.requestSettings()
         expect(opens == 12, "new scene action was not retained")
         SettingsNavigation.installSettingsOpener {}
+    }
+
+    @available(macOS 14.4, *)
+    private static func settingsMenuUsesNativeOpener() {
+        _ = NSApplication.shared
+        var events: [String] = []
+        SettingsNavigation.installSettingsOpener {
+            events.append("open:\(SettingsNavigation.requestedTab ?? "current")")
+        }
+        let observer = NotificationCenter.default.addObserver(
+            forName: SettingsNavigation.showAboutNotification, object: nil, queue: nil
+        ) { _ in events.append("about") }
+        defer {
+            NotificationCenter.default.removeObserver(observer)
+            SettingsNavigation.clearRequest()
+            SettingsNavigation.installSettingsOpener {}
+        }
+
+        let menu = NSHostingMenu(rootView: MenuBarContent(
+            onPauseToggle: { _ in }, onReplay: {}
+        ))
+        menu.update()
+        let settingsIndex = menu.indexOfItem(withTitle: String(localized: "设置…"))
+        guard settingsIndex >= 0,
+              let aboutIndex = menu.items.firstIndex(where: {
+                  $0.title.hasPrefix(MenuVersionTextFormatter.string(
+                      version: AppVersion.currentString, hasUpdate: false
+                  ))
+              }) else {
+            fatalError("production settings and About menu items are unavailable")
+        }
+        menu.performActionForItem(at: settingsIndex)
+        menu.performActionForItem(at: aboutIndex)
+        expect(events == ["open:current", "about", "open:about"],
+               "settings and About menu entries bypassed the native opener: \(events)")
     }
 
     private static func pauseControlsMonitorLifetime() {

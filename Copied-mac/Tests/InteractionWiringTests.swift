@@ -318,7 +318,7 @@ struct InteractionWiringTests {
         )
         let menuSource = section(
             in: appSource,
-            from: "private struct MenuBarContent",
+            from: "struct MenuBarContent",
             to: "@main"
         )
         expect(menuSource != nil, "menu bar content exists")
