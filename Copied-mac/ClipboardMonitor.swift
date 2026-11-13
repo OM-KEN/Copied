@@ -65,6 +65,7 @@ final class ClipboardMonitor {
     private var cachedPreferences: PopupPresentationPreferences
     private var cachedLightReminderStyle: LightReminderStyle
     private var cachedLightReminderEnabled: Bool
+    private var cachedCopyComboEnabled: Bool
     private var cachedSoundSelection: String
     private var availableKindIDs = Set<String>()
     private var backingScale: CGFloat = 2
@@ -85,6 +86,7 @@ final class ClipboardMonitor {
     private var activeSoundDispatchGate = CopySoundDispatchGate()
     private var activeLightReminderWasPresented = false
     private var activeContent: ClipboardContent?
+    private var activeReusesActions = false
     private var isActivePresentationVisible = false
     private var activePresentationWasDropped = false
     private var analysisIsReady = false
@@ -102,14 +104,23 @@ final class ClipboardMonitor {
     private let imageSoftDeadline: TimeInterval = 2
 
     weak var toastController: ToastWindowController?
+    private let defaults: UserDefaults
+    private let directorySizeCoordinator: ClipboardDirectorySizeCoordinator
 
-    init(toastController: ToastWindowController) {
+    init(
+        toastController: ToastWindowController,
+        defaults: UserDefaults = .standard,
+        directorySizeCoordinator: ClipboardDirectorySizeCoordinator = .shared
+    ) {
         self.toastController = toastController
-        let defaults = UserDefaults.standard
+        self.defaults = defaults
+        self.directorySizeCoordinator = directorySizeCoordinator
         cachedIsPaused = defaults.bool(forKey: "isPaused")
         cachedPreferences = PopupPresentationPreferences.current(defaults: defaults)
         cachedLightReminderEnabled = defaults.bool(forKey: "lightReminderEnabled")
         cachedLightReminderStyle = LightReminderStyle.current(defaults: defaults)
+        cachedCopyComboEnabled = ClipboardCopyCombo.isEnabled(defaults: defaults)
+        toastController.setCopyComboEnabled(cachedCopyComboEnabled)
         cachedSoundSelection = CopySoundFeedback.resolvedSelection(
             defaults.string(forKey: CopySoundFeedback.defaultsKey)
         )
@@ -139,7 +150,7 @@ final class ClipboardMonitor {
         firstResponseBoostDeadline = nil
         activeSession?.cancel()
         activeSession = nil
-        ClipboardDirectorySizeCoordinator.shared.cancelAll()
+        directorySizeCoordinator.cancelAll()
         toastController?.onRevisionResourcesShouldCancel = nil
         toastController?.clearLastToast()
         toastController?.dismissToast(animated: false)
@@ -150,20 +161,34 @@ final class ClipboardMonitor {
         guard defaultsObserver == nil else { return }
         defaultsObserver = NotificationCenter.default.addObserver(
             forName: UserDefaults.didChangeNotification,
-            object: UserDefaults.standard,
+            object: defaults,
             queue: .main
         ) { [weak self] _ in
+            self?.toastController?.invalidateCopyReuse()
             self?.refreshCachedSettings()
         }
     }
 
     private func refreshCachedSettings() {
-        let defaults = UserDefaults.standard
+        let preferences = PopupPresentationPreferences.current(defaults: defaults)
+        let reminderEnabled = defaults.bool(forKey: "lightReminderEnabled")
+        if defaults.bool(forKey: "isPaused")
+            || cachedPreferences != preferences
+            || cachedLightReminderEnabled != reminderEnabled
+            || !AppFilterSettings.shared.shouldShowPopup(for: activeSource?.bundleIdentifier) {
+            toastController?.interruptCopyCombo()
+        }
         availableKindIDs = Set(DetectionRegistry.shared.allRegisteredKinds.map(\.id))
         cachedIsPaused = defaults.bool(forKey: "isPaused")
-        cachedPreferences = PopupPresentationPreferences.current(defaults: defaults)
-        cachedLightReminderEnabled = defaults.bool(forKey: "lightReminderEnabled")
+        cachedPreferences = preferences
+        cachedLightReminderEnabled = reminderEnabled
         cachedLightReminderStyle = LightReminderStyle.current(defaults: defaults)
+        let comboEnabled = ClipboardCopyCombo.isEnabled(defaults: defaults)
+        if cachedCopyComboEnabled != comboEnabled {
+            cachedCopyComboEnabled = comboEnabled
+            toastController?.setCopyComboEnabled(comboEnabled)
+            if !comboEnabled { activeSession?.disableCopyIdentity() }
+        }
         cachedSoundSelection = CopySoundFeedback.resolvedSelection(
             defaults.string(forKey: CopySoundFeedback.defaultsKey)
         )
@@ -196,6 +221,14 @@ final class ClipboardMonitor {
     }
 
     private func beginRevision(_ revision: ClipboardRevision) {
+        guard let session = prepareRevision(revision) else { return }
+        submitBaseRead(session: session)
+    }
+
+    private func prepareRevision(
+        _ revision: ClipboardRevision, source: SourceAppInfo? = nil
+    ) -> ClipboardLoadSession? {
+        toastController?.observeCopyRevision(revision)
         revisionGate.activate(revision)
         activeSession?.cancel()
         baseLane.discardPending(olderThan: revision)
@@ -204,10 +237,11 @@ final class ClipboardMonitor {
         imageLane.discardPending(olderThan: revision)
         resetActiveRevisionState()
 
-        let source = SourceAppDetector.cachedSnapshot()
+        let source = source ?? SourceAppDetector.cachedSnapshot()
         guard AppFilterSettings.shared.shouldShowPopup(for: source.bundleIdentifier) else {
+            toastController?.interruptCopyCombo()
             finishFirstResponseBoost()
-            return
+            return nil
         }
 
         let preferences = cachedPreferences
@@ -217,8 +251,16 @@ final class ClipboardMonitor {
             preferences: preferences,
             availableKindIDs: availableKindIDs
         )
+        if lightReminderEnabled || candidateDecision == .allDenied {
+            toastController?.interruptCopyCombo()
+        }
 
-        let session = ClipboardLoadSession(revision: revision, backingScale: backingScale)
+        let session = ClipboardLoadSession(
+            revision: revision,
+            backingScale: backingScale,
+            recordsCopyIdentity: cachedCopyComboEnabled && !lightReminderEnabled && candidateDecision != .allDenied,
+            comparisonIdentity: toastController?.copyIdentityForComparison
+        )
         activeSession = session
         activeSource = source
         activePreferences = preferences
@@ -231,6 +273,7 @@ final class ClipboardMonitor {
                   self.activeSession === session else { return }
             session.cancel()
             self.activeContent = nil
+            self.toastController?.interruptCopyCombo()
         }
 
         if lightReminderEnabled,
@@ -250,7 +293,7 @@ final class ClipboardMonitor {
             guard let self, let session, self.activeSession === session else { return }
             self.handleLoadTimeout(session: session)
         }
-        submitBaseRead(session: session)
+        return session
     }
 
     private func showLightReminder(revision: ClipboardRevision) {
@@ -273,6 +316,7 @@ final class ClipboardMonitor {
         activeSoundDispatchGate = CopySoundDispatchGate()
         activeLightReminderWasPresented = false
         activeContent = nil
+        activeReusesActions = false
         isActivePresentationVisible = false
         activePresentationWasDropped = false
         analysisIsReady = false
@@ -324,7 +368,7 @@ final class ClipboardMonitor {
             } else {
                 handleLoadFailure(session: session)
             }
-        case let .content(_, content):
+        case let .content(_, baseContent):
             session.cancelScheduledWorkItems()
             playActiveCopySoundIfNeeded()
             finishFirstResponseBoost()
@@ -336,6 +380,27 @@ final class ClipboardMonitor {
                 return
             }
 
+            var content = baseContent
+            if let identity = session.confirmedCopyIdentity,
+               let previous = toastController?.contentForCopyReuse(matching: identity),
+               previous.content.litheMetadata == content.litheMetadata {
+                // Reuse only the currently displayed, strictly matching copy.
+                // File facts still refresh: equal URLs do not freeze their sizes.
+                content.preview = previous.content.preview
+                content.detail = previous.content.detail
+                content.detailIsLoading = previous.content.detailIsLoading
+                content.thumbnail = previous.content.thumbnail
+                content.contentKind = previous.content.contentKind
+                content.detections = previous.content.detections
+                content.allFilesAreImages = previous.content.allFilesAreImages
+                content.displayTypeLabel = previous.content.displayTypeLabel
+                content.displayIconSymbolName = previous.content.displayIconSymbolName
+                activeReusesActions = previous.actionsResolved
+                if content.type == .text, previous.actionsResolved {
+                    analysisIsReady = true
+                    actionsWereScheduled = true
+                }
+            }
             session.storePayload(content)
             activeContent = content
             if let source = activeSource {
@@ -346,6 +411,12 @@ final class ClipboardMonitor {
                 toastController?.applyBaseContent(
                     content,
                     source: source,
+                    revision: session.revision,
+                    copyIdentity: session.confirmedCopyIdentity,
+                    reusingActions: activeReusesActions
+                )
+                toastController?.confirmCopyIdentity(
+                    session.takeCopyIdentity(),
                     revision: session.revision
                 )
             }
@@ -356,6 +427,7 @@ final class ClipboardMonitor {
 
     private func handleLoadFailure(session: ClipboardLoadSession) {
         guard activeSession === session else { return }
+        toastController?.interruptCopyCombo()
         session.cancel()
         playActiveCopySoundIfNeeded()
         finishFirstResponseBoost()
@@ -368,6 +440,7 @@ final class ClipboardMonitor {
 
     private func handleLoadTimeout(session: ClipboardLoadSession) {
         guard activeSession === session, activeContent == nil else { return }
+        toastController?.interruptCopyCombo()
         session.cancel()
         playActiveCopySoundIfNeeded()
         if activePreferences?.mode == .all, activeLightReminderEnabled == false {
@@ -451,6 +524,7 @@ final class ClipboardMonitor {
     }
 
     private func scheduleFileEnrichment(session: ClipboardLoadSession) {
+        let directorySizeCoordinator = directorySizeCoordinator
         let deadlineToken = session.scheduleSoftDeadline(after: fileSoftDeadline) {
             [weak self, weak session] in
             guard let self, let session else { return }
@@ -466,6 +540,7 @@ final class ClipboardMonitor {
             ClipboardFileEnricher.enrich(
                 content: content,
                 shouldCancel: { !session.accepts(session.revision) },
+                directorySizeCoordinator: directorySizeCoordinator,
                 registerDirectorySizeObservation: {
                     session.setDirectorySizeObservation($0)
                 }
@@ -708,6 +783,7 @@ final class ClipboardMonitor {
     private func failClosedIfClassificationIsPending(session: ClipboardLoadSession) {
         guard activePreferences?.mode == .lowInterruption,
               !isActivePresentationVisible else { return }
+        toastController?.interruptCopyCombo()
         activePresentationWasDropped = true
         session.cancel()
     }
@@ -724,6 +800,7 @@ final class ClipboardMonitor {
         case .wait:
             return
         case .deny:
+            toastController?.interruptCopyCombo()
             activePresentationWasDropped = true
             session.cancel()
         case .allow:
@@ -736,6 +813,11 @@ final class ClipboardMonitor {
             let now = Date()
             if content.visualHashValue == lastLowInterruptionHash,
                now.timeIntervalSince(lastLowInterruptionShowTime) < dedupWindow {
+                toastController?.confirmCopyIdentity(
+                    session.takeCopyIdentity(),
+                    revision: session.revision,
+                    coalescingWithVisibleToast: true
+                )
                 activePresentationWasDropped = true
                 session.cancel()
                 return
@@ -744,7 +826,12 @@ final class ClipboardMonitor {
             lastLowInterruptionShowTime = now
             guard let source = activeSource else { return }
             LightReminderController.shared.dismiss(animated: false)
-            toastController?.show(content: content, source: source)
+            toastController?.show(content: content, source: source, reusingActions: activeReusesActions,
+                                  copyIdentity: session.confirmedCopyIdentity)
+            toastController?.confirmCopyIdentity(
+                session.takeCopyIdentity(),
+                revision: session.revision
+            )
             isActivePresentationVisible = true
         }
     }
@@ -788,15 +875,31 @@ final class ClipboardMonitor {
     }
 
 #if COPIED_TESTING
+    func testingBeginCopy(_ revision: ClipboardRevision, source: SourceAppInfo) -> ClipboardLoadSession? {
+        prepareRevision(revision, source: source)
+    }
+
+    func testingFinishCopy(_ outcome: ClipboardBaseReadOutcome, session: ClipboardLoadSession) {
+        receiveBaseRead(outcome, session: session)
+    }
+
+    func testingObserveDefaults() { installDefaultsObserverIfNeeded() }
+    var testingRecordsCopyIdentity: Bool {
+        cachedCopyComboEnabled && !cachedLightReminderEnabled
+    }
+
     func testingPresentLowInterruption(
         content: ClipboardContent,
         source: SourceAppInfo,
         preferences: PopupPresentationPreferences,
-        analysisIsReady: Bool
+        analysisIsReady: Bool,
+        copyIdentity: ClipboardCopyIdentity? = nil
     ) {
         activeSession?.cancel()
         resetActiveRevisionState()
         let session = ClipboardLoadSession(revision: content.revision, backingScale: 2)
+        session.storeCopyIdentity(copyIdentity)
+        toastController?.observeCopyRevision(content.revision)
         activeSession = session
         activeContent = content
         activeSource = source

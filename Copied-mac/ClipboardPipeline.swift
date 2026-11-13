@@ -147,6 +147,7 @@ final class ClipboardLatestOnlyLane {
 final class ClipboardLoadSession {
     let revision: ClipboardRevision
     let backingScale: CGFloat
+    var recordsCopyIdentity: Bool { lock.withLock { !cancelled && copyIdentityEnabled } }
 
     private let lock = NSLock()
     private var cancelled = false
@@ -155,13 +156,23 @@ final class ClipboardLoadSession {
     private var softDeadlineItems: [UUID: DispatchWorkItem] = [:]
     private var payload: Any?
     private var imageData: Data?
+    private var copyIdentity: ClipboardCopyIdentity?
+    private var comparisonIdentity: ClipboardCopyIdentity?
+    private var copyIdentityEnabled: Bool
     private var quickLookToken: UUID?
     private var cancelQuickLook: ((UUID) -> Void)?
     private var directorySizeObservation: ClipboardDirectorySizeObservation?
 
-    init(revision: ClipboardRevision, backingScale: CGFloat) {
+    init(
+        revision: ClipboardRevision,
+        backingScale: CGFloat,
+        recordsCopyIdentity: Bool = true,
+        comparisonIdentity: ClipboardCopyIdentity? = nil
+    ) {
         self.revision = revision
         self.backingScale = backingScale
+        self.copyIdentityEnabled = recordsCopyIdentity
+        self.comparisonIdentity = recordsCopyIdentity ? comparisonIdentity : nil
     }
 
     func beginBaseAttempt() -> Int? {
@@ -256,6 +267,42 @@ final class ClipboardLoadSession {
         lock.withLock { imageData = data }
     }
 
+    func storeCopyIdentity(_ identity: ClipboardCopyIdentity?) {
+        lock.withLock { if !cancelled && copyIdentityEnabled { copyIdentity = identity } }
+    }
+
+    func prepareCopyIdentityComparison() -> Bool {
+        let pair = lock.withLock { () -> (ClipboardCopyIdentity, ClipboardCopyIdentity)? in
+            guard !cancelled, copyIdentityEnabled, let copyIdentity, let comparisonIdentity else { return nil }
+            return (copyIdentity, comparisonIdentity)
+        }
+        if let (identity, previous) = pair { identity.prepareComparison(with: previous) }
+        lock.withLock { comparisonIdentity = nil }
+        return pair != nil
+    }
+
+    func disableCopyIdentity() {
+        lock.withLock {
+            copyIdentityEnabled = false
+            copyIdentity = nil
+            comparisonIdentity = nil
+        }
+    }
+
+    var confirmedCopyIdentity: ClipboardCopyIdentity? {
+        lock.withLock { cancelled ? nil : copyIdentity }
+    }
+
+    func takeCopyIdentity() -> ClipboardCopyIdentity? {
+        lock.withLock {
+            defer {
+                copyIdentity = nil
+                comparisonIdentity = nil
+            }
+            return cancelled ? nil : copyIdentity
+        }
+    }
+
     func takeImageData() -> Data? {
         lock.withLock {
             defer { imageData = nil }
@@ -341,6 +388,8 @@ final class ClipboardLoadSession {
         softDeadlineItems.removeAll()
         payload = nil
         imageData = nil
+        copyIdentity = nil
+        comparisonIdentity = nil
         token = quickLookToken
         cancel = cancelQuickLook
         quickLookToken = nil

@@ -63,7 +63,7 @@ enum InstantClipboardFeedbackTests {
         let monitor = try source("ClipboardMonitor.swift")
         let begin = try section(
             monitor,
-            from: "private func beginRevision(_ revision: ClipboardRevision)",
+            from: "private func prepareRevision(",
             to: "private func resetActiveRevisionState()"
         )
         guard let pending = begin.range(of: "toastController?.showPending") else {
@@ -86,6 +86,10 @@ enum InstantClipboardFeedbackTests {
             !preFirstFrame.contains("DispatchQueue.main.async"),
             "Pending was deferred to a second main-queue turn"
         )
+        let dispatch = try section(monitor, from: "private func beginRevision(", to: "private func prepareRevision(")
+        try expect(index(of: "prepareRevision(revision)", in: dispatch)
+                   < index(of: "submitBaseRead(session: session)", in: dispatch),
+                   "background reading starts before synchronous presentation preparation")
 
         let sourceDetector = try source("SourceAppDetector.swift")
         let cachedSnapshot = try section(
@@ -113,7 +117,7 @@ enum InstantClipboardFeedbackTests {
         )
         let begin = try section(
             monitor,
-            from: "private func beginRevision(_ revision: ClipboardRevision)",
+            from: "private func prepareRevision(",
             to: "private func resetActiveRevisionState()"
         )
         try expect(
@@ -144,7 +148,7 @@ enum InstantClipboardFeedbackTests {
                    "default first-frame path still deduplicates repeated content")
         try expect(
             index(of: "showLightReminder(revision: revision)", in: begin)
-                < index(of: "submitBaseRead(session: session)", in: begin),
+                < index(of: "return session", in: begin),
             "safe only-reminder path does not show before background reading starts"
         )
         try expect(
@@ -153,7 +157,7 @@ enum InstantClipboardFeedbackTests {
         )
         try expect(
             index(of: "toastController?.showPending", in: begin)
-                < index(of: "submitBaseRead(session: session)", in: begin),
+                < index(of: "return session", in: begin),
             "base reading starts before Pending"
         )
         try expect(monitor.contains("revisionGate.accept(update.revision)"), "reducer lacks revision gate")
@@ -459,7 +463,7 @@ enum InstantClipboardFeedbackTests {
         )
         try expect(
             index(of: "cancelResourcesForCurrentRevision()", in: execute)
-                < index(of: "switch command", in: execute),
+                < index(of: "switch command {\n        case .performPrimary:", in: execute),
             "ToastCommand starts before revision resources are cancelled"
         )
         let cancelHelper = try section(
@@ -480,7 +484,8 @@ enum InstantClipboardFeedbackTests {
             from: "func stop()",
             to: "private func installDefaultsObserverIfNeeded"
         )
-        try expect(monitorStop.contains("ClipboardDirectorySizeCoordinator.shared.cancelAll()")
+        try expect(monitorStop.contains("directorySizeCoordinator.cancelAll()")
+                   && monitor.contains("directorySizeCoordinator: ClipboardDirectorySizeCoordinator = .shared")
                    && !monitorStop.contains("ClipboardDirectorySizeCache.reset()"),
                    "pausing monitoring does not stop active tasks or unexpectedly clears the cache")
         let baseRead = try section(

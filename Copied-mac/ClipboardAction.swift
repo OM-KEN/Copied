@@ -309,6 +309,9 @@ struct OpenCalendarAction: ClipboardAction {
 // MARK: - Action Resolver
 
 enum ActionResolver {
+#if COPIED_TESTING
+    static var testingOnResolve: (() -> Void)?
+#endif
 
     /// Returns (primary button action, right-click menu actions).
     /// Primary is the highest-priority action for the right-side button.
@@ -318,6 +321,9 @@ enum ActionResolver {
         litheClient: LitheApplicationClient = .live
     )
         -> (primary: (any ClipboardAction)?, menu: [any ClipboardAction]) {
+#if COPIED_TESTING
+        testingOnResolve?()
+#endif
 
         var primary: (any ClipboardAction)? = nil
         var menu: [any ClipboardAction] = []

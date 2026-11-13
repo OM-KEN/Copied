@@ -19,6 +19,17 @@ final class ToastWindowController {
     private let lastToastStore: LastToastStore
     private var presentationGeneration = 0
     private var isReplayPresentation = false
+    private var copyCombo = ClipboardCopyCombo()
+    private let copyComboPresentation = ToastCopyComboPresentation()
+    private var visibleCopyIdentity: ClipboardCopyIdentity?
+    private var replacementCopyIdentity: ClipboardCopyIdentity?
+    private var pendingCopy: (revision: ClipboardRevision, source: SourceAppInfo)?
+    private var copyContentReusable = false
+    private var actionsResolved = false
+    private var copyComboEnabled = true
+    private var copyComboExpiry: DispatchWorkItem?
+    private var copyComboGeneration = 0
+    private var copyMotionMayStart = false
 
     private var isDismissing = false
     private var dismissGeneration = 0
@@ -55,9 +66,162 @@ final class ToastWindowController {
         self.lastToastStore = lastToastStore
     }
 
+    func setCopyComboEnabled(_ enabled: Bool) {
+        guard copyComboEnabled != enabled else { return }
+        copyComboEnabled = enabled
+        interruptCopyCombo()
+        visibleCopyIdentity = nil
+        replacementCopyIdentity = nil
+        if let pendingCopy {
+            self.pendingCopy = nil
+            showPending(revision: pendingCopy.revision, source: pendingCopy.source)
+        }
+    }
+
+    func invalidateCopyReuse() { copyContentReusable = false }
+
+    private var canRetainCopyContent: Bool {
+        copyComboEnabled && copyContentReusable && visibleCopyIdentity != nil
+            && window?.isVisible == true && !isDismissing && !isReplayPresentation
+            && !isExpandingOrCollapsing && !viewModel.isExpanded && viewModel.isContentReady
+    }
+
+    var copyIdentityForComparison: ClipboardCopyIdentity? {
+        guard copyComboEnabled, window?.isVisible == true, !isDismissing,
+              !isReplayPresentation, !isExpandingOrCollapsing,
+              viewModel.isContentReady, !viewModel.isExpanded else { return nil }
+        return copyCombo.comparisonIdentity ?? (canRetainCopyContent ? visibleCopyIdentity : nil)
+    }
+
+    func contentForCopyReuse(
+        matching identity: ClipboardCopyIdentity
+    ) -> (content: ClipboardContent, actionsResolved: Bool)? {
+        guard canRetainCopyContent, visibleCopyIdentity == identity,
+              let currentContent, currentContent.revision == currentRevision else { return nil }
+        return (currentContent, actionsResolved)
+    }
+
+    private func cancelPendingCopyRead() {
+        guard let pendingCopy else { return }
+        self.pendingCopy = nil
+        onRevisionResourcesShouldCancel?(pendingCopy.revision)
+    }
+
+    /// Observation precedes representation access; confirmation arrives from the base lane.
+    func observeCopyRevision(
+        _ revision: ClipboardRevision,
+        at time: TimeInterval = ProcessInfo.processInfo.systemUptime
+    ) {
+        guard copyComboEnabled else { return }
+        let continues = window?.isVisible == true && !isDismissing
+            && !isReplayPresentation && !isExpandingOrCollapsing
+            && viewModel.isContentReady && !viewModel.isExpanded
+        guard copyCombo.observe(revision, at: time, continuesVisiblePresentation: continues) else { return }
+        copyMotionMayStart = !copyComboPresentation.motionActive
+        if pendingCopy != nil {
+            pendingCopy = nil
+            if isMouseInsideWindow() { pauseDismissTimer() } else { startDismissTimer() }
+        }
+        if !continues { clearCopyComboDecoration() }
+    }
+
+    func confirmCopyIdentity(
+        _ identity: ClipboardCopyIdentity?,
+        revision: ClipboardRevision,
+        coalescingWithVisibleToast: Bool = false
+    ) {
+        if currentRevision == revision, copyComboPresentation.isPendingReplacement {
+            let sameContent = identity != nil && identity == replacementCopyIdentity
+            copyComboPresentation.isPendingReplacement = false
+            replacementCopyIdentity = nil
+            if !sameContent {
+                clearCopyComboDecoration()
+                copyComboPresentation.entranceSuppressed = false
+                copyComboPresentation.entranceTrigger &+= 1
+            }
+        }
+        guard copyComboEnabled, copyCombo.awaitsConfirmation(revision) else { return }
+        guard let hit = copyCombo.confirm(identity, revision: revision) else {
+            copyContentReusable = false
+            clearCopyComboDecoration()
+            return
+        }
+        guard window?.isVisible == true, !isDismissing, !isReplayPresentation,
+              !isExpandingOrCollapsing, !viewModel.isExpanded, viewModel.isContentReady else { return }
+        let preservesCurrentMotion = copyComboPresentation.motionActive
+            && identity != nil && visibleCopyIdentity == identity
+        if currentRevision == revision {
+            visibleCopyIdentity = identity
+            copyContentReusable = identity != nil
+        } else {
+            // Coalescing decorates the already-allowed card without transferring its
+            // revision, content, source, or Action to the newer copy.
+            guard coalescingWithVisibleToast, visibleCopyIdentity == identity else {
+                copyContentReusable = false
+                clearCopyComboDecoration()
+                return
+            }
+        }
+        guard hit.count >= 2 || preservesCurrentMotion else {
+            clearCopyComboDecoration()
+            return
+        }
+        if !copyComboPresentation.hasEcho {
+            copyComboPresentation.count = hit.count
+            copyComboPresentation.entranceSuppressed = true
+            updateWindowSize()
+        }
+        if copyComboPresentation.activate(
+            hit, reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
+            mayStartMotion: copyMotionMayStart
+        ) {
+            scheduleCopyComboSettle()
+        }
+        requestWindowLayout()
+    }
+
+    private func scheduleCopyComboSettle() {
+        copyComboExpiry?.cancel()
+        copyComboGeneration &+= 1
+        let generation = copyComboGeneration
+        let expiry = DispatchWorkItem { [weak self] in
+            guard let self, self.copyComboGeneration == generation else { return }
+            self.copyComboPresentation.stopMotion()
+            self.copyComboExpiry = nil
+            self.requestWindowLayout()
+        }
+        copyComboExpiry = expiry
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + ToastCopyComboPresentation.displayDuration, execute: expiry
+        )
+    }
+
+    func interruptCopyCombo() {
+        copyContentReusable = false
+        if visibleCopyIdentity?.hasPreparedDigest != true { visibleCopyIdentity = nil }
+        replacementCopyIdentity = nil
+        copyCombo.reset()
+        copyMotionMayStart = false
+        copyComboExpiry?.cancel()
+        copyComboExpiry = nil
+        copyComboGeneration &+= 1
+        if !isDismissing && !copyComboPresentation.isDismissing {
+            clearCopyComboDecoration()
+        }
+    }
+
+    private func clearCopyComboDecoration(preservingMotion: Bool = false) {
+        let needsLayout = copyComboPresentation.hasEcho
+        copyComboPresentation.clear(preservingMotion: preservingMotion)
+        if needsLayout { requestWindowLayout() }
+    }
+
     @discardableResult
     func replayLastToast() -> Bool {
         guard let snapshot = lastToastStore.snapshotForReplay() else { return false }
+        cancelPendingCopyRead()
+        interruptCopyCombo()
+        visibleCopyIdentity = nil
         if window?.isVisible == true, !isDismissing,
            currentRevision == snapshot.content.revision, viewModel.isContentReady {
             if !viewModel.isExpanded, !isExpandingOrCollapsing {
@@ -102,6 +266,7 @@ final class ToastWindowController {
     func showStartupNotice(using source: SourceAppInfo) {
         guard !hasShownStartupNotice else { return }
         hasShownStartupNotice = true
+        interruptCopyCombo()
         pauseDismissTimer()
         viewModel.configureStartupNotice(source: source)
         currentContent = nil
@@ -115,6 +280,7 @@ final class ToastWindowController {
     }
 
     func showReminder(revision: ClipboardRevision) {
+        interruptCopyCombo()
         removeAllMonitors()
         pauseDismissTimer()
         viewModel.configureReminderNotice(revision: revision)
@@ -129,10 +295,43 @@ final class ToastWindowController {
         )
     }
 
-    func show(content: ClipboardContent, source: SourceAppInfo) {
+    func show(content: ClipboardContent, source: SourceAppInfo,
+              reusingActions: Bool = false, copyIdentity: ClipboardCopyIdentity? = nil
+    ) {
+        if canRetainCopyContent, copyComboPresentation.motionActive,
+           copyIdentity != nil, copyIdentity == visibleCopyIdentity,
+           currentContent?.litheMetadata == content.litheMetadata {
+            // This is still the same visible card and the same motion round.
+            // Transfer revision ownership without replacing its native host.
+            pendingCopy = nil
+            copyContentReusable = false
+            actionsResolved = reusingActions
+            viewModel.adoptConfirmedCopy(content, source: source, reusingActions: reusingActions)
+            currentContent = content
+            currentRevision = content.revision
+            resourcesCancelledRevision = nil
+            textExportToken = nil
+            quickTriggerContextGeneration &+= 1
+            lastPresentedRevision = content.revision
+            lastRevisionPresentationTime = Date()
+            lastToastStore.beginPresentation(revision: content.revision)
+            recordLastToast()
+            refreshQuickTriggerContextIfEligible()
+            if isMouseInsideWindow() { pauseDismissTimer() }
+            else { startDismissTimer(after: displayDuration) }
+            requestWindowLayout()
+            return
+        }
+
+        let primary = reusingActions ? viewModel.primaryAction : nil
+        let menu = reusingActions ? viewModel.menuActions : []
+        pendingCopy = nil
+        copyContentReusable = false
+        actionsResolved = reusingActions
         removeAllMonitors()
         pauseDismissTimer()
         viewModel.configure(with: content, source: source)
+        if reusingActions { viewModel.applyActions(primary: primary, menu: menu) }
         viewModel.showsUpdateReminder = AppUpdateService.shared
             .shouldAttachUpdateReminderToStandardToast()
         currentContent = content
@@ -150,6 +349,16 @@ final class ToastWindowController {
     func showPending(revision: ClipboardRevision, source: SourceAppInfo) {
         removeAllMonitors()
         pauseDismissTimer()
+        if canRetainCopyContent {
+            // The existing card still belongs to its confirmed revision. Keep it
+            // intact until the base lane identifies the newly observed copy.
+            pendingCopy = (revision, source)
+            quickTriggerContextGeneration &+= 1
+            return
+        }
+        pendingCopy = nil
+        copyContentReusable = false
+        actionsResolved = false
         viewModel.configurePending(revision: revision, source: source)
         currentContent = nil
         currentRevision = revision
@@ -173,13 +382,24 @@ final class ToastWindowController {
     func applyBaseContent(
         _ content: ClipboardContent,
         source: SourceAppInfo,
-        revision: ClipboardRevision
+        revision: ClipboardRevision,
+        copyIdentity: ClipboardCopyIdentity? = nil,
+        reusingActions: Bool = false
     ) {
+        if pendingCopy?.revision == revision {
+            if copyIdentity == nil || copyIdentity != visibleCopyIdentity {
+                visibleCopyIdentity = nil
+            }
+            show(content: content, source: source, reusingActions: reusingActions, copyIdentity: copyIdentity)
+            return
+        }
         guard currentRevision == revision,
               !isReplayPresentation,
               viewModel.acceptsContentUpdate(revision: revision),
               window?.isVisible == true else { return }
         viewModel.configure(with: content, source: source)
+        copyContentReusable = false
+        actionsResolved = false
         viewModel.showsUpdateReminder = AppUpdateService.shared
             .shouldAttachUpdateReminderToStandardToast()
         currentContent = content
@@ -215,6 +435,7 @@ final class ToastWindowController {
               viewModel.isContentReady, !isReplayPresentation,
               window?.isVisible == true else { return }
         viewModel.applyActions(primary: primary, menu: menu)
+        actionsResolved = true
         requestWindowLayout()
         quickTriggerContextGeneration &+= 1
         if primary != nil {
@@ -225,8 +446,15 @@ final class ToastWindowController {
     }
 
     func showFailure(revision: ClipboardRevision) {
+        if let pendingCopy, pendingCopy.revision == revision {
+            self.pendingCopy = nil
+            copyContentReusable = false
+            showPending(revision: revision, source: pendingCopy.source)
+        }
         guard currentRevision == revision, viewModel.revision == revision,
               !viewModel.isReminderNotice, !isReplayPresentation else { return }
+        interruptCopyCombo()
+        visibleCopyIdentity = nil
         removeAllMonitors()
         viewModel.configureFailure()
         currentContent = nil
@@ -239,6 +467,10 @@ final class ToastWindowController {
     }
 
     func dismissSilently(revision: ClipboardRevision) {
+        if pendingCopy?.revision == revision {
+            dismissToast(animated: false)
+            return
+        }
         guard currentRevision == revision, viewModel.revision == revision,
               !isReplayPresentation else { return }
         removeAllMonitors()
@@ -252,6 +484,23 @@ final class ToastWindowController {
         pausesDismissWhileHovered: Bool,
         isReplay: Bool = false
     ) {
+        // Active identical copies return from show() before this fresh-host path.
+        // A fresh presentation must not inherit an unrelated active trajectory.
+        if copyComboPresentation.motionActive || copyComboExpiry != nil {
+            copyComboExpiry?.cancel()
+            copyComboExpiry = nil
+            copyComboGeneration &+= 1
+            copyComboPresentation.stopMotion()
+        }
+        pendingCopy = nil
+        let previousWindow = window
+        let previousHosting = hostingView
+        let replacement = previousWindow?.isVisible == true && !isDismissing
+            && copyComboEnabled && visibleCopyIdentity != nil
+            && !isReplay && !viewModel.isNotice
+        if !replacement { clearCopyComboDecoration(preservingMotion: true) }
+        replacementCopyIdentity = replacement ? visibleCopyIdentity : nil
+        visibleCopyIdentity = nil
         let now = Date()
         let replacesVisibleRevision = window?.isVisible == true
             && currentRevision != nil
@@ -261,6 +510,9 @@ final class ToastWindowController {
         entranceStyle = isReplay ? .replay : (replacesVisibleRevision ? .rapidReplacement : .standard)
         isReplayPresentation = isReplay
         presentationGeneration &+= 1
+        copyComboPresentation.owner = presentationGeneration
+        copyComboPresentation.entranceSuppressed = replacement
+        copyComboPresentation.isPendingReplacement = replacement
         if let currentRevision, !isReplay {
             lastPresentedRevision = currentRevision
             lastRevisionPresentationTime = now
@@ -277,7 +529,6 @@ final class ToastWindowController {
         // Always recreate window for fresh Space association.
         // Fullscreen Spaces can lose track of reused windows after
         // extended use, causing the toast to silently not appear.
-        window?.orderOut(nil)
         window = nil
         contentView = nil
         expandedTextScrollView = nil
@@ -294,12 +545,13 @@ final class ToastWindowController {
         newHosting.layer?.backgroundColor = NSColor.clear.cgColor
         newHosting.translatesAutoresizingMaskIntoConstraints = true
 
-        hostingView?.removeFromSuperview()
         hostingView = newHosting
         contentView?.addSubview(newHosting)
         newHosting.layoutSubtreeIfNeeded()
 
         guard let screen = NSScreen.main else {
+            previousWindow?.orderOut(nil)
+            previousHosting?.removeFromSuperview()
             NSLog("Copied: NSScreen.main is nil — cannot position window!")
             return
         }
@@ -321,7 +573,32 @@ final class ToastWindowController {
             isExpanded: false
         )
         window?.alphaValue = isReplay ? 0 : 1
-        window?.orderFront(nil)
+        if replacement, previousWindow?.isVisible == true {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0
+                context.allowsImplicitAnimation = false
+                window?.orderFront(nil)
+                window?.displayIfNeeded()
+                newHosting.displayIfNeeded()
+#if COPIED_TESTING
+                if let previousWindow, let window {
+                    testingBeforeRetiringWindow?(previousWindow, window)
+                }
+#endif
+                previousWindow?.orderOut(nil)
+                previousHosting?.removeFromSuperview()
+            }
+            CATransaction.flush()
+        } else {
+            window?.orderFront(nil)
+#if COPIED_TESTING
+            if let previousWindow, previousWindow.isVisible, let window {
+                testingBeforeRetiringWindow?(previousWindow, window)
+            }
+#endif
+            previousWindow?.orderOut(nil)
+            previousHosting?.removeFromSuperview()
+        }
         if isReplay {
             applyWindowBlur()
             animateWindowAlpha(to: 1, easeIn: false) { [weak self] in
@@ -344,17 +621,24 @@ final class ToastWindowController {
 
     private func makeToastView() -> ToastView {
         let generation = presentationGeneration
+        let onCommand: (ToastCommand<any ClipboardAction>) -> Void = { [weak self] command in
+            guard self?.presentationGeneration == generation else { return }
+            self?.handleCommand(command)
+        }
+#if COPIED_TESTING
+        testingCommandCallback = onCommand
+#endif
         return ToastView(
             viewModel: viewModel,
+            copyComboPresentation: copyComboPresentation,
+            copyComboOwner: generation,
+            startsVisible: copyComboPresentation.isPendingReplacement,
             entranceStyle: entranceStyle,
             onHoverChanged: { [weak self] hovering in
                 guard self?.presentationGeneration == generation else { return }
                 self?.handleHoverChanged(hovering)
             },
-            onCommand: { [weak self] command in
-                guard self?.presentationGeneration == generation else { return }
-                self?.handleCommand(command)
-            },
+            onCommand: onCommand,
             onExpandedTextFrameChanged: { [weak self] frame in
                 DispatchQueue.main.async {
                     guard self?.presentationGeneration == generation else { return }
@@ -454,7 +738,22 @@ final class ToastWindowController {
             return
         }
 
+        let preservesComboForDismissal: Bool = switch command {
+        case .dismiss: true
+        case .performPrimary: quickTriggerAction()?.performsInlineUpdate == false
+        case let .performAction(action): !action.performsInlineUpdate
+        default: false
+        }
+        if preservesComboForDismissal { copyComboPresentation.isDismissing = true }
+        defer {
+            if preservesComboForDismissal, !isDismissing {
+                copyComboPresentation.isDismissing = false
+                clearCopyComboDecoration()
+            }
+        }
+        cancelPendingCopyRead()
         cancelResourcesForCurrentRevision()
+        interruptCopyCombo()
 
         switch command {
         case .performPrimary:
@@ -1021,6 +1320,12 @@ final class ToastWindowController {
     }
 
     func dismissToast(animated: Bool) {
+        isDismissing = true
+        copyComboPresentation.isDismissing = true
+        cancelPendingCopyRead()
+        interruptCopyCombo()
+        visibleCopyIdentity = nil
+        replacementCopyIdentity = nil
         let shouldHideSurfaceImmediately = ToastDismissSurfacePolicy.shouldHideImmediately(
             animated: animated,
             isExpanded: viewModel.isExpanded
@@ -1080,12 +1385,17 @@ final class ToastWindowController {
     }
 
     private func releasePresentation() {
+        copyComboPresentation.clear()
+        pendingCopy = nil
+        copyContentReusable = false
+        actionsResolved = false
         presentationGeneration &+= 1
         pendingLayoutGeneration = nil
         releasePresentationSurfaces()
         viewModel = ToastViewModel()
         currentContent = nil
         currentRevision = nil
+        visibleCopyIdentity = nil
         isReplayPresentation = false
         pausesDismissWhileHovered = true
     }
@@ -1108,6 +1418,8 @@ final class ToastWindowController {
     }
 
 #if COPIED_TESTING
+    private(set) var testingCommandCallback: ((ToastCommand<any ClipboardAction>) -> Void)?
+    var testingBeforeRetiringWindow: ((ToastPanel, ToastPanel) -> Void)?
     var testingViewModel: ToastViewModel { viewModel }
     var testingWindow: ToastPanel? { window }
     var testingExpandedBottomBarControlsHostingView: ToastHostingView? {
@@ -1115,8 +1427,10 @@ final class ToastWindowController {
     }
     var testingEntranceStyle: ToastEntranceStyle { entranceStyle }
     var testingDismissDeadline: Date? { dismissDeadline }
+    var testingCopyCombo: ToastCopyComboPresentation { copyComboPresentation }
     func testingPerformCommand(_ command: ToastCommand<any ClipboardAction>) {
         handleCommand(command)
     }
+    func testingHover(_ hovered: Bool) { handleHoverChanged(hovered) }
 #endif
 }

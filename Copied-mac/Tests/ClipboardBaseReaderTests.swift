@@ -38,10 +38,38 @@ struct ClipboardContent {
 
 private enum Failure: Error { case failed(String) }
 
+private final class ReaderWorkerResult {
+    var outcome: ClipboardBaseReadOutcome?
+}
+
+private func readOnWorker(session: ClipboardLoadSession, pasteboard: NSPasteboard) -> ClipboardBaseReadOutcome {
+    let result = ReaderWorkerResult()
+    let done = DispatchSemaphore(value: 0)
+    DispatchQueue.global(qos: .userInitiated).async {
+        result.outcome = ClipboardBaseReader.read(session: session, pasteboard: pasteboard)
+        done.signal()
+    }
+    done.wait()
+    return result.outcome!
+}
+
+private func sameIdentity(_ first: ClipboardCopyIdentity?, _ second: ClipboardCopyIdentity) -> Bool {
+    guard let first else { return false }
+    let done = DispatchSemaphore(value: 0)
+    DispatchQueue.global(qos: .userInitiated).async {
+        first.prepareComparison(with: second)
+        done.signal()
+    }
+    done.wait()
+    return first == second
+}
+
 @main
 enum ClipboardBaseReaderTests {
     static func main() throws {
         try smallAndOversizedText()
+        try identitiesArePreparedOnlyForAComparison()
+        try comparisonRejectsContentChangedDuringPreparation()
         try stagedWriteSucceedsOnThirdAttempt()
         try staleChangeCountIsRejected()
         try pngIsPreferredAndStoredForImageLane()
@@ -68,7 +96,21 @@ enum ClipboardBaseReaderTests {
             pasteboard: pasteboard
         ) else { throw Failure.failed("small text unreadable") }
         try expect(content.rawText == "hello", "small text changed")
+        try expect(small.confirmedCopyIdentity?.testingDigestComputationCount == 0,
+                   "first text read calculated a digest")
+        try expect(sameIdentity(small.confirmedCopyIdentity, .text("hello")), "base text identity was not captured")
+        try expect(sameIdentity(small.takeCopyIdentity(), .text("hello")) && small.confirmedCopyIdentity == nil,
+                   "publishing the identity retained an extra session cache")
         try expect(!content.expandedTextWasTruncated, "small text was truncated")
+        let soundOnly = ClipboardLoadSession(revision: small.revision, backingScale: 2, recordsCopyIdentity: false)
+        guard case .content = ClipboardBaseReader.read(session: soundOnly, pasteboard: pasteboard)
+        else { throw Failure.failed("sound-only base read failed") }
+        try expect(soundOnly.confirmedCopyIdentity == nil, "sound-only read generated a useless identity")
+        let disabled = ClipboardLoadSession(revision: small.revision, backingScale: 2)
+        disabled.disableCopyIdentity()
+        _ = ClipboardBaseReader.read(session: disabled, pasteboard: pasteboard)
+        try expect(!disabled.recordsCopyIdentity && disabled.confirmedCopyIdentity == nil,
+                   "disabling an in-flight session did not skip identity work")
 
         let oversizedText = String(repeating: "👨‍👩‍👧‍👦line\n", count: 8_000)
         pasteboard.clearContents()
@@ -82,6 +124,8 @@ enum ClipboardBaseReaderTests {
         try expect(largeContent.expandedDisplayText.utf16.count <= 65_536,
                    "large display exceeded the UTF-16 cap")
         try expect(largeContent.expandedFullText == oversizedText, "full export text was discarded")
+        try expect(sameIdentity(oversized.confirmedCopyIdentity, .text(oversizedText)),
+                   "large text identity used the truncated preview")
     }
 
     private static func stagedWriteSucceedsOnThirdAttempt() throws {
@@ -102,6 +146,86 @@ enum ClipboardBaseReaderTests {
             pasteboard: pasteboard
         ) else { throw Failure.failed("third staged read did not recover") }
         try expect(content.rawText == "ready", "third staged read returned wrong content")
+    }
+
+    private static func identitiesArePreparedOnlyForAComparison() throws {
+        let board = makePasteboard()
+        let body = String(repeating: "Synthetic lazy reader body ", count: 100)
+        var previous: ClipboardCopyIdentity?
+        var identities: [ClipboardCopyIdentity] = []
+        for generation in 1...3 {
+            board.clearContents()
+            try expect(board.setString(body, forType: .string), "lazy body write failed")
+            let revision = ClipboardRevision(generation: UInt64(generation), changeCount: board.changeCount)
+            let session = ClipboardLoadSession(revision: revision, backingScale: 2, comparisonIdentity: previous)
+            guard case .content = readOnWorker(session: session, pasteboard: board),
+                  let identity = session.takeCopyIdentity() else {
+                throw Failure.failed("lazy base read lost its identity")
+            }
+            try expect(identity.testingDigestComputationCount == (generation == 1 ? 0 : 1),
+                       "base lane prepared a digest at the wrong copy")
+            if let previous {
+                try expect(previous == identity && previous.testingDigestComputationCount == 1,
+                           "worker comparison omitted or recalculated the previous memo")
+            }
+            previous = identity
+            identities.append(identity)
+        }
+        try expect(identities.map(\.testingDigestComputationCount) == [1, 1, 1],
+                   "three sequential copies performed more than three digest calculations")
+        let stale = ClipboardLoadSession(
+            revision: .init(generation: 4, changeCount: board.changeCount),
+            backingScale: 2, comparisonIdentity: previous
+        )
+        board.clearContents()
+        board.setString("Synthetic newer revision", forType: .string)
+        guard case .stale = readOnWorker(session: stale, pasteboard: board) else {
+            throw Failure.failed("a stale lazy comparison was accepted")
+        }
+        try expect(stale.confirmedCopyIdentity == nil && previous?.testingDigestComputationCount == 1,
+                   "a stale revision prepared identity work")
+        stale.cancel()
+
+        board.clearContents()
+        let item = NSPasteboardItem()
+        item.setString("file:///tmp/Copied-synthetic-image.png", forType: .fileURL)
+        try expect(board.writeObjects([item]), "synthetic image-file URL write failed")
+        let file = ClipboardLoadSession(revision: .init(generation: 5, changeCount: board.changeCount), backingScale: 2)
+        guard case let .content(_, content) = readOnWorker(session: file, pasteboard: board) else {
+            throw Failure.failed("image-file URL was not read")
+        }
+        try expect(content.type == .file && file.confirmedCopyIdentity?.testingDigestComputationCount == 0,
+                   "a Finder image-file URL was excluded or hashed on its first read")
+    }
+
+    private static func comparisonRejectsContentChangedDuringPreparation() throws {
+        var rejected: [Bool] = []
+        for cancelSession in [false, true] {
+            let board = makePasteboard()
+            defer { board.releaseGlobally() }
+            board.clearContents()
+            board.setString("Synthetic comparison race", forType: .string)
+            let previous = ClipboardCopyIdentity.text("Synthetic comparison race")
+            let current = ClipboardLoadSession(
+                revision: .init(generation: 1, changeCount: board.changeCount),
+                backingScale: 2, comparisonIdentity: previous
+            )
+            previous.testingWillPrepareDigest = {
+                if cancelSession {
+                    current.cancel()
+                } else {
+                    board.clearContents()
+                    board.setString("Synthetic replacement", forType: .string)
+                }
+            }
+            let outcome = readOnWorker(session: current, pasteboard: board)
+            previous.testingWillPrepareDigest = nil
+            let isStale: Bool
+            if case .stale = outcome { isStale = true } else { isStale = false }
+            rejected.append(isStale)
+            current.cancel()
+        }
+        try expect(rejected == [true, true], "content changed or cancelled during digest preparation was published")
     }
 
     private static func staleChangeCountIsRejected() throws {
@@ -128,7 +252,11 @@ enum ClipboardBaseReaderTests {
             pasteboard: pasteboard
         ) else { throw Failure.failed("bitmap unreadable") }
         try expect(content.imageFormat == "PNG", "PNG was not preferred")
+        try expect(imageSession.confirmedCopyIdentity == nil,
+                   "a pure bitmap unexpectedly created a combo identity")
         try expect(imageSession.takeImageData() == png, "bitmap was not retained for the image lane")
+        try expect(imageSession.confirmedCopyIdentity == nil,
+                   "consuming image data created a combo identity")
     }
 
     private static func fileSelectionIsCapped() throws {
@@ -149,6 +277,8 @@ enum ClipboardBaseReaderTests {
         try expect(content.fileSelectionWasTruncated,
                    "overflowing selection was not marked truncated")
         try expect(content.fileURLCount == 4_097, "overflow count sentinel missing")
+        try expect(fileSession.confirmedCopyIdentity == nil,
+                   "a truncated file selection acquired a misleading identity")
     }
 
     private static func directoryLoadingAndPackageFallback() throws {

@@ -178,7 +178,7 @@ struct InteractionWiringTests {
         let startupNoticeSource = section(
             in: toastControllerSource,
             from: "func showStartupNotice(using source: SourceAppInfo)",
-            to: "func show(content: ClipboardContent, source: SourceAppInfo)"
+            to: "func show(content:"
         )
         expect(startupNoticeSource != nil, "one-shot startup notice entry point exists")
         expect(
@@ -199,7 +199,7 @@ struct InteractionWiringTests {
         )
         let productionShowSource = section(
             in: toastControllerSource,
-            from: "func show(content: ClipboardContent, source: SourceAppInfo)",
+            from: "func show(content:",
             to: "private func presentConfiguredToast("
         )
         expect(
@@ -237,7 +237,7 @@ struct InteractionWiringTests {
         )
         expect(
             sharedPresentationSource?.contains("dismissGeneration += 1") == true
-                && sharedPresentationSource?.contains("window?.orderOut(nil)") == true
+                && sharedPresentationSource?.contains("previousWindow?.orderOut(nil)") == true
                 && sharedPresentationSource?.contains("createWindow()") == true
                 && sharedPresentationSource?.contains("makeToastView()") == true
                 && sharedPresentationSource?.contains("ToastHostingView(") == true
@@ -245,15 +245,19 @@ struct InteractionWiringTests {
                 && toastControllerSource.contains("        installExpandedTextSurface()\n        let expandedText = viewModel.expandedText")
                 && sharedPresentationSource?.contains("layoutSubtreeIfNeeded()") == true
                 && sharedPresentationSource?.contains("fittingSize") == true
+                && sharedPresentationSource?.contains("NSAnimationContext.runAnimationGroup") == true
+                && sharedPresentationSource?.contains("displayIfNeeded()") == true
                 && sharedPresentationSource?.contains("window?.orderFront(nil)") == true,
             "startup and real-copy presentations share the production panel, layout, fitting, and visible orderFront path"
         )
         expect(
             appearsInOrder(
-                ["dismissGeneration += 1", "window?.orderOut(nil)", "createWindow()"],
+                ["dismissGeneration += 1", "createWindow()", "layoutSubtreeIfNeeded()", "fittingSize",
+                 "NSAnimationContext.runAnimationGroup", "window?.orderFront(nil)",
+                 "window?.displayIfNeeded()", "previousWindow?.orderOut(nil)"],
                 in: sharedPresentationSource ?? ""
             ),
-            "every replacement advances the generation before rebuilding the window"
+            "every replacement advances its generation and prepares the new window before retiring the old one"
         )
         expect(
             toastControllerSource.contains("private let startupNoticeDuration: TimeInterval = 1.0")
@@ -515,7 +519,7 @@ struct InteractionWiringTests {
                     "AppFilterSettings.shared.shouldShowPopup",
                     "candidateDecision != .allDenied",
                     "toastController?.showPending",
-                    "submitBaseRead(session: session)",
+                    "return session",
                     "CopySoundFeedback.play(selection:",
                     "tryPresentLowInterruption(session: session)",
                 ],
@@ -523,6 +527,11 @@ struct InteractionWiringTests {
             ),
             "blacklist, visual candidate policy, first frame, successful-read sound, and filtering stay ordered"
         )
+        let revisionDispatch = section(in: clipboardSource, from: "private func beginRevision(",
+                                       to: "private func prepareRevision(") ?? ""
+        expect(appearsInOrder(["prepareRevision(revision)", "submitBaseRead(session: session)"],
+                              in: revisionDispatch),
+               "the synchronous first-frame preparation completes before base work is submitted")
         expect(
             clipboardSource.contains("textLength: content.textLength")
                 && clipboardSource.contains("primaryKindID: content.contentKind?.id"),

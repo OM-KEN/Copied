@@ -223,7 +223,7 @@ final class LastToastStore: ObservableObject {
         }
     }
 
-    /// Called only after a new real full card is ordered front, including its pending frame.
+    /// Starts a real copy's lifetime when its card is shown or an active card adopts it.
     func beginPresentation(revision: ClipboardRevision) {
         clear()
         guard !defaults.bool(forKey: "isPaused") else { return }

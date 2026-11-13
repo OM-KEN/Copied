@@ -16,6 +16,7 @@ if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
 fi
 
 SOURCES=(
+    ClipboardCopyCombo.swift
     ClipboardPipeline.swift
     ClipboardContentEnrichment.swift
     TemporaryTextExport.swift
@@ -83,6 +84,7 @@ SOURCES=(
     ToastPanel.swift
     MetadataAutoScrollMetrics.swift
     ToastView.swift
+    ToastCopyComboView.swift
     ToastViewModel.swift
     LastToastStore.swift
     ToastWindowController.swift

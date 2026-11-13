@@ -85,7 +85,7 @@ enum ClipboardBaseReader {
         if types.contains(.fileURL) {
             content = readFiles(
                 pasteboard: pasteboard,
-                revision: session.revision,
+                session: session,
                 litheMetadata: litheMetadata
             )
         } else if types.contains(.png) || types.contains(.tiff) {
@@ -98,7 +98,7 @@ enum ClipboardBaseReader {
         } else if types.contains(.string) {
             content = readText(
                 pasteboard: pasteboard,
-                revision: session.revision,
+                session: session,
                 litheMetadata: litheMetadata
             )
         } else {
@@ -109,6 +109,12 @@ enum ClipboardBaseReader {
             return .stale(revision: session.revision)
         }
         if let content {
+            if session.prepareCopyIdentityComparison() {
+                guard session.accepts(session.revision),
+                      pasteboard.changeCount == session.revision.changeCount else {
+                    return .stale(revision: session.revision)
+                }
+            }
             return .content(revision: session.revision, content: content)
         }
         return .unreadable(revision: session.revision)
@@ -116,7 +122,7 @@ enum ClipboardBaseReader {
 
     private static func readFiles(
         pasteboard: NSPasteboard,
-        revision: ClipboardRevision,
+        session: ClipboardLoadSession,
         litheMetadata: LitheClipboardMetadata
     ) -> ClipboardContent? {
         guard let items = pasteboard.pasteboardItems else { return nil }
@@ -133,6 +139,9 @@ enum ClipboardBaseReader {
             urls.append(url)
         }
         guard !urls.isEmpty else { return nil }
+        if session.recordsCopyIdentity, !selectionWasTruncated, urls.count == items.count {
+            session.storeCopyIdentity(.files(urls))
+        }
 
         let names = urls.prefix(3).map(\.lastPathComponent)
         let preview = names.joined(separator: ", ")
@@ -142,7 +151,7 @@ enum ClipboardBaseReader {
         let fullText = ([preview] + urls.map(\.path)).joined(separator: "\n")
         let expanded = ClipboardExpandedTextPolicy.displayText(for: fullText)
         return ClipboardContent(
-            revision: revision,
+            revision: session.revision,
             type: .file,
             preview: preview,
             detail: detail,
@@ -217,12 +226,13 @@ enum ClipboardBaseReader {
 
     private static func readText(
         pasteboard: NSPasteboard,
-        revision: ClipboardRevision,
+        session: ClipboardLoadSession,
         litheMetadata: LitheClipboardMetadata
     ) -> ClipboardContent? {
         guard let items = pasteboard.pasteboardItems else { return nil }
         for item in items {
             guard let text = item.string(forType: .string), !text.isEmpty else { continue }
+            if session.recordsCopyIdentity { session.storeCopyIdentity(.text(text)) }
             let characterCount = text.count
             let previewSource = characterCount > 200 ? String(text.prefix(200)) + "…" : text
             let preview = previewSource.components(separatedBy: .newlines).prefix(3)
@@ -232,7 +242,7 @@ enum ClipboardBaseReader {
                 : ""
             let expanded = ClipboardExpandedTextPolicy.displayText(for: text)
             return ClipboardContent(
-                revision: revision,
+                revision: session.revision,
                 type: .text,
                 preview: preview,
                 detail: detail,
@@ -266,11 +276,17 @@ enum ClipboardBaseReader {
 }
 
 enum ClipboardImageEnricher {
+#if COPIED_TESTING
+    static var testingOnBitmapEnrich: (() -> Void)?
+#endif
     static let resultDeadline: TimeInterval = 2
 
     static func enrichBitmap(
         session: ClipboardLoadSession
     ) -> ClipboardEnrichmentUpdate? {
+#if COPIED_TESTING
+        testingOnBitmapEnrich?()
+#endif
         let started = ProcessInfo.processInfo.systemUptime
         guard let data = session.takeImageData(), session.accepts(session.revision) else { return nil }
         guard let source = CGImageSourceCreateWithData(data as CFData, nil),

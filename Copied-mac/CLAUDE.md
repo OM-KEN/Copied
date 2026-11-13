@@ -36,7 +36,7 @@ open .build/Copied.app
 
 `changeCount` → 缓存来源与黑名单门 → 快照设置并做候选判断 → 默认/全允许路径同步显示 pending 或仅提醒 → base read → 每个 revision 的声音终态 → enrichment / detection / action → 展示分类 → 轻打扰去重 → 更新完整卡片或按样式显示仅提醒。
 
-- revision 身份只用 `ClipboardRevision(generation, changeCount)`；内容指纹只用于轻打扰视觉去重。
+- revision 身份只用 `ClipboardRevision(generation, changeCount)`；视觉指纹只用于轻打扰去重，后台按需准备的完整内容摘要只用于连击相等判断，两者均不得参与 revision 身份。
 - `SourceAppDetector` 先提供缓存快照，base content 到达后再补齐来源信息；不要把来源检测排在剪贴板读取之后。
 
 ## 启动首响应
@@ -49,7 +49,7 @@ open .build/Copied.app
 
 - 只用 `pasteboard.types` 判定类别，不用 `readObjects`。启动阶段每 25ms 检查 `changeCount`；首次有效读取、同一不可读 revision 尝试 3 次或启动 60 秒后恢复 75ms。
 - 新 revision 必须在访问 representation 前被确认。base/analysis/file/image 各用一个不可抢占 active + 一个可替换 pending 的有界 lane；阻塞的系统调用不得造成无界排队。
-- 默认模式和轻打扰全允许的完整卡片路径必须在提交 base read 前同步 `showPending`；仅提醒路径按当前 revision 的样式快照同步显示。完整卡片在 base、enrichment、Action 到达后按真实内容重新 fitting，不用固定尺寸遮掩异步变化。
+- 默认模式和轻打扰全允许的完整卡片路径必须在提交 base read 前同步 `showPending`；仅提醒路径按当前 revision 的样式快照同步显示。连击候选的 `showPending` 可继续保留原已确认卡片及其 revision，等待后台相等校验；其他路径仍同步显示通用 pending。完整卡片在 base、enrichment、Action 到达后按真实内容重新 fitting，不用固定尺寸遮掩异步变化。
 - 三次不可读或 3 秒硬超时的默认模式完整卡片显示普通“已复制”与 `checkmark.circle.fill`，沿用 3 秒时长；轻打扰不显示错误长文案。
 - 文件夹/包体大小按遍历耗时选择缓存：耗时超过 1 秒的完整结果或部分下界缓存 30 秒（从完成计时），快目录每次重算。同路径共享进行中的遍历；弹窗关闭仅解除观察，最多两个可脱离弹窗的后台任务各继续至 30 秒软期限，暂停时全部取消。缓存值分别标明“上次统计”或“上次至少”，过期刷新完成后替换；无缓存时立即发布数值下界，最多每 250ms 且格式化值变化时更新，完成或软截止后移除 loading 并保留最终值/“至少”下界。`ProgressView` 不留完成后的固定空槽，深色外观只对该原生环使用 `colorInvert()`。
 - Action 更新不得紧接一次无内容变化的 `applyEnrichment`，也不得用共享动态 `.id` 重建交互按钮。
@@ -69,13 +69,17 @@ open .build/Copied.app
 
 ## 窗口与点击契约
 
-- 完整卡片只能使用 `ToastPanel`：borderless nonactivating `NSPanel`，`canBecomeKey=true`、`canBecomeMain=false`、`becomesKeyOnlyIfNeeded=true`、floating 且不随失焦隐藏。折叠控件使用 first-mouse hosting 并保持 Panel non-key；每次 `show()` 重建窗口。
+- 完整卡片只能使用 `ToastPanel`：borderless nonactivating `NSPanel`，`canBecomeKey=true`、`canBecomeMain=false`、`becomesKeyOnlyIfNeeded=true`、floating 且不随失焦隐藏。折叠控件使用 first-mouse hosting 并保持 Panel non-key；每次实际新展示重建窗口；严格同内容在当前连击动画播放中只移交 revision，保留这轮的窗口和宿主。
 - `ToastPanel.animationBehavior` 固定为 `.none`，禁用 `orderFront` / `orderOut` 的系统自动动画；入场与展开/收起使用既有自定义动画，避免窗口排序吞掉实际淡入帧。
 - 内联结果统一调用 `updateWindowSize()`，同步 hosting 与外窗 fitting，并保留展开态阴影边界；禁止只动画外窗尺寸。WindowServer 仍会将窗口限制在屏幕边界内。
 - macOS 26+ 用 `.glassEffect(in: .rect(cornerRadius: 32))`，旧系统用 `.ultraThinMaterial` 和 0.08 秒延迟淡入；macOS 27+ 不额外绘制卡片描边，折叠态操作按钮用 `.quaternary` 填充。macOS 26 及以下保持原外观：卡片保留 `.primary.opacity(0.15)` 的细描边，macOS 26 的操作按钮沿用交互玻璃，旧系统按钮沿用普通填充。
 - 折叠态所有鼠标命令只来自 SwiftUI `Button` → `ToastCommand`：预览展开、主操作、背景关闭。透明防裁切 padding 也属于背景按钮；图标和来源标签必须穿透。禁止窗口级左右键 monitor、手写坐标/矩形命中或 hover 业务分流。
 - 本地 NSEvent monitor 只保留快速触发的 `.keyDown` / `.flagsChanged`；订阅 `.leftMouseDown` 会破坏 nonactivating Panel 的原生点击链。
-- 退场使用全窗口 Core Image 过滤器；动画回调、取消关闭和非动画关闭都必须清理 filter。缩略图保留到 `orderOut` 后，旧回调由 `dismissGeneration` 拦截。
+- 退场使用全窗口 Core Image 过滤器；动画回调、取消关闭和非动画关闭都必须清理 filter。缩略图保留到 `orderOut` 后，旧回调由 `dismissGeneration` 拦截。连击退场立即断开逻辑序列，但保留装饰和布局、冻结最后的动效位置，直到 `orderOut` 后再清理；不得在退场中改变留白，导致 hosting 的 fitting 与窗口尺寸不一致。
+- 连击彩蛋在高级设置中默认开启，关闭立即断链、清装饰并禁止新/待处理读取计算身份。首次文本/文件只留既有引用，不遍历或计算摘要；第二次才由 base lane 准备并记忆摘要，主线程只读摘要判等。纯位图不创建身份、不额外保留 rawData；Finder 图片文件仍按完整 URL 集合处理。相邻 revision 只有在完整身份和视觉策略确认后计数；漏写入、未知内容及视觉/交互策略变化断链。
+- 第 2 次先安装残影和布局再触发，第 3 次显示本地化“连击×N”；首次普通复制不安装残影图或计时器。Spring 必须承接当前位移和速度，方向沿轨迹交替、独立于计数；不得归零重启或排队。普通入场被接管后不得恢复；TimelineView 仅运动时刷新，退场冻结，停手回中并在最后有效反馈 1.15 秒后停止；迟到确认不得补播。详细行为见 `DESIGN.md`，视觉参数见 `UI_GUIDELINES.md`。
+- 连击候选等待身份确认时保留原卡内容、操作和 revision；关闭或操作原卡必须取消等待读取，迟到结果不得复活。仅完整身份与 Lithe 上下文一致时复用已完成识别和操作；文件补齐和原有界统计继续，不做跨卡片缓存。设置变化、交互和断链使复用失效。
+- 新展示重建 Panel；严格同内容且上下文一致的在播续连才原地移交 revision、来源、事实，并刷新快速触发和最后快照；保留 owner，拒绝旧 revision 回调。同内容续连换窗须在新窗布局/绘制后原子交接；普通显示不强制同步绘制/flush。残影不复制正文、材质或控件；减少动态效果只显示计数。
 - 来源和详情各自单行自动滚动：自然宽度参与 fitting，总宽上限 360pt；仅真实溢出时渐隐，悬停 0.6 秒后单次滚到末端再返回。禁止用 `ScrollView` 或点击命中实现。
 
 ### 展开全文

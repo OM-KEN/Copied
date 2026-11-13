@@ -175,6 +175,20 @@ final class ToastViewModel {
         contentTransitionID &+= 1
     }
 
+    func adoptConfirmedCopy(
+        _ content: ClipboardContent, source: SourceAppInfo, reusingActions: Bool
+    ) {
+        revision = content.revision
+        sourceAppName = source.name
+        sourceAppIcon = source.icon
+        sourceBundleID = source.bundleIdentifier
+        if !reusingActions {
+            primaryAction = nil
+            menuActions = []
+        }
+        applyEnrichment(content)
+    }
+
     func applyEnrichment(_ content: ClipboardContent) {
         guard phase == .ready, revision == content.revision else { return }
         previewText = content.preview

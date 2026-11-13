@@ -349,6 +349,9 @@ private struct ToastContentRowLayout: Layout {
 
 struct ToastView: View {
     let viewModel: ToastViewModel
+    let copyComboPresentation: ToastCopyComboPresentation
+    let copyComboOwner: Int
+    let startsVisible: Bool
     let entranceStyle: ToastEntranceStyle
     let onHoverChanged: (Bool) -> Void
     let onCommand: (ToastCommand<any ClipboardAction>) -> Void
@@ -378,9 +381,11 @@ struct ToastView: View {
     var body: some View {
         ZStack(alignment: .topTrailing) {
             // 降级材质背景（pre-macOS 26，延迟显示避免首帧灰色闪烁）
-            if fallbackMaterialReady {
-                RoundedRectangle(cornerRadius: Self.cardCornerRadius, style: .continuous)
-                    .fill(.ultraThinMaterial)
+            if #unavailable(macOS 26) {
+                if fallbackMaterialReady || startsVisible {
+                    RoundedRectangle(cornerRadius: Self.cardCornerRadius, style: .continuous)
+                        .fill(.ultraThinMaterial)
+                }
             }
 
             // Explicit background control owns dismissal without coordinate hit-testing.
@@ -642,11 +647,18 @@ struct ToastView: View {
                     .stroke(.primary.opacity(0.15), lineWidth: 0.8)
             }
         }
+        .modifier(ToastCopyComboEffect(
+            presentation: copyComboPresentation, reduceMotion: reduceMotion, owner: copyComboOwner
+        ))
         .entranceAnimation(
             animateIn: $animateIn,
             fallbackMaterialReady: $fallbackMaterialReady,
             reduceMotion: reduceMotion,
             style: entranceStyle,
+            presentation: copyComboPresentation,
+            owner: copyComboOwner,
+            startsVisible: startsVisible,
+            hasCopyCombo: copyComboPresentation.hasEcho,
             onDismiss: { onCommand(.dismiss) }
         )
         .onHover { hovering in
@@ -665,6 +677,27 @@ struct ToastView: View {
         }
         .onChange(of: viewModel.contentTransitionID) {
             onNeedsLayout?()
+        }
+        .onChange(of: reduceMotion) {
+            if reduceMotion { copyComboPresentation.motionActive = false }
+        }
+        .onChange(of: copyComboPresentation.entranceSuppressed) {
+            if copyComboPresentation.entranceSuppressed {
+                var transaction = Transaction(animation: nil)
+                transaction.disablesAnimations = true
+                withTransaction(transaction) { animateIn = false }
+            }
+        }
+        .onChange(of: copyComboPresentation.entranceTrigger) {
+            guard !copyComboPresentation.entranceSuppressed else { return }
+            let animation: Animation? = if reduceMotion || entranceStyle == .replay {
+                nil
+            } else if entranceStyle == .standard {
+                .interpolatingSpring(mass: 1.2, stiffness: 120, damping: 14, initialVelocity: 3)
+            } else {
+                .easeOut(duration: 0.08)
+            }
+            withAnimation(animation) { animateIn = true }
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(accessibilityStatus)
@@ -907,6 +940,55 @@ private struct PressTrackingButtonStyle: ButtonStyle {
 
 // MARK: - View Modifiers
 
+struct ToastEntranceProjection: Equatable {
+    let scale: CGFloat
+    let offsetY: CGFloat
+    let blur: CGFloat
+    let opacity: Double
+
+    static let identity = Self(scale: 1, offsetY: 0, blur: 0, opacity: 1)
+}
+
+struct ToastEntranceMotion: ViewModifier, Animatable {
+    var progress: CGFloat
+    let style: ToastEntranceStyle
+    let presentation: ToastCopyComboPresentation
+    let owner: Int
+
+    var animatableData: CGFloat {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    var projection: ToastEntranceProjection {
+        // Read the live suppression flag on every interpolated frame. Changing
+        // only an animation's target would leave its old spring/fade visible.
+        guard !presentation.entranceSuppressed, style != .replay else { return .identity }
+        let standard = style == .standard
+        return ToastEntranceProjection(
+            scale: standard ? 0.2 + 0.8 * progress : 1,
+            offsetY: standard ? -56 * (1 - progress) : 0,
+            blur: standard ? max(0, 12 * (1 - progress)) : 0,
+            opacity: Double(progress)
+        )
+    }
+
+    func body(content: Content) -> some View {
+        let projection = projection
+        content
+            .scaleEffect(projection.scale)
+            .offset(y: projection.offsetY)
+            .blur(radius: projection.blur)
+            .opacity(projection.opacity)
+#if COPIED_TESTING
+            .onChange(of: projection, initial: true) {
+                guard presentation.owner == owner else { return }
+                presentation.testingEntranceProjection = projection
+            }
+#endif
+    }
+}
+
 extension View {
     /// Toast 入场弹性动画 + 旧系统材质延迟激活。
     @ViewBuilder
@@ -915,17 +997,21 @@ extension View {
         fallbackMaterialReady: Binding<Bool>,
         reduceMotion: Bool,
         style: ToastEntranceStyle,
+        presentation: ToastCopyComboPresentation,
+        owner: Int,
+        startsVisible: Bool,
+        hasCopyCombo: Bool,
         onDismiss: @escaping () -> Void
     ) -> some View {
         let usesStandardMotion = style == .standard
         self
-            .scaleEffect(animateIn.wrappedValue || !usesStandardMotion ? 1 : 0.2)
-            .offset(y: animateIn.wrappedValue || !usesStandardMotion ? 0 : -56)
-            .blur(radius: animateIn.wrappedValue || !usesStandardMotion ? 0 : 12)
-            .opacity(animateIn.wrappedValue || style == .replay ? 1 : 0)
+            .modifier(ToastEntranceMotion(
+                progress: animateIn.wrappedValue ? 1 : 0, style: style,
+                presentation: presentation, owner: owner
+            ))
             .padding(.top, 20)
-            .padding(.bottom, 12)
-            .padding(.horizontal, 18)
+            .padding(.bottom, hasCopyCombo ? 44 : 12)
+            .padding(.horizontal, hasCopyCombo ? 48 : 18)
             .background {
                 Button(action: onDismiss) {
                     Color.clear
@@ -943,10 +1029,16 @@ extension View {
                 } else {
                     .easeOut(duration: 0.08)
                 }
-                withAnimation(animation) {
-                    animateIn.wrappedValue = true
+                if !presentation.entranceSuppressed {
+                    withAnimation(animation) {
+                        animateIn.wrappedValue = true
+                    }
                 }
                 if #available(macOS 26, *) { return }  // glassEffect 已处理，无需材质降级
+                if startsVisible {
+                    fallbackMaterialReady.wrappedValue = true
+                    return
+                }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
                     withAnimation(.easeInOut(duration: 0.15)) {
                         fallbackMaterialReady.wrappedValue = true

@@ -1,6 +1,27 @@
 {
   "sourceLanguage": "zh-Hans",
   "strings": {
+    "连击彩蛋": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Copy combo effect" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "连击彩蛋" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "連擊彩蛋" } }
+      }
+    },
+    "连击×%lld": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Combo ×%1$lld" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "连击×%1$lld" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "連擊×%1$lld" } }
+      }
+    },
+    "连续复制 %lld 次": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Copied the same content %1$lld times" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "连续复制 %1$lld 次" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "連續複製 %1$lld 次" } }
+      }
+    },
     "重现上一个弹窗": {
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Show Last Popup Again" } },

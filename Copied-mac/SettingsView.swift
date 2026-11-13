@@ -18,6 +18,7 @@ struct SettingsView: View {
     // ── Launch at Login ────────────────────────────────────
     @AppStorage("launchAtLogin") private var launchAtLogin = false
     @AppStorage("lightReminderEnabled") private var lightReminderEnabled = false
+    @AppStorage(ClipboardCopyCombo.enabledKey) private var copyComboEnabled = true
     @AppStorage(PopupPresentationPreferences.modeKey)
     private var popupPresentationMode = PopupPresentationMode.all.rawValue
     @AppStorage(CopySoundFeedback.defaultsKey)
@@ -218,6 +219,7 @@ struct SettingsView: View {
                                 .foregroundStyle(.secondary)
                         }
                         .padding(.top, 4)
+                        Toggle("连击彩蛋", isOn: $copyComboEnabled)
                     } label: {
                         Button {
                             withAnimation {

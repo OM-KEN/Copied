@@ -5,6 +5,7 @@ TEST_BUILD_DIR=".build/tests"
 mkdir -p "$TEST_BUILD_DIR"
 
 swiftc -O -parse-as-library \
+    ClipboardCopyCombo.swift \
     ClipboardPipeline.swift \
     PluginActionTemplate.swift \
     ContentKind.swift \
@@ -37,8 +38,10 @@ swiftc -O -parse-as-library \
 "$TEST_BUILD_DIR/ClipboardPipelineTests"
 
 swiftc -O -parse-as-library \
+    ClipboardCopyCombo.swift \
     ClipboardPipeline.swift \
     ClipboardContentEnrichment.swift \
+    -D COPIED_TESTING \
     Tests/ClipboardBaseReaderTests.swift \
     -framework AppKit \
     -framework CoreGraphics \
@@ -223,6 +226,7 @@ swiftc -O -parse-as-library \
 
 swiftc -O -parse-as-library \
     ClipboardPipeline.swift \
+    ClipboardCopyCombo.swift \
     ClipboardTextPolicy.swift \
     ToastCommand.swift \
     ToastPanel.swift \
@@ -238,6 +242,14 @@ swiftc -O -parse-as-library \
     Tests/PopupPresentationSettingsTests.swift \
     -o "$TEST_BUILD_DIR/PopupPresentationSettingsTests"
 "$TEST_BUILD_DIR/PopupPresentationSettingsTests"
+
+swiftc -O -parse-as-library \
+    ClipboardCopyCombo.swift \
+    ClipboardPipeline.swift \
+    Tests/ClipboardCopyComboTests.swift \
+    -D COPIED_TESTING \
+    -o "$TEST_BUILD_DIR/ClipboardCopyComboTests"
+"$TEST_BUILD_DIR/ClipboardCopyComboTests"
 
 swiftc -O -D COPIED_TESTING -parse-as-library \
     *.swift Detectors/*.swift Tests/AppBehaviorTests.swift \
