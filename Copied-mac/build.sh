@@ -64,6 +64,7 @@ SOURCES=(
     CopiedApp.swift
     AppFilterSettings.swift
     ClipboardTextPolicy.swift
+    ClipboardPollingPolicy.swift
     PopupPresentationSettings.swift
     PopupFilterSettingsView.swift
     CopySoundFeedback.swift

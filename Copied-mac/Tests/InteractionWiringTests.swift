@@ -261,7 +261,7 @@ struct InteractionWiringTests {
         )
         expect(
             toastControllerSource.contains("private let startupNoticeDuration: TimeInterval = 1.0")
-                && toastControllerSource.contains("guard !isDismissing, pausesDismissWhileHovered else { return }")
+                && toastControllerSource.contains("guard !isDismissing, !isExpandingOrCollapsing, pausesDismissWhileHovered else { return }")
                 && toastControllerSource.contains("self.dismissTimerGeneration == generation")
                 && toastControllerSource.contains("self.dismissGeneration == gen")
                 && toastControllerSource.contains("self.releasePresentation()")
@@ -499,15 +499,11 @@ struct InteractionWiringTests {
             "clipboard diagnostics never interpolate raw clipboard text"
         )
         expect(
-            clipboardSource.contains("firstResponsePollInterval: TimeInterval = 0.025")
-                && clipboardSource.contains("steadyStatePollInterval: TimeInterval = 0.075")
-                && clipboardSource.contains(
-                    "scheduleTimer(withTimeInterval: firstResponsePollInterval)"
-                )
-                && clipboardSource.contains(
-                    "scheduleTimer(withTimeInterval: steadyStatePollInterval)"
-                ),
-            "clipboard polling boosts the first response before returning to the 75ms interval"
+            clipboardSource.contains("scheduleTimer(withTimeInterval: ClipboardPollingPolicy.firstResponseInterval)")
+                && clipboardSource.contains("updatePollingSchedule(at:")
+                && clipboardSource.contains("pollingPolicy.interval(")
+                && clipboardSource.contains("removePollingActivityObservers()"),
+            "clipboard polling applies the activity policy and stops its activity observers"
         )
         expect(
             enrichmentSource.contains("LitheClipboardMetadata(pasteboard: pasteboard)"),
@@ -516,11 +512,11 @@ struct InteractionWiringTests {
         expect(
             appearsInOrder(
                 [
-                    "AppFilterSettings.shared.shouldShowPopup",
+                    "filterSettings.shouldShowPopup",
                     "candidateDecision != .allDenied",
                     "toastController?.showPending",
                     "return session",
-                    "CopySoundFeedback.play(selection:",
+                    "soundPlayback(selection)",
                     "tryPresentLowInterruption(session: session)",
                 ],
                 in: clipboardSource

@@ -71,7 +71,7 @@ enum InstantClipboardFeedbackTests {
         }
         let preFirstFrame = String(begin[..<pending.lowerBound])
         let prohibited = [
-            ".types", ".pasteboardItems", "data(forType:", "resourceValues",
+            ".pasteboardItems", "data(forType:", "resourceValues",
             "DetectionRegistry.shared.detectAll", "ActionResolver.resolve",
             "visualHashValue", "CGImageSource", "generateThumbnail",
             "SourceAppDetector.detect(",
@@ -82,6 +82,9 @@ enum InstantClipboardFeedbackTests {
                 "pre-first-frame access count for \(token) was not zero"
             )
         }
+        try expect(preFirstFrame.contains("ClipboardPrivacyPolicy.disposition(for: pasteboard.types")
+                   && preFirstFrame.contains("guard pasteboard.changeCount == revision.changeCount"),
+                   "the first frame lacks revision-checked privacy metadata screening")
         try expect(
             !preFirstFrame.contains("DispatchQueue.main.async"),
             "Pending was deferred to a second main-queue turn"
@@ -469,7 +472,7 @@ enum InstantClipboardFeedbackTests {
         let cancelHelper = try section(
             controller,
             from: "private func cancelResourcesForCurrentRevision()",
-            to: "private func isMouseInsideWindow"
+            to: "private func isMouseInsideCard"
         )
         try expect(cancelHelper.contains("resourcesCancelledRevision != revision")
                    && cancelHelper.contains("onRevisionResourcesShouldCancel?(revision)"),

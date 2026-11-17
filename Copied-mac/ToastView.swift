@@ -359,6 +359,7 @@ struct ToastView: View {
     let onNeedsLayout: (() -> Void)?
 
     @State private var animateIn = false
+    @State private var fadeIn = false
     @State private var isActionButtonHovered = false
     @State private var isActionButtonPressed = false
     @State private var hoverDebounceTask: Task<Void, Never>?
@@ -647,11 +648,16 @@ struct ToastView: View {
                     .stroke(.primary.opacity(0.15), lineWidth: 0.8)
             }
         }
+        .onHover { hovering in
+            isCardHovered = hovering
+            onHoverChanged(hovering)
+        }
         .modifier(ToastCopyComboEffect(
             presentation: copyComboPresentation, reduceMotion: reduceMotion, owner: copyComboOwner
         ))
         .entranceAnimation(
             animateIn: $animateIn,
+            fadeIn: $fadeIn,
             fallbackMaterialReady: $fallbackMaterialReady,
             reduceMotion: reduceMotion,
             style: entranceStyle,
@@ -661,10 +667,6 @@ struct ToastView: View {
             hasCopyCombo: copyComboPresentation.hasEcho,
             onDismiss: { onCommand(.dismiss) }
         )
-        .onHover { hovering in
-            isCardHovered = hovering
-            onHoverChanged(hovering)
-        }
         .coordinateSpace(name: "ToastRoot")
         .contextMenu {
             if viewModel.isContentReady {
@@ -679,13 +681,24 @@ struct ToastView: View {
             onNeedsLayout?()
         }
         .onChange(of: reduceMotion) {
-            if reduceMotion { copyComboPresentation.motionActive = false }
+            if reduceMotion {
+                copyComboPresentation.motionActive = false
+                var transaction = Transaction(animation: nil)
+                transaction.disablesAnimations = true
+                withTransaction(transaction) {
+                    animateIn = true
+                    fadeIn = true
+                }
+            }
         }
         .onChange(of: copyComboPresentation.entranceSuppressed) {
             if copyComboPresentation.entranceSuppressed {
                 var transaction = Transaction(animation: nil)
                 transaction.disablesAnimations = true
-                withTransaction(transaction) { animateIn = false }
+                withTransaction(transaction) {
+                    animateIn = false
+                    fadeIn = false
+                }
             }
         }
         .onChange(of: copyComboPresentation.entranceTrigger) {
@@ -698,6 +711,9 @@ struct ToastView: View {
                 .easeOut(duration: 0.08)
             }
             withAnimation(animation) { animateIn = true }
+            let fadeAnimation: Animation? = reduceMotion || entranceStyle == .replay
+                ? nil : .easeOut(duration: entranceStyle == .standard ? 0.1 : 0.08)
+            withAnimation(fadeAnimation) { fadeIn = true }
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(accessibilityStatus)
@@ -966,10 +982,10 @@ struct ToastEntranceMotion: ViewModifier, Animatable {
         guard !presentation.entranceSuppressed, style != .replay else { return .identity }
         let standard = style == .standard
         return ToastEntranceProjection(
-            scale: standard ? 0.2 + 0.8 * progress : 1,
-            offsetY: standard ? -56 * (1 - progress) : 0,
+            scale: standard ? 0.5 + 0.5 * progress : 1,
+            offsetY: standard ? -16 * (1 - progress) : 0,
             blur: standard ? max(0, 12 * (1 - progress)) : 0,
-            opacity: Double(progress)
+            opacity: 1
         )
     }
 
@@ -979,11 +995,43 @@ struct ToastEntranceMotion: ViewModifier, Animatable {
             .scaleEffect(projection.scale)
             .offset(y: projection.offsetY)
             .blur(radius: projection.blur)
-            .opacity(projection.opacity)
 #if COPIED_TESTING
             .onChange(of: projection, initial: true) {
                 guard presentation.owner == owner else { return }
-                presentation.testingEntranceProjection = projection
+                presentation.testingEntranceProjection = ToastEntranceProjection(
+                    scale: projection.scale, offsetY: projection.offsetY, blur: projection.blur,
+                    opacity: presentation.testingEntranceProjection.opacity
+                )
+            }
+#endif
+    }
+}
+
+struct ToastEntranceFade: ViewModifier, Animatable {
+    var progress: CGFloat
+    let style: ToastEntranceStyle
+    let presentation: ToastCopyComboPresentation
+    let owner: Int
+
+    var animatableData: CGFloat {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    var opacity: Double {
+        guard !presentation.entranceSuppressed, style != .replay else { return 1 }
+        return Double(min(max(progress, 0), 1))
+    }
+
+    func body(content: Content) -> some View {
+        content.opacity(opacity)
+#if COPIED_TESTING
+            .onChange(of: opacity, initial: true) {
+                guard presentation.owner == owner else { return }
+                let motion = presentation.testingEntranceProjection
+                presentation.testingEntranceProjection = ToastEntranceProjection(
+                    scale: motion.scale, offsetY: motion.offsetY, blur: motion.blur, opacity: opacity
+                )
             }
 #endif
     }
@@ -994,6 +1042,7 @@ extension View {
     @ViewBuilder
     fileprivate func entranceAnimation(
         animateIn: Binding<Bool>,
+        fadeIn: Binding<Bool>,
         fallbackMaterialReady: Binding<Bool>,
         reduceMotion: Bool,
         style: ToastEntranceStyle,
@@ -1009,9 +1058,13 @@ extension View {
                 progress: animateIn.wrappedValue ? 1 : 0, style: style,
                 presentation: presentation, owner: owner
             ))
-            .padding(.top, 20)
-            .padding(.bottom, hasCopyCombo ? 44 : 12)
-            .padding(.horizontal, hasCopyCombo ? 48 : 18)
+            .modifier(ToastEntranceFade(
+                progress: fadeIn.wrappedValue ? 1 : 0, style: style,
+                presentation: presentation, owner: owner
+            ))
+            .padding(.top, ToastCardLayoutMetrics.topOutset)
+            .padding(.bottom, ToastCardLayoutMetrics.bottomOutset(hasCopyCombo: hasCopyCombo))
+            .padding(.horizontal, ToastCardLayoutMetrics.horizontalOutset(hasCopyCombo: hasCopyCombo))
             .background {
                 Button(action: onDismiss) {
                     Color.clear
@@ -1032,6 +1085,11 @@ extension View {
                 if !presentation.entranceSuppressed {
                     withAnimation(animation) {
                         animateIn.wrappedValue = true
+                    }
+                    let fadeAnimation: Animation? = reduceMotion || style == .replay
+                        ? nil : .easeOut(duration: usesStandardMotion ? 0.1 : 0.08)
+                    withAnimation(fadeAnimation) {
+                        fadeIn.wrappedValue = true
                     }
                 }
                 if #available(macOS 26, *) { return }  // glassEffect 已处理，无需材质降级

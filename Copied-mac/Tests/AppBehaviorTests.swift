@@ -127,7 +127,9 @@ private final class ToastTransitionTestRunner: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.activate(ignoringOtherApps: true)
         Task { @MainActor in
-            if CommandLine.arguments.contains("--held-repeat-native") {
+            if CommandLine.arguments.contains("--toast-ui-native") {
+                await verifyEntranceFade()
+            } else if CommandLine.arguments.contains("--held-repeat-native") {
                 await verifyHeldRepeatedRevisions()
             } else if CommandLine.arguments.contains("--combo-cycle-native") {
                 await verifyCompleteComboCycle()
@@ -142,8 +144,88 @@ private final class ToastTransitionTestRunner: NSObject, NSApplicationDelegate {
     }
 
     @MainActor
+    private func verifyEntranceFade() async {
+        let fixture = ReplayFixture()
+        let controller = fixture.controller
+        controller.show(content: fixture.content(), source: fixture.source)
+        expect(controller.testingEntranceStyle == .standard, "fresh card skipped the ordinary entrance")
+        try? await Task.sleep(for: .milliseconds(160))
+        let projection = controller.testingCopyCombo.testingEntranceProjection
+        expect(abs(projection.opacity - 1) < 0.001,
+               "ordinary card opacity was still following the spring after its 100ms fade")
+        if !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            expect(abs(projection.scale - 1) > 0.005,
+                   "the independent opacity fade shortened the ordinary entrance spring")
+        }
+        controller.dismissToast(animated: false)
+        await verifyEntranceFitsPanel()
+    }
+
+    @MainActor
+    private func verifyEntranceFitsPanel() async {
+        for variant in ["reminder", "text", "thumbnail"] {
+            let fixture = ReplayFixture()
+            let controller = fixture.controller
+            var content = fixture.content(text: "Synthetic entrance boundary")
+            if variant == "thumbnail" {
+                content.thumbnail = NSImage(size: NSSize(width: 64, height: 64))
+            }
+            if variant == "reminder" { controller.showReminder(revision: content.revision) }
+            else { controller.show(content: content, source: fixture.source) }
+            guard let window = controller.testingWindow,
+                  let hosting = window.contentView?.subviews.first,
+                  let screen = controller.testingPresentationScreen else {
+                fatalError("entrance boundary test has no native panel geometry")
+            }
+            let cardInHosting = ToastCardLayoutMetrics.cardFrame(
+                in: hosting.bounds, isFlipped: hosting.isFlipped, hasCopyCombo: false
+            )
+            let card = window.convertToScreen(hosting.convert(cardInHosting, to: nil))
+            let initial = ToastEntranceMotion(
+                progress: 0, style: .standard, presentation: controller.testingCopyCombo,
+                owner: controller.testingCopyCombo.owner
+            ).projection
+            verifyEntranceBounds(initial, card: card, panel: window.frame, screen: screen.frame)
+            var visibleShrinkingFrames = 0
+            var visibleCenters: [CGFloat] = []
+            let deadline = ProcessInfo.processInfo.systemUptime + 0.16
+            while ProcessInfo.processInfo.systemUptime < deadline {
+                try? await Task.sleep(for: .milliseconds(8))
+                let projection = controller.testingCopyCombo.testingEntranceProjection
+                verifyEntranceBounds(projection, card: card, panel: window.frame, screen: screen.frame)
+                if projection.opacity > 0.01 && projection.scale < 0.99 {
+                    visibleShrinkingFrames += 1
+                    visibleCenters.append(card.midY - projection.offsetY)
+                }
+            }
+            if !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+                expect(visibleShrinkingFrames >= 2,
+                       "entrance boundary test missed the visible first frames of the production spring")
+                expect(visibleCenters.first! > visibleCenters.last!,
+                       "ordinary entrance lost its downward center movement")
+            }
+            controller.dismissToast(animated: false)
+        }
+    }
+
+    private func verifyEntranceBounds(
+        _ projection: ToastEntranceProjection, card: NSRect, panel: NSRect, screen: NSRect
+    ) {
+        let body = NSRect(
+            x: card.midX - card.width * projection.scale / 2,
+            y: card.midY - card.height * projection.scale / 2 - projection.offsetY,
+            width: card.width * projection.scale, height: card.height * projection.scale
+        )
+        expect(panel.insetBy(dx: -0.75, dy: -0.75).contains(body),
+               "ordinary entrance body crossed the native panel boundary")
+        expect(screen.insetBy(dx: -0.75, dy: -0.75).contains(body),
+               "ordinary entrance body crossed the selected screen boundary")
+    }
+
+    @MainActor
     private func verifyTransitions() async {
         expect(NSApp.isRunning, "transition tests require a running native AppKit application")
+        await verifyEntranceFade()
         let fixture = ReplayFixture()
         let controller = fixture.controller
         let probe = ToastHostingView(rootView: AnyView(ExpandedBottomBarControlsView(
@@ -674,6 +756,24 @@ private struct ActionLayoutSample {
 @main
 struct AppBehaviorTests {
     static func main() throws {
+        if CommandLine.arguments.contains("--review-monitor") {
+            _ = NSApplication.shared
+            protectedClipboardRevisions()
+            protectedLateReadsCannotReviveContent()
+            unrelatedDefaultsRetainCopyReuse()
+            adaptivePollingStopsWithMonitor()
+            print("ReviewMonitorTests: PASS")
+            return
+        }
+        if CommandLine.arguments.contains("--toast-ui") {
+            toastScreenFollowsCursorGeometry()
+            toastHoverExcludesTransparentPadding()
+            try reminderRejectsCopiedContent()
+            closingReminderPreservesCopySoundWork()
+            copyComboUsesOnlyResidualMotion()
+            print("ToastUITests: PASS")
+            return
+        }
         if CommandLine.arguments.contains("--combo-cycle") {
             copyComboHeldRevisionsKeepMoving()
             copyComboRetargetsEveryConfirmedCopy()
@@ -694,7 +794,8 @@ struct AppBehaviorTests {
         }
         if CommandLine.arguments.contains("--toast-transitions") || CommandLine.arguments.contains("--combo-exit")
             || CommandLine.arguments.contains("--combo-cycle-native")
-            || CommandLine.arguments.contains("--held-repeat-native") {
+            || CommandLine.arguments.contains("--held-repeat-native")
+            || CommandLine.arguments.contains("--toast-ui-native") {
             let app = NSApplication.shared
             let runner = ToastTransitionTestRunner()
             app.setActivationPolicy(.accessory)
@@ -707,6 +808,12 @@ struct AppBehaviorTests {
             settingsMenuUsesNativeOpener()
         }
         pauseControlsMonitorLifetime()
+        protectedClipboardRevisions()
+        protectedLateReadsCannotReviveContent()
+        unrelatedDefaultsRetainCopyReuse()
+        adaptivePollingStopsWithMonitor()
+        toastScreenFollowsCursorGeometry()
+        toastHoverExcludesTransparentPadding()
         try reminderRejectsCopiedContent()
         closingReminderPreservesCopySoundWork()
         copyComboPreservesWindowAndContentContracts()
@@ -746,6 +853,187 @@ struct AppBehaviorTests {
         replayBudgetResultOverflowReleasesAndCannotRevive()
         try replayBudgetCountsThumbnailRepresentations()
         print("AppBehaviorTests: PASS")
+    }
+
+    private static func protectedClipboardRevisions() {
+        let markers = [
+            ("org.nspasteboard.ConcealedType", true),
+            ("com.agilebits.onepassword", true),
+            ("org.nspasteboard.TransientType", false),
+            ("org.nspasteboard.AutoGeneratedType", false),
+        ]
+        for (marker, concealed) in markers {
+            let fixture = ReplayFixture()
+            var sounds: [String] = []
+            let monitor = ClipboardMonitor(
+                toastController: fixture.controller, defaults: fixture.defaults,
+                filterSettings: fixture.filter, soundPlayback: { sounds.append($0) }
+            )
+            let oldContent = fixture.content(1)
+            fixture.controller.show(content: oldContent, source: fixture.source)
+            expect(fixture.store.canReplay, "privacy fixture did not create its old snapshot")
+            let board = NSPasteboard.withUniqueName()
+            defer { board.releaseGlobally() }
+            let item = NSPasteboardItem()
+            item.setString("Synthetic concealed fixture", forType: .string)
+            item.setData(Data(), forType: .init(marker))
+            board.writeObjects([item])
+            let revision = ClipboardRevision(generation: 2, changeCount: board.changeCount)
+            expect(monitor.testingBeginCopy(revision, source: fixture.source, pasteboard: board) == nil,
+                   "protected revision started a base read")
+            expect(!fixture.store.canReplay && !fixture.controller.testingCopyCombo.hasEcho,
+                   "protected revision retained a snapshot or copy combo")
+            if concealed {
+                let model = fixture.controller.testingViewModel
+                expect(model.isReminderNotice && model.revision == revision
+                       && model.previewText == String(localized: "已复制（内容已隐藏）")
+                       && model.rawContent == nil && model.sourceAppName.isEmpty
+                       && model.primaryAction == nil && model.menuActions.isEmpty,
+                       "concealed confirmation exposed content, source, or an action")
+                expect(sounds == [CopySoundFeedback.defaultSoundName],
+                       "concealed confirmation did not use a single configured sound")
+            } else {
+                expect(fixture.controller.testingWindow == nil && sounds.isEmpty,
+                       "transient or generated revision presented visual or sound feedback")
+            }
+            fixture.controller.applyBaseContent(oldContent, source: fixture.source, revision: oldContent.revision)
+            fixture.controller.showFailure(revision: oldContent.revision)
+            expect(!fixture.store.canReplay, "late old content revived a protected snapshot")
+        }
+
+        let fixture = ReplayFixture()
+        var sounds: [String] = []
+        fixture.defaults.set(true, forKey: "lightReminderEnabled")
+        fixture.defaults.set(LightReminderStyle.topCard.rawValue, forKey: LightReminderStyle.defaultsKey)
+        let monitor = ClipboardMonitor(
+            toastController: fixture.controller, defaults: fixture.defaults,
+            filterSettings: fixture.filter, soundPlayback: { sounds.append($0) }
+        )
+        monitor.testingObserveDefaults()
+        let board = NSPasteboard.withUniqueName()
+        defer { board.releaseGlobally() }
+        board.setData(Data(), forType: .init("org.nspasteboard.ConcealedType"))
+        let revision = ClipboardRevision(generation: 3, changeCount: board.changeCount)
+        expect(monitor.testingBeginCopy(revision, source: fixture.source, pasteboard: board) == nil,
+               "concealed reminder started reading")
+        expect(fixture.controller.testingViewModel.isReminderNotice
+               && fixture.controller.testingViewModel.previewText == String(localized: "已复制（内容已隐藏）"),
+               "concealed copy lost the selected top-card reminder style")
+        fixture.controller.dismissToast(animated: false)
+        fixture.filter.addToBlocked(.init(bundleID: fixture.source.bundleIdentifier!, displayName: "Synthetic blocked"))
+        sounds.removeAll()
+        expect(monitor.testingBeginCopy(revision, source: fixture.source, pasteboard: board) == nil
+               && fixture.controller.testingWindow == nil && sounds.isEmpty,
+               "source blacklist did not precede protected confirmation")
+    }
+
+    private static func protectedLateReadsCannotReviveContent() {
+        let fixture = ReplayFixture()
+        var sounds: [String] = []
+        let monitor = ClipboardMonitor(
+            toastController: fixture.controller, defaults: fixture.defaults,
+            filterSettings: fixture.filter, soundPlayback: { sounds.append($0) }
+        )
+        let board = NSPasteboard.withUniqueName()
+        defer { board.releaseGlobally() }
+        board.setData(Data(), forType: .init("org.nspasteboard.ConcealedType"))
+        let revision = ClipboardRevision(generation: 4, changeCount: board.changeCount)
+        // Simulate a marker that became available after the synchronous type snapshot.
+        let session = monitor.testingBeginCopy(revision, source: fixture.source)!
+        let outcome = readBaseOnWorker(session: session, pasteboard: board)
+        monitor.testingFinishCopy(outcome, session: session)
+        monitor.testingFinishCopy(outcome, session: session)
+        monitor.testingFinishCopy(.unreadable(revision: revision), session: session)
+        expect(!session.accepts(revision) && sounds.count == 1
+               && fixture.controller.testingViewModel.isReminderNotice
+               && fixture.controller.testingViewModel.rawContent == nil && !fixture.store.canReplay,
+               "late protected terminal retried, replayed sound, or exposed content")
+
+        board.clearContents()
+        board.setString("Synthetic ordinary successor", forType: .string)
+        let next = ClipboardRevision(generation: 5, changeCount: board.changeCount)
+        let successor = monitor.testingBeginCopy(next, source: fixture.source, pasteboard: board)!
+        monitor.testingFinishCopy(readBaseOnWorker(session: successor, pasteboard: board), session: successor)
+        monitor.testingFinishCopy(outcome, session: session)
+        expect(fixture.controller.testingViewModel.revision == next
+               && fixture.controller.testingViewModel.isContentReady && sounds.count == 2,
+               "protected callback replaced or silenced an ordinary successor")
+        monitor.stop()
+    }
+
+    private static func unrelatedDefaultsRetainCopyReuse() {
+        struct ReplacementDetector: ContentDetectorProtocol {
+            let label: String
+            var kind: ContentKind {
+                ContentKind(id: "test.review-replacement", category: .entity,
+                            source: .plugin("test.review-replacement"), label: label, icon: "link")
+            }
+            let priority = 10_000
+            func detect(in text: String) -> ContentDetection? { nil }
+        }
+        let original = ReplacementDetector(label: "Synthetic original plugin")
+        DetectionRegistry.shared.register(original)
+        defer { DetectionRegistry.shared.unregister(kind: original.kind) }
+        let fixture = ReplayFixture()
+        fixture.defaults.set([original.kind.id], forKey: "installedPlugins")
+        let monitor = ClipboardMonitor(toastController: fixture.controller, defaults: fixture.defaults,
+                                       filterSettings: fixture.filter)
+        monitor.testingObserveDefaults()
+        let board = NSPasteboard.withUniqueName()
+        defer { board.releaseGlobally() }
+        var visibleIdentity: ClipboardCopyIdentity?
+        for generation in 1...3 {
+            let (content, identity) = comboRead(board, generation: UInt64(generation), text: "Synthetic reuse settings")
+            fixture.controller.observeCopyRevision(content.revision)
+            fixture.controller.showPending(revision: content.revision, source: fixture.source)
+            fixture.controller.applyBaseContent(content, source: fixture.source, revision: content.revision,
+                                                copyIdentity: identity)
+            fixture.controller.confirmCopyIdentity(identity, revision: content.revision)
+            visibleIdentity = identity
+        }
+        let identity = visibleIdentity!
+        expect(fixture.controller.contentForCopyReuse(matching: identity) != nil,
+               "notification fixture did not prepare reusable content")
+        fixture.defaults.set("Synthetic frame", forKey: "NSWindow Frame SyntheticReview")
+        NotificationCenter.default.post(name: UserDefaults.didChangeNotification, object: fixture.defaults)
+        fixture.defaults.set("Tink", forKey: CopySoundFeedback.defaultsKey)
+        NotificationCenter.default.post(name: UserDefaults.didChangeNotification, object: fixture.defaults)
+        expect(fixture.controller.contentForCopyReuse(matching: identity) != nil
+               && fixture.controller.testingCopyCombo.count == 3,
+               "unrelated or sound-only settings invalidated content reuse")
+        DetectionRegistry.shared.register(ReplacementDetector(label: "Synthetic replacement plugin"))
+        expect(fixture.controller.contentForCopyReuse(matching: identity) == nil
+               && !fixture.controller.testingCopyCombo.hasEcho,
+               "replacing an installed plugin retained its stale recognition and action")
+
+        let (content, nextIdentity) = comboRead(board, generation: 4, text: "Synthetic reuse settings")
+        fixture.controller.show(content: content, source: fixture.source)
+        fixture.controller.observeCopyRevision(content.revision)
+        fixture.controller.confirmCopyIdentity(nextIdentity, revision: content.revision)
+        fixture.defaults.set(false, forKey: PopupPresentationPreferences.showImagesKey)
+        NotificationCenter.default.post(name: UserDefaults.didChangeNotification, object: fixture.defaults)
+        expect(fixture.controller.contentForCopyReuse(matching: nextIdentity) == nil
+               && !fixture.controller.testingCopyCombo.hasEcho,
+               "presentation policy changes did not invalidate reuse")
+    }
+
+    private static func adaptivePollingStopsWithMonitor() {
+        let fixture = ReplayFixture()
+        let monitor = ClipboardMonitor(toastController: fixture.controller, defaults: fixture.defaults)
+        monitor.start()
+        expect(monitor.testingPollingInterval == ClipboardPollingPolicy.firstResponseInterval,
+               "monitor did not start with its first-response interval")
+        NotificationCenter.default.post(name: .copiedCopyRequested, object: nil)
+        expect(monitor.testingPollingInterval == ClipboardPollingPolicy.acceleratedInterval,
+               "known synthetic copy did not accelerate production polling")
+        monitor.stop()
+        NotificationCenter.default.post(name: .copiedCopyRequested, object: nil)
+        expect(!monitor.isRunning && monitor.testingPollingInterval == nil,
+               "a copy hint revived polling after pause")
+        monitor.start()
+        expect(monitor.testingPollingInterval == ClipboardPollingPolicy.firstResponseInterval,
+               "resuming retained an old activity acceleration")
+        monitor.stop()
     }
 
     fileprivate static func comboRead(
@@ -1144,12 +1432,21 @@ struct AppBehaviorTests {
         }
         let presentation = ToastCopyComboPresentation()
         let ordinary = ToastEntranceMotion(progress: 0.25, style: .standard, presentation: presentation, owner: 0)
-        expect(ordinary.projection.scale < 1 && ordinary.projection.offsetY < 0
-               && ordinary.projection.blur > 0 && ordinary.projection.opacity == 0.25,
+        let initial = ToastEntranceMotion(progress: 0, style: .standard, presentation: presentation, owner: 0)
+        expect(initial.projection.scale == 0.5 && initial.projection.offsetY == -16
+               && initial.projection.blur == 12,
+               "ordinary entrance changed its scale origin, travel, or blur")
+        expect(ToastEntranceMotion(progress: 1, style: .standard, presentation: presentation,
+                                   owner: 0).projection == .identity,
+               "ordinary entrance changed its final scale, position, or blur")
+        let fade = ToastEntranceFade(progress: 1, style: .standard, presentation: presentation, owner: 0)
+        expect(ordinary.projection.scale == 0.625 && ordinary.projection.offsetY == -12
+               && ordinary.projection.blur > 0 && fade.opacity == 1,
                "the ordinary entrance lost its spring projection")
         let rapid = ToastEntranceMotion(progress: 0.25, style: .rapidReplacement, presentation: presentation, owner: 0)
+        let rapidFade = ToastEntranceFade(progress: 0.25, style: .rapidReplacement, presentation: presentation, owner: 0)
         expect(rapid.projection.scale == 1 && rapid.projection.offsetY == 0
-               && rapid.projection.blur == 0 && rapid.projection.opacity == 0.25,
+               && rapid.projection.blur == 0 && rapidFade.opacity == 0.25,
                "ordinary rapid replacement lost its existing fade")
         presentation.activate(hit, reduceMotion: false)
         for progress in [CGFloat(0), 0.25, 0.9, 1.1] {
@@ -1158,10 +1455,16 @@ struct AppBehaviorTests {
                                                    presentation: presentation, owner: 0)
                 expect(entrance.projection == .identity,
                        "a confirmed combo retained an old spring or fade projection")
+                expect(ToastEntranceFade(progress: progress, style: style,
+                                        presentation: presentation, owner: 0).opacity == 1,
+                       "a confirmed combo retained an old opacity fade")
             }
         }
         presentation.clear()
         expect(ordinary.projection == .identity, "ending a combo resumed its superseded entrance")
+        expect(ToastEntranceFade(progress: 0, style: .standard,
+                                presentation: presentation, owner: 0).opacity == 1,
+               "ending a combo resumed its superseded opacity fade")
         let reduced = ToastCopyComboPresentation()
         reduced.activate(hit, reduceMotion: true)
         expect(reduced.count == 3 && reduced.entranceSuppressed && !reduced.motionActive && reduced.testingResponseCount == 0,
@@ -1658,6 +1961,107 @@ struct AppBehaviorTests {
         delegate.setPaused(true)
     }
 
+    private static func toastScreenFollowsCursorGeometry() {
+        let frames = [
+            NSRect(x: 0, y: 0, width: 1_920, height: 1_080),
+            NSRect(x: -1_280, y: 0, width: 1_280, height: 1_024),
+            NSRect(x: 1_920, y: 0, width: 1_600, height: 900),
+            NSRect(x: 0, y: 1_080, width: 1_440, height: 900),
+            NSRect(x: 0, y: -900, width: 1_440, height: 900),
+        ]
+        for (index, frame) in frames.enumerated() {
+            let point = NSPoint(x: frame.midX, y: frame.midY)
+            expect(ToastScreenSelection.index(at: point, frames: frames, fallbackIndex: 0) == index,
+                   "mouse-screen selection lost a side, negative-coordinate, or stacked display")
+        }
+        let gap = NSPoint(x: -2_000, y: -2_000)
+        expect(ToastScreenSelection.index(at: gap, frames: frames, fallbackIndex: 2) == 2,
+               "missing mouse display did not use the main-screen fallback")
+        expect(ToastScreenSelection.index(at: gap, frames: frames, fallbackIndex: nil) == nil
+               && ToastScreenSelection.index(at: gap, frames: frames, fallbackIndex: 8) == nil
+               && ToastScreenSelection.index(at: .zero, frames: [], fallbackIndex: 0) == nil,
+               "unavailable displays produced an invalid screen selection")
+        expect(ToastScreenSelection.retaining(nil) == NSScreen.main,
+               "a disconnected presentation has no main-screen fallback")
+    }
+
+    private static func toastHoverExcludesTransparentPadding() {
+        for hasCopyCombo in [false, true] {
+            let bounds = NSRect(x: 0, y: 0, width: 456, height: 180)
+            for isFlipped in [false, true] {
+                let card = ToastCardLayoutMetrics.cardFrame(
+                    in: bounds, isFlipped: isFlipped, hasCopyCombo: hasCopyCombo
+                )
+                expect(card.contains(NSPoint(x: card.midX, y: card.midY))
+                       && !card.contains(NSPoint(x: bounds.minX + 2, y: bounds.midY))
+                       && !card.contains(NSPoint(x: bounds.maxX - 2, y: bounds.midY))
+                       && !card.contains(NSPoint(x: bounds.midX, y: bounds.minY + 2))
+                       && !card.contains(NSPoint(x: bounds.midX, y: bounds.maxY - 2)),
+                       "card hover includes transparent ordinary/combo padding")
+            }
+        }
+
+        let fixture = ReplayFixture()
+        let controller = fixture.controller
+        controller.testingMouseLocation = NSPoint(x: -100_000, y: -100_000)
+        let firstRevision = ClipboardRevision(generation: 4_000, changeCount: 1)
+        controller.showReminder(revision: firstRevision)
+        guard let firstWindow = controller.testingWindow,
+              let hosting = firstWindow.contentView?.subviews.first else {
+            fatalError("synthetic hover card has no production window")
+        }
+        let card = ToastCardLayoutMetrics.cardFrame(
+            in: hosting.bounds, isFlipped: hosting.isFlipped, hasCopyCombo: false
+        )
+        let center = firstWindow.convertPoint(toScreen: hosting.convert(
+            NSPoint(x: card.midX, y: card.midY), to: nil
+        ))
+        let transparent = firstWindow.convertPoint(toScreen: hosting.convert(
+            NSPoint(x: hosting.bounds.midX, y: hosting.bounds.minY + 2), to: nil
+        ))
+        expect(controller.testingCardContains(center) && !controller.testingCardContains(transparent),
+               "production hover uses the outer window instead of the visible card")
+        let screen = controller.testingPresentationScreen
+        controller.updateWindowSize()
+        expect(controller.testingPresentationScreen == screen && controller.testingWindow === firstWindow,
+               "fitting replaced the presentation screen or its fullscreen-safe panel")
+
+        controller.testingMouseLocation = center
+        controller.showReminder(revision: ClipboardRevision(generation: 4_001, changeCount: 2))
+        expect(controller.testingDismissDeadline == nil,
+               "initial visible-card hover did not pause dismissal")
+        expect(controller.testingWindow !== firstWindow,
+               "a new presentation reused its previous fullscreen panel")
+        controller.testingMouseLocation = transparent
+        controller.showReminder(revision: ClipboardRevision(generation: 4_002, changeCount: 3))
+        expect(controller.testingDismissDeadline != nil,
+               "initial transparent-padding hover paused dismissal")
+
+        let content = fixture.content(4_003, text: "1+1")
+        controller.show(content: content, source: fixture.source)
+        guard let window = controller.testingWindow,
+              let contentHosting = window.contentView?.subviews.first else {
+            fatalError("synthetic inline hover card has no production window")
+        }
+        controller.testingMouseLocation = window.convertPoint(toScreen: contentHosting.convert(
+            NSPoint(x: contentHosting.bounds.midX, y: contentHosting.bounds.minY + 2), to: nil
+        ))
+        controller.applyActions(primary: CalculateAction(expression: "1+1"), menu: [], revision: content.revision)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        expect(controller.testingDismissDeadline != nil,
+               "action fitting treated transparent padding as a hover hold")
+        let visible = ToastCardLayoutMetrics.cardFrame(
+            in: contentHosting.bounds, isFlipped: contentHosting.isFlipped, hasCopyCombo: false
+        )
+        controller.testingMouseLocation = window.convertPoint(toScreen: contentHosting.convert(
+            NSPoint(x: visible.midX, y: visible.midY), to: nil
+        ))
+        controller.showInlineResult(displayText: "2", copyText: "2", revision: content.revision,
+                                    presentation: controller.resultPresentation(for: content.revision)!)
+        expect(controller.testingDismissDeadline == nil,
+               "an inline action ignored the visible-card hover hold")
+    }
+
     private static func reminderRejectsCopiedContent() throws {
         let pasteboard = NSPasteboard.withUniqueName()
         defer { pasteboard.releaseGlobally() }
@@ -1676,15 +2080,17 @@ struct AppBehaviorTests {
         model.resultOverlay = ResultOverlay(displayText: "Synthetic result", copyText: "Synthetic result")
         let action = SearchTextAction(text: "synthetic")
         model.applyActions(primary: action, menu: [action])
-        for revision in [oldRevision, ClipboardRevision(generation: 11, changeCount: 999)] {
-            model.configureReminderNotice(revision: revision)
+        for (index, hidesContent) in [false, true].enumerated() {
+            let revision = index == 0 ? oldRevision : ClipboardRevision(generation: 11, changeCount: 999)
+            model.configureReminderNotice(revision: revision, hidesContent: hidesContent)
             expect(!model.acceptsContentUpdate(revision: revision), "base read can overwrite reminder")
             expect(!model.acceptsContentUpdate(revision: oldRevision), "stale base read can overwrite reminder")
             model.applyEnrichment(content)
             model.applyActions(primary: action, menu: [action])
             model.showLoadingIfPending()
             model.configureFailure()
-            expect(model.phase == .reminder && model.previewText == String(localized: "已复制"),
+            let text = hidesContent ? String(localized: "已复制（内容已隐藏）") : String(localized: "已复制")
+            expect(model.phase == .reminder && model.previewText == text,
                    "late update changed generic reminder")
             expect(model.sourceAppName.isEmpty && model.sourceBundleID == nil && model.sourceAppIcon == nil,
                    "reminder leaked source identity")
@@ -1696,6 +2102,18 @@ struct AppBehaviorTests {
                    "reminder exposes expanded content or update")
             expect(model.iconSymbolName == "checkmark.circle.fill", "reminder lost generic icon")
         }
+        let fixture = ReplayFixture()
+        fixture.controller.showReminder(revision: oldRevision, hidesContent: true)
+        fixture.controller.applyBaseContent(content, source: source, revision: oldRevision)
+        fixture.controller.applyEnrichment(content, revision: oldRevision)
+        fixture.controller.applyActions(primary: action, menu: [action], revision: oldRevision)
+        fixture.controller.showFailure(revision: oldRevision)
+        expect(fixture.controller.testingViewModel.isReminderNotice
+               && fixture.controller.testingViewModel.previewText == String(localized: "已复制（内容已隐藏）")
+               && fixture.controller.testingViewModel.rawContent == nil
+               && fixture.controller.testingViewModel.primaryAction == nil
+               && !fixture.store.canReplay,
+               "hidden-content reminder accepted a late production update or replay snapshot")
         model.configurePending(revision: oldRevision, source: source)
         expect(model.acceptsContentUpdate(revision: oldRevision), "switching back to full card is blocked")
         model.configure(with: content, source: source)
@@ -1707,8 +2125,10 @@ struct AppBehaviorTests {
         let revision = ClipboardRevision(generation: 12, changeCount: 1000)
         var cancelled: [ClipboardRevision] = []
         controller.onRevisionResourcesShouldCancel = { cancelled.append($0) }
-        controller.showReminder(revision: revision)
-        controller.dismissSilently(revision: revision)
+        for hidesContent in [false, true] {
+            controller.showReminder(revision: revision, hidesContent: hidesContent)
+            controller.dismissSilently(revision: revision)
+        }
         expect(cancelled.isEmpty, "closing a reminder cancelled the base read and copy sound timeout")
 
         let source = SourceAppInfo(name: "Synthetic source", icon: nil, bundleIdentifier: "test.synthetic")
@@ -2238,6 +2658,9 @@ struct AppBehaviorTests {
             )
             expect(entrance.projection == .identity,
                    "replay regained a separate SwiftUI spring or opacity entrance")
+            expect(ToastEntranceFade(progress: progress, style: fixture.controller.testingEntranceStyle,
+                                    presentation: fixture.controller.testingCopyCombo, owner: 0).opacity == 1,
+                   "replay regained a separate SwiftUI opacity fade")
         }
     }
 

@@ -3,6 +3,7 @@ import Foundation
 
 protocol CopySoundPlaying: AnyObject {
     var volume: Float { get set }
+    var currentTime: TimeInterval { get set }
 
     func stop()
 
@@ -27,7 +28,7 @@ final class CopySoundPlaybackEngine: @unchecked Sendable {
 
     private let queue: DispatchQueue
     private let playerFactory: PlayerFactory
-    private var activePlayer: (any CopySoundPlaying)?
+    private var activeSound: (selection: String, player: any CopySoundPlaying)?
 
     init(
         queue: DispatchQueue = DispatchQueue(
@@ -46,22 +47,29 @@ final class CopySoundPlaybackEngine: @unchecked Sendable {
         let resolved = CopySoundFeedback.resolvedSelection(selection)
 
         queue.async { [self] in
-            activePlayer?.stop()
-            activePlayer = nil
+            activeSound?.player.stop()
+            if activeSound?.selection != resolved { activeSound = nil }
 
             guard resolved != CopySoundFeedback.disabledValue else { return }
 
-            let soundURL = URL(
-                fileURLWithPath: "/System/Library/Sounds",
-                isDirectory: true
-            )
-            .appendingPathComponent(resolved)
-            .appendingPathExtension("aiff")
+            let player: any CopySoundPlaying
+            if let activeSound {
+                player = activeSound.player
+            } else {
+                let soundURL = URL(
+                    fileURLWithPath: "/System/Library/Sounds",
+                    isDirectory: true
+                )
+                .appendingPathComponent(resolved)
+                .appendingPathExtension("aiff")
 
-            guard let player = try? playerFactory(soundURL) else { return }
+                guard let loadedPlayer = try? playerFactory(soundURL) else { return }
+                player = loadedPlayer
+                activeSound = (resolved, player)
+            }
+            player.currentTime = 0
             player.volume = CopySoundFeedback.playbackVolume
-            activePlayer = player
-            player.play()
+            if !player.play() { activeSound = nil }
         }
     }
 }

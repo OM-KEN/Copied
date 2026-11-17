@@ -50,6 +50,12 @@ swiftc -O -parse-as-library \
 "$TEST_BUILD_DIR/ClipboardBaseReaderTests"
 
 swiftc -O -parse-as-library \
+    ClipboardPollingPolicy.swift \
+    Tests/ClipboardPollingPolicyTests.swift \
+    -o "$TEST_BUILD_DIR/ClipboardPollingPolicyTests"
+"$TEST_BUILD_DIR/ClipboardPollingPolicyTests"
+
+swiftc -O -parse-as-library \
     Tests/InstantClipboardFeedbackTests.swift \
     -o "$TEST_BUILD_DIR/InstantClipboardFeedbackTests"
 "$TEST_BUILD_DIR/InstantClipboardFeedbackTests"

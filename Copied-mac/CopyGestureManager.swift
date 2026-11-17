@@ -82,6 +82,7 @@ final class CopyGestureManager {
     }
 
     private func simulateCommandC() {
+        NotificationCenter.default.post(name: .copiedCopyRequested, object: nil)
         for descriptor in CopyGestureEventSequence.commandC {
             guard let event = CGEvent(
                 keyboardEventSource: nil,

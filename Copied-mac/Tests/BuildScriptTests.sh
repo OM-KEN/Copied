@@ -32,6 +32,8 @@ export COPIED_BUILD_TEST_ROOT="$fixture"
 export PATH="$fixture/bin:$PATH"
 cd "$fixture"
 bash build.sh > build.log 2>&1
+[[ $(plutil -extract CFBundleShortVersionString raw .build/Copied.app/Contents/Info.plist) == 1.0.0 ]]
+[[ $(plutil -extract CFBundleVersion raw .build/Copied.app/Contents/Info.plist) == 1.0.0 ]]
 bash build.sh >> build.log 2>&1
 [[ $(wc -l < compilations) -eq 1 ]]
 printf 'changed icon\n' > "Copied.icon/Assets/nested/icon with spaces.svg"

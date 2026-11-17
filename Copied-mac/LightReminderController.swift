@@ -7,6 +7,7 @@ import SwiftUI
 /// macOS 26+ 用 `drawOff` 反向动画；旧系统降级为 opacity 淡入。
 private struct CheckmarkIcon: View {
     @State private var show = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         let icon = Image(systemName: "checkmark.app.fill")
@@ -15,7 +16,9 @@ private struct CheckmarkIcon: View {
             .foregroundStyle(.white, .blue)
 
         Group {
-            if #available(macOS 26, *) {
+            if reduceMotion {
+                icon
+            } else if #available(macOS 26, *) {
                 icon.symbolEffect(.drawOff, isActive: !show)
             } else {
                 icon.opacity(show ? 1 : 0)
@@ -23,7 +26,7 @@ private struct CheckmarkIcon: View {
             }
         }
         .onAppear {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            DispatchQueue.main.async {
                 show = true
             }
         }
@@ -67,7 +70,7 @@ final class LightReminderController {
     // MARK: - Window Creation
 
     private func createWindow(at cursor: NSPoint) {
-        guard let screen = screenContaining(cursor) else { return }
+        guard let screen = ToastScreenSelection.current() else { return }
         let frame = indicatorFrame(for: cursor, screen: screen)
 
         let w = NSWindow(
@@ -112,10 +115,6 @@ final class LightReminderController {
         x = max(vf.minX + 4, min(x, vf.maxX - size - 4))
         y = max(vf.minY + 4, min(y, vf.maxY - size - 4))
         return NSRect(x: x, y: y, width: size, height: size)
-    }
-
-    private func screenContaining(_ point: NSPoint) -> NSScreen? {
-        NSScreen.screens.first { NSMouseInRect(point, $0.frame, false) } ?? NSScreen.main
     }
 
     // MARK: - Dismiss

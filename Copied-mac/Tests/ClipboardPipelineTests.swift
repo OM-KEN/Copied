@@ -72,6 +72,7 @@ enum ClipboardPipelineTests {
         try testDirectoryOverflowAndTimeBudget()
         try testDirectorySizeFreshness()
         try testDirectorySizeCoordinator()
+        try testDirectoryTraversalCancellation()
         try testAdaptiveDirectoryCache()
         try testDirectoryObservationCancellation()
         try testDirectoryProgressReporting()
@@ -190,6 +191,13 @@ enum ClipboardPipelineTests {
         try expect(result.truncated, "oversized grapheme text was not truncated")
         try expect(result.text.utf16.count <= 65_536, "UTF-16 limit exceeded")
         try expect(!result.text.hasSuffix("‍"), "grapheme was split")
+        try expect(result.text == String(repeating: family, count: 65_536 / family.utf16.count),
+                   "UTF-16 truncation did not retain every complete family grapheme")
+
+        let combiningPrefix = String(repeating: "x", count: 65_535)
+        let combiningResult = ClipboardExpandedTextPolicy.displayText(for: combiningPrefix + "e\u{301}tail")
+        try expect(combiningResult.truncated && combiningResult.text == combiningPrefix,
+                   "UTF-16 truncation split a combining grapheme at the boundary")
 
         let lines = Array(repeating: "x", count: 5_000).joined(separator: "\n")
         let lineResult = ClipboardExpandedTextPolicy.displayText(for: lines)
@@ -202,6 +210,9 @@ enum ClipboardPipelineTests {
         let exactLines = Array(repeating: "x", count: 4_096).joined(separator: "\n")
         try expect(!ClipboardExpandedTextPolicy.displayText(for: exactLines).truncated,
                    "exact line boundary was truncated")
+        let lineTailScan = ClipboardExpandedTextPolicy.scan(exactLines + "\ntail")
+        try expect(lineTailScan.truncated && lineTailScan.examinedGraphemeCount == 8_192,
+                   "line truncation scanned beyond the first rejected newline")
 
         let hugeTail = String(repeating: "x", count: 2_000_000)
         let hugeTailScan = ClipboardExpandedTextPolicy.scan(hugeTail)
@@ -353,13 +364,17 @@ enum ClipboardPipelineTests {
 
         let cancelled = DispatchSemaphore(value: 0)
         let unblock = DispatchSemaphore(value: 0)
+        let cancellationStarted = DispatchSemaphore(value: 0)
         let cancellationCoordinator = ClipboardDirectorySizeCoordinator(calculator: { _, _, shouldCancel, _, _ in
+            cancellationStarted.signal()
             while !shouldCancel() { Thread.sleep(forTimeInterval: 0.001) }
             cancelled.signal()
             _ = unblock.wait(timeout: .now() + 1)
             return .exact(99)
         })
         _ = cancellationCoordinator.attach(to: root) { _ in }
+        try expect(cancellationStarted.wait(timeout: .now() + 1) == .success,
+                   "cancellation worker did not start before cancelAll")
         cancellationCoordinator.cancelAll()
         try expect(cancelled.wait(timeout: .now() + 1) == .success, "cancelAll did not cancel its worker")
         try expect(cancellationCoordinator.inFlightTaskCount == 1, "cancelAll freed a blocked worker slot")
@@ -373,6 +388,55 @@ enum ClipboardPipelineTests {
         background.cancelAll()
         backgroundRelease.signal()
         try waitForDirectoryTasks(background)
+    }
+
+    private static func testDirectoryTraversalCancellation() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "Copied-directory-cancel-test-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: root) }
+        for index in 0..<3 {
+            try Data([1]).write(to: root.appendingPathComponent("\(index)"))
+        }
+
+        let progressed = DispatchSemaphore(value: 0)
+        let resume = DispatchSemaphore(value: 0)
+        let finished = DispatchSemaphore(value: 0)
+        let terminal = DispatchSemaphore(value: 0)
+        var result: ClipboardDirectorySizeResult?
+        let coordinator = ClipboardDirectorySizeCoordinator(calculator: { root, duration, shouldCancel, _, progress in
+            let traversalResult = ClipboardDirectorySizeCalculator.calculate(
+                at: root,
+                maximumDuration: duration,
+                shouldCancel: shouldCancel,
+                progressUpdateInterval: 0,
+                onProgress: { size in
+                    progress(size)
+                    progressed.signal()
+                    _ = resume.wait(timeout: .now() + 2)
+                }
+            )
+            result = traversalResult
+            finished.signal()
+            return traversalResult
+        })
+        _ = coordinator.attach(to: root) { event in
+            if case .terminal = event { terminal.signal() }
+        }
+        try expect(progressed.wait(timeout: .now() + 1) == .success,
+                   "real directory traversal did not reach its first file")
+        coordinator.cancelAll()
+        try expect(coordinator.inFlightTaskCount == 1,
+                   "cancelAll released a traversal before its worker returned")
+        resume.signal()
+        try expect(finished.wait(timeout: .now() + 1) == .success,
+                   "real traversal did not observe cancelAll while enumerating")
+        try waitForDirectoryTasks(coordinator)
+        try expect(result == .cancelled, "cancelAll did not cancel the real enumerator")
+        try expect(terminal.wait(timeout: .now() + 0.05) == .timedOut,
+                   "cancelAll retained a detached observer")
     }
 
     private static func waitForDirectoryTasks(_ coordinator: ClipboardDirectorySizeCoordinator) throws {

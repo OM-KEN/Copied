@@ -1,4 +1,5 @@
 import AppKit
+import CoreGraphics
 
 // MARK: - Clipboard Content Model
 
@@ -42,6 +43,39 @@ struct ClipboardContent {
 // MARK: - Clipboard Monitor
 
 final class ClipboardMonitor {
+    private struct InputEventCounts: Equatable {
+        let keyDown: UInt32
+        let leftMouseDown: UInt32
+        let rightMouseDown: UInt32
+        let otherMouseDown: UInt32
+        let scrollWheel: UInt32
+
+        static func current() -> Self {
+            Self(
+                keyDown: CGEventSource.counterForEventType(.hidSystemState, eventType: .keyDown),
+                leftMouseDown: CGEventSource.counterForEventType(.hidSystemState, eventType: .leftMouseDown),
+                rightMouseDown: CGEventSource.counterForEventType(.hidSystemState, eventType: .rightMouseDown),
+                otherMouseDown: CGEventSource.counterForEventType(.hidSystemState, eventType: .otherMouseDown),
+                scrollWheel: CGEventSource.counterForEventType(.hidSystemState, eventType: .scrollWheel)
+            )
+        }
+    }
+
+    private struct ReuseSettings: Equatable {
+        let paused: Bool
+        let preferences: PopupPresentationPreferences
+        let reminderEnabled: Bool
+        let reminderStyle: LightReminderStyle
+        let comboEnabled: Bool
+        let disabledKindIDs: Set<String>
+        let priorities: [String: Int]
+        let installedPlugins: Set<String>
+        let detectorRegistrationGeneration: UInt64
+        let blockedApps: Set<String>
+        let quickTrigger: QuickTriggerSettings
+        let searchEngine: String
+    }
+
     private enum PresentationDecision {
         case allow
         case deny
@@ -51,13 +85,16 @@ final class ClipboardMonitor {
     private var timer: Timer?
     var isRunning: Bool { timer?.isValid == true }
     private var defaultsObserver: NSObjectProtocol?
+    private var registryObserver: NSObjectProtocol?
+    private var modifierActivityMonitor: Any?
+    private var copyRequestObserver: NSObjectProtocol?
+    private var lastInputEventCounts: InputEventCounts?
+    private var pollingPolicy = ClipboardPollingPolicy(now: ProcessInfo.processInfo.systemUptime)
     private var lastObservedChangeCount = 0
     private var revisionGeneration: UInt64 = 0
     private var lastLowInterruptionHash = 0
     private var lastLowInterruptionShowTime = Date.distantPast
     private let dedupWindow: TimeInterval = 0.5
-    private let firstResponsePollInterval: TimeInterval = 0.025
-    private let steadyStatePollInterval: TimeInterval = 0.075
     private let firstResponseBoostDuration: TimeInterval = 60
     private var firstResponseBoostDeadline: TimeInterval?
 
@@ -67,6 +104,7 @@ final class ClipboardMonitor {
     private var cachedLightReminderEnabled: Bool
     private var cachedCopyComboEnabled: Bool
     private var cachedSoundSelection: String
+    private var cachedReuseSettings: ReuseSettings?
     private var availableKindIDs = Set<String>()
     private var backingScale: CGFloat = 2
 
@@ -106,15 +144,21 @@ final class ClipboardMonitor {
     weak var toastController: ToastWindowController?
     private let defaults: UserDefaults
     private let directorySizeCoordinator: ClipboardDirectorySizeCoordinator
+    private let filterSettings: AppFilterSettings
+    private let soundPlayback: (String) -> Void
 
     init(
         toastController: ToastWindowController,
         defaults: UserDefaults = .standard,
-        directorySizeCoordinator: ClipboardDirectorySizeCoordinator = .shared
+        directorySizeCoordinator: ClipboardDirectorySizeCoordinator = .shared,
+        filterSettings: AppFilterSettings = .shared,
+        soundPlayback: @escaping (String) -> Void = CopySoundFeedback.play
     ) {
         self.toastController = toastController
         self.defaults = defaults
         self.directorySizeCoordinator = directorySizeCoordinator
+        self.filterSettings = filterSettings
+        self.soundPlayback = soundPlayback
         cachedIsPaused = defaults.bool(forKey: "isPaused")
         cachedPreferences = PopupPresentationPreferences.current(defaults: defaults)
         cachedLightReminderEnabled = defaults.bool(forKey: "lightReminderEnabled")
@@ -127,8 +171,12 @@ final class ClipboardMonitor {
     }
 
     deinit {
+        removePollingActivityObservers()
         if let defaultsObserver {
             NotificationCenter.default.removeObserver(defaultsObserver)
+        }
+        if let registryObserver {
+            NotificationCenter.default.removeObserver(registryObserver)
         }
     }
 
@@ -141,12 +189,17 @@ final class ClipboardMonitor {
         installDefaultsObserverIfNeeded()
         firstResponseBoostDeadline = ProcessInfo.processInfo.systemUptime
             + firstResponseBoostDuration
-        scheduleTimer(withTimeInterval: firstResponsePollInterval)
+        pollingPolicy = ClipboardPollingPolicy(now: ProcessInfo.processInfo.systemUptime)
+        lastInputEventCounts = .current()
+        scheduleTimer(withTimeInterval: ClipboardPollingPolicy.firstResponseInterval)
+        installPollingActivityObservers()
     }
 
     func stop() {
         timer?.invalidate()
         timer = nil
+        removePollingActivityObservers()
+        lastInputEventCounts = nil
         firstResponseBoostDeadline = nil
         activeSession?.cancel()
         activeSession = nil
@@ -164,7 +217,12 @@ final class ClipboardMonitor {
             object: defaults,
             queue: .main
         ) { [weak self] _ in
-            self?.toastController?.invalidateCopyReuse()
+            self?.refreshCachedSettings()
+        }
+        registryObserver = NotificationCenter.default.addObserver(
+            forName: DetectionRegistry.registrationsDidChangeNotification, object: nil, queue: .main
+        ) { [weak self] notification in
+            guard notification.object as? DetectionRegistry === DetectionRegistry.shared else { return }
             self?.refreshCachedSettings()
         }
     }
@@ -172,18 +230,32 @@ final class ClipboardMonitor {
     private func refreshCachedSettings() {
         let preferences = PopupPresentationPreferences.current(defaults: defaults)
         let reminderEnabled = defaults.bool(forKey: "lightReminderEnabled")
-        if defaults.bool(forKey: "isPaused")
-            || cachedPreferences != preferences
-            || cachedLightReminderEnabled != reminderEnabled
-            || !AppFilterSettings.shared.shouldShowPopup(for: activeSource?.bundleIdentifier) {
-            toastController?.interruptCopyCombo()
+        let reminderStyle = LightReminderStyle.current(defaults: defaults)
+        let comboEnabled = ClipboardCopyCombo.isEnabled(defaults: defaults)
+        let reuseSettings = ReuseSettings(
+            paused: defaults.bool(forKey: "isPaused"),
+            preferences: preferences,
+            reminderEnabled: reminderEnabled,
+            reminderStyle: reminderStyle,
+            comboEnabled: comboEnabled,
+            disabledKindIDs: Set(defaults.stringArray(forKey: "disabledContentKinds") ?? []),
+            priorities: defaults.dictionary(forKey: "contentKindPriorities") as? [String: Int] ?? [:],
+            installedPlugins: Set(defaults.stringArray(forKey: "installedPlugins") ?? []),
+            detectorRegistrationGeneration: DetectionRegistry.shared.registeredDetectorsGeneration,
+            blockedApps: Set(filterSettings.blockedApps.map(\.bundleID)),
+            quickTrigger: QuickTriggerSettings.current(defaults: defaults),
+            searchEngine: defaults.string(forKey: "searchEngine") ?? "google"
+        )
+        if cachedReuseSettings != reuseSettings {
+            toastController?.invalidateCopyReuse()
+            if cachedReuseSettings != nil { toastController?.interruptCopyCombo() }
+            availableKindIDs = Set(DetectionRegistry.shared.allRegisteredKinds.map(\.id))
+            cachedReuseSettings = reuseSettings
         }
-        availableKindIDs = Set(DetectionRegistry.shared.allRegisteredKinds.map(\.id))
-        cachedIsPaused = defaults.bool(forKey: "isPaused")
+        cachedIsPaused = reuseSettings.paused
         cachedPreferences = preferences
         cachedLightReminderEnabled = reminderEnabled
-        cachedLightReminderStyle = LightReminderStyle.current(defaults: defaults)
-        let comboEnabled = ClipboardCopyCombo.isEnabled(defaults: defaults)
+        cachedLightReminderStyle = reminderStyle
         if cachedCopyComboEnabled != comboEnabled {
             cachedCopyComboEnabled = comboEnabled
             toastController?.setCopyComboEnabled(comboEnabled)
@@ -202,13 +274,55 @@ final class ClipboardMonitor {
         }
     }
 
+    private func installPollingActivityObservers() {
+        guard copyRequestObserver == nil else { return }
+        copyRequestObserver = NotificationCenter.default.addObserver(
+            forName: .copiedCopyRequested, object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.acceleratePolling()
+        }
+        // This is an optional hint. State/counter sampling keeps polling functional
+        // when the system does not deliver global keyboard events without permission.
+        modifierActivityMonitor = NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged) {
+            [weak self] event in
+            guard event.modifierFlags.contains(.command) else { return }
+            MainActor.assumeIsolated { self?.acceleratePolling() }
+        }
+    }
+
+    private func removePollingActivityObservers() {
+        if let modifierActivityMonitor { NSEvent.removeMonitor(modifierActivityMonitor) }
+        modifierActivityMonitor = nil
+        if let copyRequestObserver { NotificationCenter.default.removeObserver(copyRequestObserver) }
+        copyRequestObserver = nil
+    }
+
+    private func acceleratePolling() {
+        guard isRunning, !cachedIsPaused else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        pollingPolicy.recordActivity(at: now)
+        updatePollingSchedule(at: now)
+    }
+
+    private func updatePollingSchedule(at now: TimeInterval) {
+        guard isRunning else { return }
+        let counts = InputEventCounts.current()
+        if NSEvent.modifierFlags.contains(.command) || counts != lastInputEventCounts {
+            pollingPolicy.recordActivity(at: now)
+        }
+        lastInputEventCounts = counts
+        let interval = pollingPolicy.interval(
+            at: now, firstResponseBoostActive: firstResponseBoostDeadline != nil
+        )
+        if timer?.timeInterval != interval { scheduleTimer(withTimeInterval: interval) }
+    }
+
     private func checkClipboard() {
         guard !cachedIsPaused else { return }
+        finishFirstResponseBoostIfExpired()
+        updatePollingSchedule(at: ProcessInfo.processInfo.systemUptime)
         let currentCount = NSPasteboard.general.changeCount
-        guard currentCount != lastObservedChangeCount else {
-            finishFirstResponseBoostIfExpired()
-            return
-        }
+        guard currentCount != lastObservedChangeCount else { return }
 
         // Acknowledge observation before any representation access. Retries belong to the session.
         lastObservedChangeCount = currentCount
@@ -226,7 +340,8 @@ final class ClipboardMonitor {
     }
 
     private func prepareRevision(
-        _ revision: ClipboardRevision, source: SourceAppInfo? = nil
+        _ revision: ClipboardRevision, source: SourceAppInfo? = nil,
+        privacyDisposition: ClipboardPrivacyDisposition? = nil
     ) -> ClipboardLoadSession? {
         toastController?.observeCopyRevision(revision)
         revisionGate.activate(revision)
@@ -238,7 +353,7 @@ final class ClipboardMonitor {
         resetActiveRevisionState()
 
         let source = source ?? SourceAppDetector.cachedSnapshot()
-        guard AppFilterSettings.shared.shouldShowPopup(for: source.bundleIdentifier) else {
+        guard filterSettings.shouldShowPopup(for: source.bundleIdentifier) else {
             toastController?.interruptCopyCombo()
             finishFirstResponseBoost()
             return nil
@@ -255,6 +370,27 @@ final class ClipboardMonitor {
             toastController?.interruptCopyCombo()
         }
 
+        activeSource = source
+        activePreferences = preferences
+        activeLightReminderEnabled = lightReminderEnabled
+        activeLightReminderStyle = cachedLightReminderStyle
+        activeCandidateDecision = candidateDecision
+        activeSoundSelection = soundSelection
+        let privacy: ClipboardPrivacyDisposition
+        if let privacyDisposition {
+            privacy = privacyDisposition
+        } else {
+            let pasteboard = NSPasteboard.general
+            guard pasteboard.changeCount == revision.changeCount else { return nil }
+            privacy = ClipboardPrivacyPolicy.disposition(for: pasteboard.types ?? [])
+            guard pasteboard.changeCount == revision.changeCount else { return nil }
+        }
+        guard privacy == .ordinary else {
+            handleProtectedRevision(privacy, revision: revision)
+            return nil
+        }
+
+        backingScale = ToastScreenSelection.current()?.backingScaleFactor ?? 2
         let session = ClipboardLoadSession(
             revision: revision,
             backingScale: backingScale,
@@ -262,12 +398,6 @@ final class ClipboardMonitor {
             comparisonIdentity: toastController?.copyIdentityForComparison
         )
         activeSession = session
-        activeSource = source
-        activePreferences = preferences
-        activeLightReminderEnabled = lightReminderEnabled
-        activeLightReminderStyle = cachedLightReminderStyle
-        activeCandidateDecision = candidateDecision
-        activeSoundSelection = soundSelection
         toastController?.onRevisionResourcesShouldCancel = { [weak self, weak session] revision in
             guard let self, let session, revision == session.revision,
                   self.activeSession === session else { return }
@@ -296,14 +426,35 @@ final class ClipboardMonitor {
         return session
     }
 
-    private func showLightReminder(revision: ClipboardRevision) {
+    private func handleProtectedRevision(
+        _ disposition: ClipboardPrivacyDisposition, revision: ClipboardRevision
+    ) {
+        activeSession?.cancel()
+        activeSession = nil
+        toastController?.onRevisionResourcesShouldCancel = nil
+        toastController?.interruptCopyCombo()
+        toastController?.clearLastToast()
+        toastController?.dismissToast(animated: false)
+        LightReminderController.shared.dismiss(animated: false)
+        finishFirstResponseBoost()
+        guard disposition == .concealed else { return }
+        playActiveCopySoundIfNeeded()
+        guard activePreferences?.mode == .all || activeCandidateDecision == .allAllowed else { return }
+        if activeLightReminderEnabled == true {
+            showLightReminder(revision: revision, hidesContent: true)
+        } else {
+            toastController?.showReminder(revision: revision, hidesContent: true)
+        }
+    }
+
+    private func showLightReminder(revision: ClipboardRevision, hidesContent: Bool = false) {
         switch activeLightReminderStyle {
         case .cursorIcon:
             toastController?.dismissToast(animated: false)
             LightReminderController.shared.show()
         case .topCard:
             LightReminderController.shared.dismiss(animated: false)
-            toastController?.showReminder(revision: revision)
+            toastController?.showReminder(revision: revision, hidesContent: hidesContent)
         }
     }
 
@@ -359,6 +510,10 @@ final class ClipboardMonitor {
         switch outcome {
         case .stale:
             checkClipboard()
+        case .concealed:
+            handleProtectedRevision(.concealed, revision: session.revision)
+        case .ignored:
+            handleProtectedRevision(.ignored, revision: session.revision)
         case .unreadable:
             if session.attemptCount < 3 {
                 session.scheduleRetry { [weak self, weak session] in
@@ -455,7 +610,7 @@ final class ClipboardMonitor {
         guard let selection = activeSoundDispatchGate.claim(
             selection: activeSoundSelection
         ) else { return }
-        CopySoundFeedback.play(selection: selection)
+        soundPlayback(selection)
     }
 
     private func scheduleEnrichment(
@@ -871,19 +1026,31 @@ final class ClipboardMonitor {
     private func finishFirstResponseBoost() {
         guard firstResponseBoostDeadline != nil else { return }
         firstResponseBoostDeadline = nil
-        scheduleTimer(withTimeInterval: steadyStatePollInterval)
+        updatePollingSchedule(at: ProcessInfo.processInfo.systemUptime)
     }
 
 #if COPIED_TESTING
-    func testingBeginCopy(_ revision: ClipboardRevision, source: SourceAppInfo) -> ClipboardLoadSession? {
-        prepareRevision(revision, source: source)
+    var testingPollingInterval: TimeInterval? { timer?.timeInterval }
+    func testingBeginCopy(
+        _ revision: ClipboardRevision, source: SourceAppInfo,
+        pasteboard: NSPasteboard? = nil
+    ) -> ClipboardLoadSession? {
+        prepareRevision(
+            revision, source: source,
+            privacyDisposition: pasteboard.map {
+                ClipboardPrivacyPolicy.disposition(for: $0.types ?? [])
+            } ?? .ordinary
+        )
     }
 
     func testingFinishCopy(_ outcome: ClipboardBaseReadOutcome, session: ClipboardLoadSession) {
         receiveBaseRead(outcome, session: session)
     }
 
-    func testingObserveDefaults() { installDefaultsObserverIfNeeded() }
+    func testingObserveDefaults() {
+        refreshCachedSettings()
+        installDefaultsObserverIfNeeded()
+    }
     var testingRecordsCopyIdentity: Bool {
         cachedCopyComboEnabled && !cachedLightReminderEnabled
     }

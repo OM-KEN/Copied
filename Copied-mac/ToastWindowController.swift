@@ -3,6 +3,8 @@ import AppKit
 
 final class ToastWindowController {
     private var window: ToastPanel?
+    private var presentationScreen: NSScreen?
+    private var screenParametersObserver: NSObjectProtocol?
     private var contentView: NSView?
     private var hostingView: NSHostingView<AnyView>?
     private var expandedTextScrollView: ToastExpandedTextScrollView?
@@ -64,6 +66,17 @@ final class ToastWindowController {
 
     init(lastToastStore: LastToastStore = .shared) {
         self.lastToastStore = lastToastStore
+        screenParametersObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.updateWindowSize()
+        }
+    }
+
+    deinit {
+        if let screenParametersObserver {
+            NotificationCenter.default.removeObserver(screenParametersObserver)
+        }
     }
 
     func setCopyComboEnabled(_ enabled: Bool) {
@@ -120,7 +133,7 @@ final class ToastWindowController {
         copyMotionMayStart = !copyComboPresentation.motionActive
         if pendingCopy != nil {
             pendingCopy = nil
-            if isMouseInsideWindow() { pauseDismissTimer() } else { startDismissTimer() }
+            if isMouseInsideCard() { pauseDismissTimer() } else { startDismissTimer() }
         }
         if !continues { clearCopyComboDecoration() }
     }
@@ -225,7 +238,7 @@ final class ToastWindowController {
         if window?.isVisible == true, !isDismissing,
            currentRevision == snapshot.content.revision, viewModel.isContentReady {
             if !viewModel.isExpanded, !isExpandingOrCollapsing {
-                if isMouseInsideWindow() { pauseDismissTimer() } else { startDismissTimer() }
+                if isMouseInsideCard() { pauseDismissTimer() } else { startDismissTimer() }
             }
             return true
         }
@@ -279,11 +292,11 @@ final class ToastWindowController {
         )
     }
 
-    func showReminder(revision: ClipboardRevision) {
+    func showReminder(revision: ClipboardRevision, hidesContent: Bool = false) {
         interruptCopyCombo()
         removeAllMonitors()
         pauseDismissTimer()
-        viewModel.configureReminderNotice(revision: revision)
+        viewModel.configureReminderNotice(revision: revision, hidesContent: hidesContent)
         currentContent = nil
         currentRevision = revision
         resourcesCancelledRevision = nil
@@ -317,7 +330,7 @@ final class ToastWindowController {
             lastToastStore.beginPresentation(revision: content.revision)
             recordLastToast()
             refreshQuickTriggerContextIfEligible()
-            if isMouseInsideWindow() { pauseDismissTimer() }
+            if isMouseInsideCard() { pauseDismissTimer() }
             else { startDismissTimer(after: displayDuration) }
             requestWindowLayout()
             return
@@ -407,7 +420,7 @@ final class ToastWindowController {
         if viewModel.showsUpdateReminder {
             AppUpdateService.shared.recordUpdateReminderDisplayed()
         }
-        if isMouseInsideWindow() {
+        if isMouseInsideCard() {
             pauseDismissTimer()
         } else {
             startDismissTimer(after: displayDuration)
@@ -440,7 +453,13 @@ final class ToastWindowController {
         quickTriggerContextGeneration &+= 1
         if primary != nil {
             refreshQuickTriggerContextIfEligible()
-            ensureMinimumActionableTime()
+            let generation = presentationGeneration
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.presentationGeneration == generation,
+                      self.currentRevision == revision, !self.isDismissing,
+                      self.window?.isVisible == true else { return }
+                self.ensureMinimumActionableTime()
+            }
         }
         recordLastToast()
     }
@@ -459,7 +478,7 @@ final class ToastWindowController {
         viewModel.configureFailure()
         currentContent = nil
         lastToastStore.clear()
-        if isMouseInsideWindow() {
+        if isMouseInsideCard() {
             pauseDismissTimer()
         } else {
             startDismissTimer(after: displayDuration)
@@ -518,6 +537,7 @@ final class ToastWindowController {
             lastRevisionPresentationTime = now
         }
         self.pausesDismissWhileHovered = pausesDismissWhileHovered
+        presentationScreen = ToastScreenSelection.current()
         isDismissing = false
         isExpandingOrCollapsing = false
         resetExpandedTextLayoutState()
@@ -549,10 +569,10 @@ final class ToastWindowController {
         contentView?.addSubview(newHosting)
         newHosting.layoutSubtreeIfNeeded()
 
-        guard let screen = NSScreen.main else {
+        guard let screen = presentationScreen else {
             previousWindow?.orderOut(nil)
             previousHosting?.removeFromSuperview()
-            NSLog("Copied: NSScreen.main is nil — cannot position window!")
+            NSLog("Copied: no screen is available for the toast")
             return
         }
         let panelSize = newHosting.fittingSize
@@ -562,7 +582,6 @@ final class ToastWindowController {
         )
         let x = screen.visibleFrame.midX - windowSize.width / 2
         let y = screen.frame.maxY - windowSize.height + 20
-        NSLog("Copied: positioning — screen.frame=\(screen.frame), visibleFrame=\(screen.visibleFrame), panelSize=\(panelSize), target=(\(x), \(y))")
         window?.setFrame(
             NSRect(origin: NSPoint(x: x, y: y), size: windowSize),
             display: true,
@@ -612,7 +631,7 @@ final class ToastWindowController {
             AppUpdateService.shared.recordUpdateReminderDisplayed()
         }
 
-        if pausesDismissWhileHovered, isMouseInsideWindow() {
+        if pausesDismissWhileHovered, isMouseInsideCard() {
             pauseDismissTimer()
         } else {
             startDismissTimer(after: duration)
@@ -714,9 +733,9 @@ final class ToastWindowController {
 
         updateWindowSize()
 
-        if keepAlive {
+        if keepAlive || isMouseInsideCard() {
             pauseDismissTimer()
-        } else if !isMouseInsideWindow() {
+        } else {
             startDismissTimer()
         }
         recordLastToast()
@@ -872,7 +891,7 @@ final class ToastWindowController {
                 guard let self else { return }
                 self.removeWindowBlur()
                 self.isExpandingOrCollapsing = false
-                if self.isMouseInsideWindow() {
+                if self.isMouseInsideCard() {
                     self.pauseDismissTimer()
                 } else {
                     self.startDismissTimer()
@@ -979,7 +998,7 @@ final class ToastWindowController {
     }
 
     private func handleHoverChanged(_ hovering: Bool) {
-        guard !isDismissing, pausesDismissWhileHovered else { return }
+        guard !isDismissing, !isExpandingOrCollapsing, pausesDismissWhileHovered else { return }
         if hovering { pauseDismissTimer() } else { startDismissTimer() }
     }
 
@@ -1016,7 +1035,7 @@ final class ToastWindowController {
         viewModel.resultOverlay = ResultOverlay(displayText: displayText, copyText: copyText)
         refreshQuickTriggerContextIfEligible()
         updateWindowSize()
-        if !isMouseInsideWindow() { startDismissTimer() }
+        if isMouseInsideCard() { pauseDismissTimer() } else { startDismissTimer() }
         recordLastToast()
     }
 
@@ -1044,7 +1063,11 @@ final class ToastWindowController {
     }
 
     private func ensureMinimumActionableTime() {
-        guard !viewModel.isExpanded, !isMouseInsideWindow() else { return }
+        guard !viewModel.isExpanded else { return }
+        if isMouseInsideCard() {
+            pauseDismissTimer()
+            return
+        }
         if let delay = ClipboardPresentationLifetime.delayGuaranteeingMinimumActionTime(
             deadline: dismissDeadline,
             now: Date(),
@@ -1075,9 +1098,19 @@ final class ToastWindowController {
         currentRevision = nil
     }
 
-    private func isMouseInsideWindow() -> Bool {
-        guard let windowFrame = window?.frame else { return false }
-        return windowFrame.contains(NSEvent.mouseLocation)
+    private func isMouseInsideCard(at point: NSPoint? = nil) -> Bool {
+        guard let window, let hostingView else { return false }
+#if COPIED_TESTING
+        let point = point ?? testingMouseLocation ?? NSEvent.mouseLocation
+#else
+        let point = point ?? NSEvent.mouseLocation
+#endif
+        let pointInWindow = window.convertPoint(fromScreen: point)
+        let pointInHosting = hostingView.convert(pointInWindow, from: nil)
+        return ToastCardLayoutMetrics.cardFrame(
+            in: hostingView.bounds, isFlipped: hostingView.isFlipped,
+            hasCopyCombo: copyComboPresentation.hasEcho
+        ).contains(pointInHosting)
     }
 
     // MARK: - Window
@@ -1291,7 +1324,9 @@ final class ToastWindowController {
     }
 
     func updateWindowSize() {
-        guard !isDismissing, let hosting = hostingView, let screen = NSScreen.main else { return }
+        guard !isDismissing, let hosting = hostingView,
+              let screen = ToastScreenSelection.retaining(presentationScreen) else { return }
+        presentationScreen = screen
         hosting.layoutSubtreeIfNeeded()
         let panelSize = hosting.fittingSize
         var h = panelSize.height
@@ -1405,6 +1440,7 @@ final class ToastWindowController {
         hostingView?.removeFromSuperview()
         hostingView = nil
         window = nil
+        presentationScreen = nil
         contentView = nil
         expandedTextScrollView = nil
         expandedTextView = nil
@@ -1420,8 +1456,10 @@ final class ToastWindowController {
 #if COPIED_TESTING
     private(set) var testingCommandCallback: ((ToastCommand<any ClipboardAction>) -> Void)?
     var testingBeforeRetiringWindow: ((ToastPanel, ToastPanel) -> Void)?
+    var testingMouseLocation: NSPoint?
     var testingViewModel: ToastViewModel { viewModel }
     var testingWindow: ToastPanel? { window }
+    var testingPresentationScreen: NSScreen? { presentationScreen }
     var testingExpandedBottomBarControlsHostingView: ToastHostingView? {
         expandedBottomBarControlsHostingView
     }
@@ -1432,5 +1470,6 @@ final class ToastWindowController {
         handleCommand(command)
     }
     func testingHover(_ hovered: Bool) { handleHoverChanged(hovered) }
+    func testingCardContains(_ point: NSPoint) -> Bool { isMouseInsideCard(at: point) }
 #endif
 }

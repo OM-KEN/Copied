@@ -1,6 +1,20 @@
 {
   "sourceLanguage": "zh-Hans",
   "strings": {
+    "已复制（内容已隐藏）": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Copied (content hidden)" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "已复制（内容已隐藏）" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "已複製（內容已隱藏）" } }
+      }
+    },
+    "已复制文本": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Text copied" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "已复制文本" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "已複製文字" } }
+      }
+    },
     "连击彩蛋": {
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Copy combo effect" } },

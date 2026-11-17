@@ -27,11 +27,14 @@ private final class PlaybackEventRecorder: @unchecked Sendable {
 private final class RecordingSoundPlayer: CopySoundPlaying {
     private let soundName: String
     private let recorder: PlaybackEventRecorder
+    private let playbackSucceeds: Bool
     private var storedVolume: Float = 1
+    private var storedCurrentTime: TimeInterval = 0.75
 
-    init(soundName: String, recorder: PlaybackEventRecorder) {
+    init(soundName: String, recorder: PlaybackEventRecorder, playbackSucceeds: Bool = true) {
         self.soundName = soundName
         self.recorder = recorder
+        self.playbackSucceeds = playbackSucceeds
     }
 
     var volume: Float {
@@ -44,13 +47,22 @@ private final class RecordingSoundPlayer: CopySoundPlaying {
         }
     }
 
+    var currentTime: TimeInterval {
+        get { storedCurrentTime }
+        set {
+            storedCurrentTime = newValue
+            recorder.append("seek:\(soundName):\(newValue):main=\(Thread.isMainThread)")
+        }
+    }
+
     func stop() {
         recorder.append("stop:\(soundName):main=\(Thread.isMainThread)")
     }
 
     func play() -> Bool {
-        recorder.append("play:\(soundName):main=\(Thread.isMainThread)")
-        return true
+        recorder.append("play:\(soundName):time=\(currentTime):main=\(Thread.isMainThread)")
+        storedCurrentTime = 0.75
+        return playbackSucceeds
     }
 }
 
@@ -61,6 +73,9 @@ struct CopySoundFeedbackTests {
         testDispatchGateOnlyClaimsOncePerCopy()
         testPlaybackReturnsBeforeQueuedWorkRuns()
         testPlaybackRunsSeriallyAndReplacesTheActiveSound()
+        testPlaybackReusesCurrentSoundAndRestartsFromBeginning()
+        testPlaybackRecoversFromFactoryFailure()
+        testPlaybackRecoversFromPlayFailure()
 
         print("CopySoundFeedbackTests: PASS")
     }
@@ -153,7 +168,7 @@ struct CopySoundFeedbackTests {
         expect(eventsBeforeUnblock.isEmpty, "play only schedules audio work")
         expect(
             recorder.snapshot().allSatisfy { $0.hasSuffix("main=false") },
-            "loading, volume, and playback stay off the main thread"
+            "loading, seeking, volume, and playback stay off the main thread"
         )
     }
 
@@ -170,21 +185,112 @@ struct CopySoundFeedbackTests {
 
         engine.play(selection: "Tink")
         engine.play(selection: "Unknown")
+        engine.play(selection: "Tink")
         engine.play(selection: CopySoundFeedback.disabledValue)
         queue.sync {}
 
         expect(
             recorder.snapshot() == [
                 "load:/System/Library/Sounds/Tink.aiff:main=false",
+                "seek:Tink:0.0:main=false",
                 "volume:Tink:0.5:main=false",
-                "play:Tink:main=false",
+                "play:Tink:time=0.0:main=false",
                 "stop:Tink:main=false",
                 "load:/System/Library/Sounds/Frog.aiff:main=false",
+                "seek:Frog:0.0:main=false",
                 "volume:Frog:0.5:main=false",
-                "play:Frog:main=false",
+                "play:Frog:time=0.0:main=false",
                 "stop:Frog:main=false",
+                "load:/System/Library/Sounds/Tink.aiff:main=false",
+                "seek:Tink:0.0:main=false",
+                "volume:Tink:0.5:main=false",
+                "play:Tink:time=0.0:main=false",
+                "stop:Tink:main=false",
             ],
             "rapid calls stop the old sound and process the latest selection in order"
         )
+    }
+
+    private static func testPlaybackReusesCurrentSoundAndRestartsFromBeginning() {
+        let queue = DispatchQueue(label: "CopySoundFeedbackTests.repeated-audio")
+        let recorder = PlaybackEventRecorder()
+        let engine = CopySoundPlaybackEngine(queue: queue) { url in
+            let name = url.deletingPathExtension().lastPathComponent
+            recorder.append("load:\(name):main=\(Thread.isMainThread)")
+            return RecordingSoundPlayer(soundName: name, recorder: recorder)
+        }
+
+        engine.play(selection: CopySoundFeedback.disabledValue)
+        engine.play(selection: "Tink")
+        engine.play(selection: "Tink")
+        queue.sync {}
+        let repeatedEvents = recorder.snapshot()
+        expect(repeatedEvents.filter { $0.hasPrefix("load:") }.count == 1,
+               "repeated sound reuses the current player")
+        expect(repeatedEvents.filter { $0 == "play:Tink:time=0.0:main=false" }.count == 2,
+               "each repeated playback starts from zero after the player advances")
+        expect(repeatedEvents.filter { $0 == "stop:Tink:main=false" }.count == 1,
+               "replaying stops the active sound before restarting it")
+
+        engine.play(selection: CopySoundFeedback.disabledValue)
+        engine.play(selection: "Tink")
+        queue.sync {}
+        let events = recorder.snapshot()
+        expect(events.filter { $0.hasPrefix("load:") }.count == 2,
+               "turning sound off releases the cached player")
+        expect(events.filter { $0 == "stop:Tink:main=false" }.count == 2,
+               "turning sound off stops the active player")
+        expect(events.allSatisfy { $0.hasSuffix("main=false") },
+               "cached playback, stop, and reload stay off the main thread")
+    }
+
+    private static func testPlaybackRecoversFromFactoryFailure() {
+        enum LoadFailure: Error { case unavailable }
+        let queue = DispatchQueue(label: "CopySoundFeedbackTests.load-failure")
+        let recorder = PlaybackEventRecorder()
+        let engine = CopySoundPlaybackEngine(queue: queue) { url in
+            let firstAttempt = recorder.snapshot().isEmpty
+            let name = url.deletingPathExtension().lastPathComponent
+            recorder.append("load:\(name):main=\(Thread.isMainThread)")
+            if firstAttempt { throw LoadFailure.unavailable }
+            return RecordingSoundPlayer(soundName: name, recorder: recorder)
+        }
+
+        engine.play(selection: "Tink")
+        engine.play(selection: "Tink")
+        engine.play(selection: "Tink")
+        queue.sync {}
+        let events = recorder.snapshot()
+        expect(events.filter { $0.hasPrefix("load:") }.count == 2,
+               "a failed load retries once and then reuses the recovered player")
+        expect(events.filter { $0 == "play:Tink:time=0.0:main=false" }.count == 2,
+               "later playback recovers from a failed player factory")
+    }
+
+    private static func testPlaybackRecoversFromPlayFailure() {
+        let queue = DispatchQueue(label: "CopySoundFeedbackTests.play-failure")
+        let recorder = PlaybackEventRecorder()
+        let engine = CopySoundPlaybackEngine(queue: queue) { url in
+            let firstAttempt = recorder.snapshot().isEmpty
+            let name = url.deletingPathExtension().lastPathComponent
+            recorder.append("load:\(name):main=\(Thread.isMainThread)")
+            return RecordingSoundPlayer(
+                soundName: name,
+                recorder: recorder,
+                playbackSucceeds: !firstAttempt
+            )
+        }
+
+        engine.play(selection: "Tink")
+        engine.play(selection: "Tink")
+        engine.play(selection: "Tink")
+        queue.sync {}
+        let events = recorder.snapshot()
+        expect(events.filter { $0.hasPrefix("load:") }.count == 2,
+               "a failed playback discards its player and retries on the next request")
+        expect(events.filter { $0 == "play:Tink:time=0.0:main=false" }.count == 3,
+               "recovered playback continues from the beginning")
+        expect(events.allSatisfy { $0.hasSuffix("main=false") },
+               "playback failure recovery stays off the main thread")
     }
 }

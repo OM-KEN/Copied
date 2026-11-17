@@ -423,7 +423,7 @@ enum ClipboardExpandedTextPolicy {
         var examinedGraphemeCount = 0
         for character in fullText {
             examinedGraphemeCount += 1
-            let units = String(character).utf16.count
+            let units = character.utf16.count
             let addsLine = character == "\n"
             if utf16Count + units > maximumUTF16Count
                 || (addsLine && lineCount >= maximumLineCount) {
@@ -492,9 +492,16 @@ final class ClipboardDirectorySizeCoordinator: @unchecked Sendable {
         let root: URL
         var observers: [UUID: (ClipboardDirectorySizeTaskEvent) -> Void] = [:]
         var latestLowerBound: Int64 = 0
-        var cancelled = false
+        private let cancellationLock = NSLock()
+        private var cancellationRequested = false
+
+        var isCancelled: Bool { cancellationLock.withLock { cancellationRequested } }
 
         init(root: URL) { self.root = root }
+
+        func cancel() {
+            cancellationLock.withLock { cancellationRequested = true }
+        }
     }
 
     private let stateQueue: DispatchQueue
@@ -534,7 +541,7 @@ final class ClipboardDirectorySizeCoordinator: @unchecked Sendable {
         var taskToStart: Task?
         let observation: ClipboardDirectorySizeObservation? = stateQueue.sync {
             let cached = cachedSizes[key]
-            if let task = tasks[key], !task.cancelled {
+            if let task = tasks[key], !task.isCancelled {
                 initialEvent = cached.map { .cached($0.size, isPartial: $0.isPartial, isRefreshing: true) }
                     ?? .progress(task.latestLowerBound)
                 return makeObservation(for: task, observer: observer)
@@ -573,10 +580,10 @@ final class ClipboardDirectorySizeCoordinator: @unchecked Sendable {
         workerQueue.async { [self] in
             let result = calculate(
                 at: task.root,
-                shouldCancel: { self.stateQueue.sync { task.cancelled } },
+                shouldCancel: { task.isCancelled },
                 onProgress: { size in
                     let observers = self.stateQueue.sync { () -> [(ClipboardDirectorySizeTaskEvent) -> Void] in
-                        guard !task.cancelled, size > task.latestLowerBound else { return [] }
+                        guard !task.isCancelled, size > task.latestLowerBound else { return [] }
                         task.latestLowerBound = size
                         return Array(task.observers.values)
                     }
@@ -632,7 +639,7 @@ final class ClipboardDirectorySizeCoordinator: @unchecked Sendable {
             cancellationGeneration &+= 1
             cachedSizes.removeAll()
             for task in tasks.values {
-                task.cancelled = true
+                task.cancel()
                 task.observers.removeAll()
             }
         }

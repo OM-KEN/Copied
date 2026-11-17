@@ -18,6 +18,7 @@ Tests/*
 !Tests/PopupPresentationSettingsTests.swift
 !Tests/ClipboardPipelineTests.swift
 !Tests/ClipboardBaseReaderTests.swift
+!Tests/ClipboardPollingPolicyTests.swift
 !Tests/ClipboardCopyComboTests.swift
 !Tests/InstantClipboardFeedbackTests.swift
 !Tests/TemporaryTextExportTests.swift

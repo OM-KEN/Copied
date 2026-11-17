@@ -1,6 +1,49 @@
 import AppKit
 import SwiftUI
 
+enum ToastScreenSelection {
+    static func index(at point: NSPoint, frames: [NSRect], fallbackIndex: Int?) -> Int? {
+        if let match = frames.firstIndex(where: { NSMouseInRect(point, $0, false) }) {
+            return match
+        }
+        return fallbackIndex.flatMap { frames.indices.contains($0) ? $0 : nil }
+    }
+
+    static func current() -> NSScreen? {
+        let screens = NSScreen.screens
+        let fallbackIndex = NSScreen.main.flatMap { screens.firstIndex(of: $0) }
+        guard let index = index(
+            at: NSEvent.mouseLocation, frames: screens.map(\.frame), fallbackIndex: fallbackIndex
+        ) else { return NSScreen.main }
+        return screens[index]
+    }
+
+    static func retaining(_ screen: NSScreen?) -> NSScreen? {
+        let key = NSDeviceDescriptionKey("NSScreenNumber")
+        guard let number = screen?.deviceDescription[key] as? NSNumber else { return NSScreen.main }
+        return NSScreen.screens.first { $0.deviceDescription[key] as? NSNumber == number }
+            ?? NSScreen.main
+    }
+}
+
+enum ToastCardLayoutMetrics {
+    static let topOutset: CGFloat = 20
+
+    static func bottomOutset(hasCopyCombo: Bool) -> CGFloat { hasCopyCombo ? 44 : 12 }
+    static func horizontalOutset(hasCopyCombo: Bool) -> CGFloat { hasCopyCombo ? 48 : 18 }
+
+    static func cardFrame(in bounds: NSRect, isFlipped: Bool, hasCopyCombo: Bool) -> NSRect {
+        let horizontal = horizontalOutset(hasCopyCombo: hasCopyCombo)
+        let bottom = bottomOutset(hasCopyCombo: hasCopyCombo)
+        return NSRect(
+            x: bounds.minX + horizontal,
+            y: bounds.minY + (isFlipped ? topOutset : bottom),
+            width: max(0, bounds.width - horizontal * 2),
+            height: max(0, bounds.height - topOutset - bottom)
+        )
+    }
+}
+
 enum ExpandedTextLayoutMetrics {
     static let cardWidth: CGFloat = 360
     static let horizontalInset: CGFloat = 16

@@ -19,6 +19,7 @@ protocol ContentDetectorProtocol {
 /// 全局单例，管理所有检测器 + 性能熔断。
 final class DetectionRegistry {
     static let shared = DetectionRegistry()
+    static let registrationsDidChangeNotification = Notification.Name("CopiedDetectorRegistrationsDidChange")
 
     private static let disabledKindsDefaultsKey = "disabledContentKinds"
 
@@ -44,6 +45,7 @@ final class DetectionRegistry {
     private let disabledKindsMutationLock = NSLock()
     private let defaults: UserDefaults
     private var detectors: [any ContentDetectorProtocol] = []
+    private var registrationGeneration: UInt64 = 0
 
     /// 熔断冷却截止时间。
     private var throttledUntil: [String: Date] = [:]
@@ -60,6 +62,10 @@ final class DetectionRegistry {
 
     var disabledKinds: Set<String> {
         stateLock.withLock { automaticallyDisabledKinds }
+    }
+
+    var registeredDetectorsGeneration: UInt64 {
+        stateLock.withLock { registrationGeneration }
     }
 
     /// 用户手动禁用的类型 ID 集合（持久化）。
@@ -135,13 +141,17 @@ final class DetectionRegistry {
                 detectors.removeAll { $0.kind.source == .plugin(identifier) }
             }
             detectors.append(detector)
+            registrationGeneration &+= 1
         }
+        NotificationCenter.default.post(name: Self.registrationsDidChangeNotification, object: self)
     }
 
     func unregister(kind: ContentKind) {
         stateLock.withLock {
             detectors.removeAll { $0.kind.id == kind.id }
+            registrationGeneration &+= 1
         }
+        NotificationCenter.default.post(name: Self.registrationsDidChangeNotification, object: self)
     }
 
     /// 卸载指定插件的所有检测器。
@@ -153,7 +163,9 @@ final class DetectionRegistry {
                 }
                 return false
             }
+            registrationGeneration &+= 1
         }
+        NotificationCenter.default.post(name: Self.registrationsDidChangeNotification, object: self)
     }
 
     /// 启用/禁用一个类型。

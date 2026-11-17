@@ -214,11 +214,13 @@ final class ToastViewModel {
         menuActions = menu
     }
 
-    func configureReminderNotice(revision: ClipboardRevision) {
+    func configureReminderNotice(revision: ClipboardRevision, hidesContent: Bool = false) {
         resetForNewPresentation()
         self.revision = revision
         phase = .reminder
-        previewText = String(localized: "已复制")
+        previewText = hidesContent
+            ? String(localized: "已复制（内容已隐藏）")
+            : String(localized: "已复制")
     }
 
     func configureStartupNotice(source: SourceAppInfo) {

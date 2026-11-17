@@ -286,7 +286,7 @@ struct ToastCommandTests {
             "collapse completion resumes quick trigger"
         )
         expect(
-            controller.contains("if self.isMouseInsideWindow() {\n                    self.pauseDismissTimer()"),
+            controller.contains("if self.isMouseInsideCard() {\n                    self.pauseDismissTimer()"),
             "collapse completion pauses dismissal while the pointer remains inside"
         )
         expect(
