@@ -434,11 +434,15 @@ final class ClipboardMonitor {
         toastController?.onRevisionResourcesShouldCancel = nil
         toastController?.interruptCopyCombo()
         toastController?.clearLastToast()
-        toastController?.dismissToast(animated: false)
-        LightReminderController.shared.dismiss(animated: false)
+        if !activeLightReminderWasPresented || disposition == .ignored {
+            toastController?.dismissToast(animated: false)
+            LightReminderController.shared.dismiss(animated: false)
+        }
         finishFirstResponseBoost()
         guard disposition == .concealed else { return }
         playActiveCopySoundIfNeeded()
+        // A reminder already contains no copied data; retain its current lifetime.
+        guard !activeLightReminderWasPresented else { return }
         guard activePreferences?.mode == .all || activeCandidateDecision == .allAllowed else { return }
         if activeLightReminderEnabled == true {
             showLightReminder(revision: revision, hidesContent: true)

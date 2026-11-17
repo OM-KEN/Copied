@@ -170,11 +170,15 @@ final class DetectionRegistry {
 
     /// 启用/禁用一个类型。
     func setEnabled(_ enabled: Bool, kindID: String) {
+        var restoredRuntimeState = false
         if enabled {
-            stateLock.withLock {
-                automaticallyDisabledKinds.remove(kindID)
+            restoredRuntimeState = stateLock.withLock {
+                let wasDisabled = automaticallyDisabledKinds.remove(kindID) != nil
+                let wasThrottled = throttledUntil.removeValue(forKey: kindID) != nil
                 throttleCounts[kindID] = 0
-                throttledUntil.removeValue(forKey: kindID)
+                guard wasDisabled || wasThrottled else { return false }
+                registrationGeneration &+= 1
+                return true
             }
         }
         disabledKindsMutationLock.withLock {
@@ -188,6 +192,9 @@ final class DetectionRegistry {
                 userDisabled.sorted(),
                 forKey: Self.disabledKindsDefaultsKey
             )
+        }
+        if restoredRuntimeState {
+            NotificationCenter.default.post(name: Self.registrationsDidChangeNotification, object: self)
         }
     }
 

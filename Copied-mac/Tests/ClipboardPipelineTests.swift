@@ -83,6 +83,7 @@ enum ClipboardPipelineTests {
         try testDetectionDisplayFacts()
         try testDetectionRegistryNotificationReentry()
         try testDetectionRegistryConcurrentMutation()
+        try testRestoringThrottledDetectorInvalidatesContext()
         try testLateActionLifetime()
         try testQuickLookCancelsExactRequest()
         print("ClipboardPipelineTests: PASS")
@@ -725,6 +726,52 @@ enum ClipboardPipelineTests {
         let detections = registry.detectAll(in: longProse)
         try expect(!detections.contains { $0.kind.id == ContentKind.code.id },
                    "a lone natural-language keyword still becomes generic code")
+    }
+
+    private static func testRestoringThrottledDetectorInvalidatesContext() throws {
+        final class RecoverableDetector: ContentDetectorProtocol {
+            let kind = ContentKind(id: "tests.registry.restore", category: .entity,
+                                   source: .builtIn, label: "Synthetic restored type", icon: "link")
+            let priority = 1
+            var slow = true
+
+            func detect(in text: String) -> ContentDetection? {
+                if slow { Thread.sleep(forTimeInterval: DetectionRegistry.detectorTimeout + 0.02) }
+                return ContentDetection(kind: kind, value: text)
+            }
+        }
+        let suite = "CopiedRegistryRestoreTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set([String](), forKey: "disabledContentKinds")
+        let registry = DetectionRegistry(defaults: defaults)
+        let detector = RecoverableDetector()
+        registry.register(detector)
+        try expect(registry.detectAll(in: "synthetic").isEmpty, "slow detector did not enter cooldown")
+        let generation = registry.registeredDetectorsGeneration
+        var notifications = 0
+        var observedGeneration = generation
+        let observer = NotificationCenter.default.addObserver(
+            forName: DetectionRegistry.registrationsDidChangeNotification, object: nil, queue: nil
+        ) { notification in
+            guard notification.object as? DetectionRegistry === registry else { return }
+            notifications += 1
+            observedGeneration = registry.registeredDetectorsGeneration
+            _ = registry.activeDetectors
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+        detector.slow = false
+        registry.setEnabled(true, kindID: detector.kind.id)
+        try expect(defaults.stringArray(forKey: "disabledContentKinds") == [],
+                   "restoring cooldown unexpectedly changed the stored disabled kinds")
+        try expect(observedGeneration != generation && notifications == 1,
+                   "restoring a throttled detector did not invalidate the unchanged settings context")
+        try expect(registry.detectAll(in: "synthetic").first?.kind == detector.kind,
+                   "restored detector did not run immediately")
+        let restoredGeneration = registry.registeredDetectorsGeneration
+        registry.setEnabled(true, kindID: detector.kind.id)
+        try expect(registry.registeredDetectorsGeneration == restoredGeneration && notifications == 1,
+                   "enabling an already healthy detector invalidated content reuse")
     }
 
     private static func testDetectionRegistryConcurrentMutation() throws {
