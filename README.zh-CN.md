@@ -49,49 +49,22 @@ Copied 不是一款传统意义上的剪贴板历史管理工具。它只给你�
 
 ## 构建
 
-源码构建需要 Xcode 26（用于 String Catalog 和 Liquid Glass 图标编译），项目无需 Xcode 工程文件。git clone 后进入 Copied-mac 目录，执行 `./build.sh` 即可构建。
+源码构建需要 Xcode 26，用于编译字符串目录和 App 图标；脚本使用 Apple Development 身份签名，无需 Xcode 工程文件。
+
+```bash
+git clone https://github.com/OM-KEN/Copied.git
+cd Copied/Copied-mac
+./build.sh
+open .build/Copied.app
+```
+
+在同一目录运行 `./run-tests.sh` 可执行测试。
 
 ## 架构
 
-```
-CopiedApp.swift             MenuBarExtra + AppDelegate + Settings
-ClipboardMonitor.swift      启动首响应 25ms、随后 75ms 观察 NSPasteboard.changeCount（含黑名单过滤门）
-ClipboardPipeline.swift     revision/session 生命周期 + latest-only 后台工作队列
-ClipboardContentEnrichment.swift  后台补齐文件/图片信息与渐进文件夹大小
-GlobalMouseEventCoordinator.swift  共享 CGEventTap + 系统设置暂停 + 权限失效保护
-CopyGestureManager.swift    左+右 → ⌘C 手势状态与按键模拟（双路径 + R_UP 兜底）
-DetectionRegistry.swift     全局检测器注册中心 + 优先级管道 + 限流
-ContentKind.swift           统一类型标识（struct + 静态常量）
-AppLanguage.swift           当前 Bundle 界面语言策略（英文环境过滤英文单词检测）
-Detectors/                  15 个内置检测器（详见目录）
-DictionaryLookupService.swift  DCSCopyTextDefinition 词典查询
-PluginLoader.swift          扫描/校验/加载 .copiedplugin 文件夹
-PluginManifest.swift        插件清单 + Rule 模型 + CompiledRule
-PluginAction.swift          插件动作执行（openURL/search/transform）
-PluginActionTemplate.swift  插件动作模板（menuOnly/multiline 配置）
-AppFilterSettings.swift     应用黑名单单例 — 过滤判断 + 持久化
-AppFilterView.swift         设置 → 黑名单 Tab（列表管理 + 运行中应用选择器）
-BlacklistSourceAppAction.swift  右键"屏蔽此来源" Action
-ClipboardAction.swift       Action 协议 + 内置 Action + ActionResolver
-KeyboardShortcutSettings.swift  快速触发修饰键、双击/单击模式、侧键配置
-QuickTriggerModifierKeyPolicy.swift  按实际 keyCode 维护左右修饰键状态
-QuickTriggerCoordinator.swift  键盘/侧键监听、生命周期与上下文保护
-MouseButtonRecordingStateMachine.swift  侧键录制状态与取消/绑定决策
-AppUpdateService.swift      GitHub Releases 检查、缓存、节流与提醒状态
-ToastPanel.swift            nonactivating NSPanel + first-mouse hosting + 原生展开文本
-ToastWindowController.swift ToastPanel + Action + 展开文本分层 + 快速触发命令路由
-ToastViewModel.swift        @Observable 模型（含 sourceBundleID）
-LastToastStore.swift        上一张完整卡片的内存快照、10 分钟期限与 8 MiB 内容预算
-RelativeDateDescription.swift 日期/时间详情格式化（日历日语义 + 本地化时间）
-ToastView.swift             SwiftUI 卡片 + glassEffect（macOS 26+）/ ultraThinMaterial（降级）+ 展开查看全文（if/else 双态）+ contextMenu
-LightReminderController.swift 仅提醒模式浮标（NSWindow + NSHostingView + macOS 26+ drawOff / opacity 降级）
-TypeSettingsView.swift      设置 → 智能识别 Tab（ContentKind 开关 + 插件管理）
-SettingsView.swift           设置（弹窗模式/声音/开机启动/搜索引擎/快速触发/高级仅提醒/智能识别/手势/黑名单）
-FilePreviewGenerator.swift  QLThumbnailGenerator 异步缩略图
-SourceAppDetector.swift     NSWorkspace.frontmostApplication（含 bundleIdentifier）
-Localizable.xcstrings       String Catalog（zh-Hans 源语言 + en / zh-Hant）
-build.sh                    swiftc + xcstringstool + actool + codesign
-```
+[ClipboardMonitor](Copied-mac/ClipboardMonitor.swift) 用[自适应轮询](Copied-mac/ClipboardPollingPolicy.swift)发现剪贴板变化。通过筛选与隐私检查的复制可以先显示确认，再由 [ClipboardPipeline](Copied-mac/ClipboardPipeline.swift) 在后台读取和处理，过期结果不会覆盖新反馈。[CopySoundFeedback](Copied-mac/CopySoundFeedback.swift) 在后台处理音效。
+
+交互细节见[设计规范](Copied-mac/DESIGN.md)和 [UI 规范](Copied-mac/UI_GUIDELINES.md)。
 
 ## 许可证
 

@@ -154,46 +154,16 @@ Copied is compiled directly with Swift.
 git clone https://github.com/OM-KEN/Copied.git
 cd Copied/Copied-mac
 ./build.sh
+open .build/Copied.app
 ```
 
-Building requires Xcode 26 for String Catalog and Liquid Glass icon compilation; no Xcode project file is used.
+The build script uses Xcode 26 to compile the String Catalog and app icon, and signs the app with an Apple Development identity. There is no Xcode project. Run `./run-tests.sh` from the same directory.
 
 ## Architecture
 
-```text
-CopiedApp.swift
-ClipboardMonitor.swift
-CopyGestureManager.swift
-DetectionRegistry.swift
-ContentKind.swift
-AppLanguage.swift
-Detectors/
-DictionaryLookupService.swift
-PluginLoader.swift
-PluginManifest.swift
-PluginAction.swift
-PluginActionTemplate.swift
-AppFilterSettings.swift
-AppFilterView.swift
-BlacklistSourceAppAction.swift
-ClipboardAction.swift
-KeyboardShortcutSettings.swift
-QuickTriggerModifierKeyPolicy.swift
-MouseButtonRecordingStateMachine.swift
-AppUpdateService.swift
-ToastWindowController.swift
-ToastViewModel.swift
-LastToastStore.swift
-RelativeDateDescription.swift
-ToastView.swift
-LightReminderController.swift
-TypeSettingsView.swift
-SettingsView.swift
-FilePreviewGenerator.swift
-SourceAppDetector.swift
-Localizable.xcstrings
-build.sh
-```
+[ClipboardMonitor](Copied-mac/ClipboardMonitor.swift) detects clipboard changes using [adaptive polling](Copied-mac/ClipboardPollingPolicy.swift). For eligible copies, it can show confirmation before reading the content. [ClipboardPipeline](Copied-mac/ClipboardPipeline.swift) manages background work and drops stale results. [CopySoundFeedback](Copied-mac/CopySoundFeedback.swift) handles sound off the main thread.
+
+See the [design notes](Copied-mac/DESIGN.md) and [UI guidelines](Copied-mac/UI_GUIDELINES.md) for the interaction rules.
 
 ## Privacy
 
