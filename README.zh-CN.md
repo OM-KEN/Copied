@@ -62,7 +62,7 @@ open .build/Copied.app
 
 ## 架构
 
-[ClipboardMonitor](Copied-mac/ClipboardMonitor.swift) 用[自适应轮询](Copied-mac/ClipboardPollingPolicy.swift)发现剪贴板变化。通过筛选与隐私检查的复制可以先显示确认，再由 [ClipboardPipeline](Copied-mac/ClipboardPipeline.swift) 在后台读取和处理，过期结果不会覆盖新反馈。[CopySoundFeedback](Copied-mac/CopySoundFeedback.swift) 在后台处理音效。
+[ClipboardMonitor](Copied-mac/ClipboardMonitor.swift) 用[自适应轮询](Copied-mac/ClipboardPollingPolicy.swift)发现剪贴板变化。通过筛选与隐私检查的复制可以先显示确认，再由 [ClipboardPipeline](Copied-mac/ClipboardPipeline.swift) 在后台读取和处理。[CopySoundFeedback](Copied-mac/CopySoundFeedback.swift) 在后台处理音效。
 
 交互细节见[设计规范](Copied-mac/DESIGN.md)和 [UI 规范](Copied-mac/UI_GUIDELINES.md)。
 

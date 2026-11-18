@@ -161,7 +161,7 @@ The build script uses Xcode 26 to compile the String Catalog and app icon, and s
 
 ## Architecture
 
-[ClipboardMonitor](Copied-mac/ClipboardMonitor.swift) detects clipboard changes using [adaptive polling](Copied-mac/ClipboardPollingPolicy.swift). For eligible copies, it can show confirmation before reading the content. [ClipboardPipeline](Copied-mac/ClipboardPipeline.swift) manages background work and drops stale results. [CopySoundFeedback](Copied-mac/CopySoundFeedback.swift) handles sound off the main thread.
+[ClipboardMonitor](Copied-mac/ClipboardMonitor.swift) detects clipboard changes using [adaptive polling](Copied-mac/ClipboardPollingPolicy.swift). For eligible copies, it can show confirmation before reading the content. [ClipboardPipeline](Copied-mac/ClipboardPipeline.swift) manages background work. [CopySoundFeedback](Copied-mac/CopySoundFeedback.swift) handles sound off the main thread.
 
 See the [design notes](Copied-mac/DESIGN.md) and [UI guidelines](Copied-mac/UI_GUIDELINES.md) for the interaction rules.
 
