@@ -1,4 +1,6 @@
+import AudioToolbox
 import AVFoundation
+import CoreAudio
 import Foundation
 
 protocol CopySoundPlaying: AnyObject {
@@ -26,6 +28,28 @@ struct CopySoundDispatchGate {
 final class CopySoundPlaybackEngine: @unchecked Sendable {
     typealias PlayerFactory = @Sendable (URL) throws -> any CopySoundPlaying
 
+    private static let audioSystemLookup: Void = {
+        var mixer = AudioComponentDescription(
+            componentType: kAudioUnitType_Mixer,
+            componentSubType: kAudioUnitSubType_MultiChannelMixer,
+            componentManufacturer: kAudioUnitManufacturer_Apple,
+            componentFlags: 0,
+            componentFlagsMask: 0
+        )
+        _ = AudioComponentFindNext(nil, &mixer)
+
+        var property = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var device = AudioDeviceID(kAudioObjectUnknown)
+        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        _ = AudioObjectGetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject), &property, 0, nil, &size, &device
+        )
+    }()
+
     private let queue: DispatchQueue
     private let playerFactory: PlayerFactory
     private var activeSound: (selection: String, player: any CopySoundPlaying)?
@@ -41,6 +65,10 @@ final class CopySoundPlaybackEngine: @unchecked Sendable {
     ) {
         self.queue = queue
         self.playerFactory = playerFactory
+    }
+
+    func scheduleAudioSystemLookup() {
+        queue.async { _ = Self.audioSystemLookup }
     }
 
     func play(selection: String) {
@@ -103,6 +131,11 @@ enum CopySoundFeedback {
         guard let storedValue else { return defaultSoundName }
         if storedValue == disabledValue { return disabledValue }
         return availableSoundNames.contains(storedValue) ? storedValue : defaultSoundName
+    }
+
+    static func scheduleAudioSystemLookup(selection: String) {
+        guard selection != disabledValue else { return }
+        playbackEngine.scheduleAudioSystemLookup()
     }
 
     static func playConfiguredSound(defaults: UserDefaults = .standard) {

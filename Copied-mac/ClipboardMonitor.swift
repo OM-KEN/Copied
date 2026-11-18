@@ -186,6 +186,7 @@ final class ClipboardMonitor {
         backingScale = NSScreen.main?.backingScaleFactor ?? 2
         availableKindIDs = Set(DetectionRegistry.shared.allRegisteredKinds.map(\.id))
         refreshCachedSettings()
+        CopySoundFeedback.scheduleAudioSystemLookup(selection: cachedSoundSelection)
         installDefaultsObserverIfNeeded()
         firstResponseBoostDeadline = ProcessInfo.processInfo.systemUptime
             + firstResponseBoostDuration
